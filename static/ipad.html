@@ -99,8 +99,6 @@
     .key[data-empty="true"] { background: var(--empty); color: var(--ink-dim); }
     .key[data-empty="true"]:active { background: var(--empty); }
     .key.fn { background: var(--accent-soft); }
-    body.layer-active .key { background: var(--panel-lit); }
-    body.layer-active .key:active { background: var(--accent); }
     /* 記号レイヤー(layer 2)がtoggled中は地色を変えて「今は記号盤」と分かるようにする（D19） */
     body.sym .key { background: #20304f; }
     body.sym .key[data-empty="true"] { background: var(--empty); }
@@ -245,7 +243,6 @@
       const symbolActive = layerState.toggled.includes(2);
       document.body.classList.toggle("sym", symbolActive);
       layerBadgeEl.textContent = symbolActive ? "記号" : "Layer " + highestActive;
-      document.body.classList.toggle("layer-active", highestActive > 0);
       titleEl.textContent = "KeyDeck — iPad (" + surfaceConfig.activeKeymapId + ")";
     }
 

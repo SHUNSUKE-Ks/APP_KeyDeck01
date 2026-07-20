@@ -1,38 +1,117 @@
 <!DOCTYPE html>
 <html lang="ja">
 <!-- ============================================================
-  settings.html — 設定画面（T9）。素のHTML+JSのみ（D2）。URL: /?token=…
-  v0.2でws.rs内に埋め込んでいたQR3枚並びランディングは廃止し、本ファイルが `/` になる。
+  settings.html — 設定画面。素のHTML+JSのみ（D2）。URL: /settings?token=…
 
-  ■ 見た目の正（必ず踏襲すること）
-    brief/mockup/screen_mock_v0.3.html の「② 設定画面（QRポップアップ）」画面。
+  ■ 現状のスコープ（設計書v0.5 F3。B2のみ実装。VIAL型エディタ本体=T9は未着手）
+    このファイルはT9（VIAL型設定エディタ）の骨組みを保持しつつ、v0.5 F3で
+    要求された「再読込ボタン」だけを先に実装する。フォーマット一覧・QRモーダル・
+    割当パレット等は引き続きTODO(T9)のまま（新機能の先回り実装はしない）。
+
+  ■ 再読込ボタンの挙動（B2）
+    POST /api/reload?token=… を叩く。Hubがdisk上のkeymaps/decksを再スキャン・検証し、
+    成功時のみ差替えて全クライアントへsurface.configを再配信、失敗時は現行構成を維持して
+    エラーJSON（{code,cause,errors}）を返す。ここでは結果をステータス行に表示するのみ
+    （画面自体の再描画は行わない＝対象キーボード側は自分のWS経由で追従する）。
+
+  ■ 見た目の正（VIAL型本体を実装する際に必ず踏襲すること。現時点はボタンのみ流用）
+    brief/mockup/screen_mock_v0.4.html の「② 設定（VIAL型エディタ）」画面。
     一覧行=［フォーマット名｜kindチップ｜URL文字列｜QRボタン］、
     QRボタン→モーダルに**単一QRをでかでか表示**（1画面1QR。一覧にQRを並べない）。
 
-  ■ データの取得
+  ■ データの取得（T9で着手）
     静的ページなのでフォーマット一覧はHubから取得する:
     GET /api/formats?token=… → [{id:"kb-left",label,kind,url}, …]（T9で新設。tokenはHub検証）
     QR画像は既存 /api/qr?target=… のSVGを<img>で表示（モーダル内で320px以上）。
-    ipad01行にはレイヤーExportリンク: /api/keymap/{id}/layer/{n}/export（G9）。
 
   ■ 挙動・エラー
-    D9書式のconsoleログ（[KD][T9-1] ページ表示 / [KD][ERR][…] API失敗）。
-    API失敗時は行の代わりにエラー文言を表示（握りつぶし禁止）。
+    D9書式のconsoleログ（[KD][B2-1] 再読込成功 / [KD][ERR][…] 失敗）。
+    API失敗時は握りつぶさずステータス行にcode+causeを表示する。
   ============================================================ -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KeyDeck — 設定</title>
   <style>
-    /* TODO(T9): モックの:rootトークン・.fmt-row・#qrmodal系CSSを移植（値を変えない） */
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --ink:#f4f7ff; --ink-muted:#b7bfd6; --ink-dim:#4b5468;
+      --accent:#2d67d9; --ok:#35c47a; --err:#e2555a; --line:#2d3550;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); padding: 16px; }
+    h1 { font-size: 16px; margin: 0 0 12px; }
+    .set-head { display: flex; align-items: center; gap: 10px; }
+    #reloadBtn {
+      min-width: 96px; min-height: 40px; border: 0; border-radius: 8px;
+      background: var(--accent); color: #fff; font: inherit; font-size: 14px; padding: 0 16px;
+    }
+    #reloadBtn:disabled { background: var(--ink-dim); color: var(--panel); }
+    #reloadStatus { margin-top: 12px; font-size: 13px; color: var(--ink-muted); min-height: 18px; }
+    #reloadStatus.ok { color: var(--ok); }
+    #reloadStatus.error { color: var(--err); }
+    #list, #qrmodal { margin-top: 16px; color: var(--ink-dim); font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>KeyDeck — 設定</h1>
+  <div class="set-head">
+    <h1>KeyDeck — 設定</h1>
+    <button id="reloadBtn" type="button">再読込</button>
+  </div>
+  <p id="reloadStatus" role="status"></p>
   <div id="list"><!-- TODO(T9): /api/formats から動的生成 --></div>
   <div id="qrmodal"><!-- TODO(T9): モックの.qr-card構造。中身は /api/qr のSVG --></div>
   <script>
-    // TODO(T9): 上記コメントの通りに実装。
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+    const reloadBtn = document.getElementById("reloadBtn");
+    const statusEl = document.getElementById("reloadStatus");
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") {
+        console.error(line, context ?? "");
+      } else {
+        console.info(line, context ?? "");
+      }
+    }
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.classList.remove("ok", "error");
+      if (cls) statusEl.classList.add(cls);
+    }
+
+    reloadBtn.addEventListener("click", async () => {
+      reloadBtn.disabled = true;
+      setStatus("再読込中…");
+      try {
+        const response = await fetch("/api/reload?token=" + encodeURIComponent(token), { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+        if (response.ok) {
+          log("B2-1", "OK", "reload succeeded", body);
+          setStatus("再読込しました（keymaps: " + (body.keymapsLoaded ?? "?") + "件）", "ok");
+        } else {
+          log("ERR", body.code || String(response.status), body.cause || "reload failed", body);
+          setStatus("エラー: " + (body.code || response.status) + " — " + (body.cause || "詳細不明"), "error");
+        }
+      } catch (error) {
+        log("ERR", "INTERNAL", "reload request failed: " + error);
+        setStatus("通信エラー: " + error, "error");
+      } finally {
+        reloadBtn.disabled = false;
+      }
+    });
+
+    window.addEventListener("error", (event) => {
+      log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+    });
+
+    // TODO(T9): /api/formats から対象キーボード一覧・QRモーダル・割当パレットを実装する。
   </script>
 </body>
 </html>

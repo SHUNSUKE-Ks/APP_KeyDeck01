@@ -106,3 +106,46 @@
 - 修正: `.kbgrid`を`repeat(13, minmax(0,1fr))`に、`.key`に`min-width:0`＋省略表示を追加。ヘッダ`h1`も同様に縮小可能化（ヘッダ自体が画面幅を超えていた別要因）。狭幅(480px以下)向けmedia queryでフォント/gapを縮小
 - 簡略化: Tab・Ctrl（row2/row5先頭）をcolSpan2→1に変更（ユーザー指示）。空いた列2に空白キー追加(K202/K302/K402/K502)。モック・実装(ipad.html)・盤面JSON(keymap_ipad01_vol12.json)・layer0全て同期
 - 検証: `cargo test --workspace`=49件維持。Browser paneで320px/375px幅ともに横はみ出しゼロ（`document.body.scrollWidth === window.innerWidth`）を確認。L字Enter・記号盤は無変更で維持
+
+## 設計書v0.5 F1〜F4（フォーマット編集の仕組み。Sonnet 2026-07-20）
+
+設計: `brief/keydeck_format_editing_design_v0.5.md`。原則「フォーマットの正=JSON、GUI/APIは道具」。
+
+### F1: /ipad実装とモックv0.4①の差分点検・修正
+
+配色トークン値・グリッド配置・ヘッダ構成・状態表現の4観点で`static/ipad.html`とモック①を突き合わせ。
+
+- **色トークン**: `:root`変数は完全一致（`--err`/`#e2555a`/`#ff8a8a`はエラー状態表示のための追加のみ＝モックが想定していないerror状態を実装するための必要な追加であり差替不要）。`--ffd479`(`.zen`全角強調)はSR-001裁定#2により意図的に未実装のまま（T9送り）＝drift扱いしない
+- **グリッド配置**: `keymap_ipad01_vol12.json`のboard（row/col/colSpan/rowSpan）は、直近のTab/Ctrl 1列簡略化後のモック13列グリッドと全行一致（Row1〜Row5、Enterのrow2/4またぎ、Space colSpan6等）。修正不要
+- **ヘッダ構成**: モック①には無いQRボタン(#qrOpenBtn)・状態ボタン(#statusBtn)が実装に存在するが、これはD25/D26（`brief/keydeck_design_v0.4.md`のv0.4.1追記、モックv0.4作成"後"に追加された設計決定）による正当な追加と確認。ドリフトではない
+- **状態表現＝実際のドリフトを検出・修正**: `static/ipad.html`に`body.layer-active .key{background:var(--panel-lit)}`（+`:active`版）というレイヤー有効時の全キー地色変更ルールがあったが、現行モック（v0.4）にはこの表現が存在しない（`--panel-lit`は`:root`に定義だけされ、どのセレクタからも参照されていなかった）。旧モックv0.3(Vol1.1)の`body.layer1 .key{background:var(--panel-lit)}`、および`static/kb.html`（分割面。スコープ外）からの持ち越しと判断し、CSSルール2行とJSのトグル行(`classList.toggle("layer-active", ...)`)を削除。Fn押下時はモックどおりバッジ文字列のみが変わる（記号盤の`.sym`地色変更は元々モックと一致していたため維持）
+- 予測変換バー（モックの`.predict`）は末実装のままで正しい: モック自身が「フェーズC/見た目のみ」と注記し、設計書もT12(フェーズC)送りと明記しているため、/ipadでの不在はdriftではなく意図どおりの段階実装
+
+### F2: B1 keymapsディレクトリスキャン
+
+- `crates/proto-hub/src/startup.rs`を新設。`discover_keymap_paths(dir)`が`keymaps/`直下の`keymap_*.json`を名前順に列挙（`layers/`サブディレクトリは対象外）、`load_startup_data(keymaps_dir, deck_path)`が発見した全ファイルをロード→結合検証（ipad固定ID存在確認・deckロード・keymap.switch参照先確認）→成功時のみ`StartupData{keymaps, deck, command_registry}`を返す
+- `main.rs`: `DEFAULT_KEYMAP_PATH`/`WRITING01_KEYMAP_PATH`/`IPAD01_VOL12_KEYMAP_PATH`の固定3パス配列と検証ロジックを削除し、`startup::load_startup_data`呼び出しに置換。起動時ログ・エラー時exit(1)の挙動は不変
+- ランディングページ(`/`)・QRターゲット一覧は面(surface: kb-left/kb-right/deck/ipad)ベースであり、ロード済みkeymap集合そのものとは独立のため変更不要（新規keymapファイルは`keymap.switch`/将来のkeymap切替経路から自動的に見えるようになる）。設定画面(T9本体=フォーマット一覧UI)は本フェーズのF#に含まれず未着手（`static/settings.html`はF3の再読込ボタンのみ追加、一覧UIはTODO(T9)のまま）
+- テスト5件追加（`crates/proto-hub/src/startup.rs`）: 未知の新フォーマットファイルを置くだけでハードコード無しに発見・ロードされること／`layers/`サブディレクトリがスキャン対象外であること／ipad固定ID欠落の拒否／不正JSON混在時の全体拒否（部分適用しない）／keymapsディレクトリが空の場合の拒否
+
+### F3: B2 `/api/reload`＋設定画面の再読込ボタン
+
+- `crates/proto-hub/src/ws.rs`に`POST /api/reload?token=…`を追加（`error.rs`に`RELOAD_INVALID`を追加）。処理: token検証→`startup::load_startup_data`で再読込・検証→現在の`active_keymap_id`が新構成にも存在するか追加確認→**すべて成功した場合のみ**`HubState.keymaps/deck/command_registry`を差替え、`layer_state`/`ipad_layer_state`をリセットしてSplit面・Ipad面**両方**へ`surface.config`を再配信。**1件でも失敗すれば現行構成を一切変更せず**、D9書式の1行tracingログ＋HTTP 422＋`{"code":"RELOAD_INVALID","cause":…,"errors":[…]}`を返す
+- `.route_service("/settings", ServeFile::new("static/settings.html"))`を追加。`static/settings.html`はT9(VIAL型エディタ本体)は未着手のまま、F3で要求された「再読込」ボタンのみ実装（`fetch("/api/reload?token=…", {method:"POST"})`→結果をステータス行に表示、D9書式のconsoleログ）。フォーマット一覧・QRモーダル・割当パレットはTODO(T9)のまま先回り実装していない
+- 起動時コンソール出力に`settings`のURLを追加
+
+### F4: 品質ゲート・自己点検
+
+- `cargo test --workspace` = **54 passed, 0 failed**（hub-core 7 + proto-keymap 28 + proto-adapter-win 8 + proto-hub 11 ＝ 6→11件、F2/F3分5件追加。既存49件は削除・弱体化なし）
+- 実行時検証（`cargo run -p proto-hub`実起動、Windows実機）:
+  - 起動ログで`keymaps=3`（directory scan経由でdefault/writing01/ipad01_vol12を発見・ロード。固定配列削除後も件数不変を確認）
+  - **正常系**: `POST /api/reload?token=<正しいtoken>` → `200 {"activeKeymapId":"writing01","keymapsLoaded":3}`。同時に張っていた`/ws?surface=ipad`のNode.js WSクライアントが**再接続なしで**新しい`surface.config`（`activeKeymapId:"ipad01_vol12"`）を受信することを確認（既存接続への再配信を実証）
+  - **不正系**: `keymaps/keymap_writing01.json`を意図的に壊れたJSON(`{ this is not valid json`)に書き換えた状態で`POST /api/reload` → `422 {"code":"RELOAD_INVALID","cause":"...LOAD_JSON_SYNTAX..."}`。直後に`GET /kb`が引き続き`200`を返すこと（Hubが落ちない・現行構成のまま動作継続）を確認。ファイルを復元して再度reload→`200`成功に戻ることも確認（現状復帰済み、`keymaps/keymap_writing01.json`はGit差分なしを確認）
+  - token無し`POST /api/reload` → `401 WS_TOKEN_INVALID`（既存の他APIと同じ拒否経路）を確認
+- 自己点検（守護観点。keydeck-guardianエージェントはこのセッションの登録agentには無いため、CLAUDE.mdの点検手順を手動でなぞった）:
+  - 凍結領域diff: `git diff --stat crates/hub-core/ brief/ keymaps/keymap_default.json` = 出力なし（0差分）を確認
+  - panic経路: 新規/変更コード中の`.unwrap()`は既存踏襲の`state.lock().unwrap()`（Mutex毒化時のみ・入力起因ではない）のみ、`.expect()`は`errors.is_empty()`ガード直後の到達不能パス（既存main.rsと同型）とテストコード内のみ。ランタイム入力起因のpanicパスなし
+  - 許可リスト迂回: reload後の`command_registry`は起動時と同一関数(`startup::load_startup_data`)でロード済みJSONの`Key/Chord/Text`アクションのみから再構築（`fire_action`の`is_allowed`チェック経路は無変更）。任意文字列・任意コマンドを許可する経路は追加していない
+  - `cargo build --workspace`で警告0件
+- README.mdの「フォーマットの変え方」節を段階A（JSON直編集＋Hub再起動）／段階B（ディレクトリスキャン＋`/api/reload`）の手順で更新。動作確認コマンドのテスト件数を54件に更新
+- 新規/変更ファイル: `crates/proto-hub/src/startup.rs`(新規)・`main.rs`・`ws.rs`・`error.rs`・`static/ipad.html`（F1差分修正）・`static/settings.html`（再読込ボタン）・`README.md`

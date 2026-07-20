@@ -4,8 +4,8 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
-use axum::Router;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -35,11 +35,13 @@ pub fn router(state: SharedState) -> Router {
     Router::new()
         .route("/", get(index_page))
         .route("/api/qr", get(qr_image))
+        .route("/api/reload", post(reload_handler))
         .route("/ws", get(ws_handler))
         .route("/api/deck/export", get(deck_export))
         .route_service("/kb", ServeFile::new("static/kb.html"))
         .route_service("/deck", ServeFile::new("static/deck.html"))
         .route_service("/ipad", ServeFile::new("static/ipad.html"))
+        .route_service("/settings", ServeFile::new("static/settings.html"))
         .with_state(state)
 }
 
@@ -166,6 +168,73 @@ async fn deck_export(State(state): State<SharedState>, Query(query): Query<Token
             ),
         ],
         json_text,
+    )
+        .into_response()
+}
+
+/// B2（設計書v0.5）: `POST /api/reload?token=…`。ディスクから`keymaps/`（B1と同じ
+/// ディレクトリスキャン経路）＋`decks/deck_default.json`を再読込し、検証成功時のみ
+/// 現行状態へ差替える。検証失敗時は現行構成を一切変更せずD9書式で1行ログ＋
+/// エラーJSONを返す（「失敗時は現行構成維持」を関数境界=`load_startup_data`のErrで保証）。
+/// 成功時は分割/Deck面・ipad面の両方へ`surface.config`を再配信する。
+async fn reload_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting reload request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+
+    let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
+    let deck_path = std::path::Path::new(crate::DECK_PATH);
+
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, deck_path) {
+        Ok(data) => data,
+        Err(errors) => {
+            let cause = errors.join("; ");
+            tracing::error!(chk = "B2", code = RELOAD_INVALID, cause = %cause, "reload rejected; current configuration kept");
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "code": RELOAD_INVALID, "cause": cause, "errors": errors })),
+            )
+                .into_response();
+        }
+    };
+
+    // D10: split面はactive_keymap_idを保持し続ける。新しい構成にそのIDが無いと表示不能に
+    // なるため、追加の妥当性チェックとして扱い、無ければ現行構成を維持する（失敗扱い）。
+    let active_keymap_id = {
+        let s = state.lock().unwrap();
+        s.active_keymap_id.clone()
+    };
+    if !loaded.keymaps.contains_key(&active_keymap_id) {
+        let cause = format!(
+            "reload would drop the currently active keymapId '{active_keymap_id}'; keeping current configuration"
+        );
+        tracing::error!(chk = "B2", code = RELOAD_INVALID, cause = %cause, "reload rejected; current configuration kept");
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": RELOAD_INVALID, "cause": cause, "errors": [cause.clone()] })),
+        )
+            .into_response();
+    }
+
+    let keymaps_loaded = loaded.keymaps.len();
+    {
+        let mut s = state.lock().unwrap();
+        s.keymaps = loaded.keymaps;
+        s.deck = loaded.deck;
+        s.command_registry = loaded.command_registry;
+        // keymap.switch同様、差替え後は消えたレイヤー参照が残らないよう両面ともリセットする。
+        s.layer_state.reset();
+        s.ipad_layer_state.reset();
+    }
+    tracing::info!(chk = "B2", keymaps_loaded, "reload succeeded; broadcasting surface.config");
+
+    broadcast_surface_config_for(&state, SurfaceKind::Split);
+    broadcast_surface_config_for(&state, SurfaceKind::Ipad);
+
+    (
+        StatusCode::OK,
+        Json(json!({ "keymapsLoaded": keymaps_loaded, "activeKeymapId": active_keymap_id })),
     )
         .into_response()
 }
