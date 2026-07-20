@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "keydeck/deck.schema.json",
+  "title": "KeyDeck Deck Setlist",
+  "description": "Stream Deck面のセットリスト（設計書D11）。Import=decks/にファイルを置いて再起動、Export=GET /api/deck/export。ロード時にHubが検証し、違反はLOAD_SCHEMA_INVALID＋causeで起動拒否。actionの形はkeymap.schema.jsonの$defs/actionと同一に保つこと（変更時は両方を同時に更新）。",
+  "type": "object",
+  "required": ["deckId", "grid", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "deckId": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "grid": {
+      "type": "object",
+      "required": ["cols", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "cols": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "rows": { "type": "integer", "minimum": 1, "maximum": 6 }
+      }
+    },
+    "pages": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "slots"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "slots": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["slotId", "label", "action"],
+              "additionalProperties": false,
+              "properties": {
+                "slotId": { "type": "string", "pattern": "^S[0-9]{2}$" },
+                "label": { "type": "string" },
+                "icon": { "type": "string", "description": "任意。data URIまたは同梱アセットID。無い/読めない場合は灰色プレースホルダー＋ラベル表示" },
+                "action": { "$ref": "keydeck/keymap.schema.json#/$defs/action" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

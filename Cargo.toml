@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hub-core",         # vendored凍結コピー（変更禁止）
+    "crates/proto-keymap",     # T1: キーマップ型・ロード検証・レイヤー解決
+    "crates/proto-adapter-win",# T2: 汎用SendInput
+    "crates/proto-hub",        # T3: axum/WS基地局
+]

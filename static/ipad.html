@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  ipad.html — iPad一枚キーボード面（T8）。素のHTML+JSのみ（D2）。
+  URL: /ipad?token=…
+
+  ■ 見た目の正（必ず踏襲すること）
+    brief/mockup/screen_mock_v0.3.html の「① ipad01 キーボード」画面。
+    配色トークン(:rootのCSS変数)・キー角丸/間隔・empty/pressed/layer1の状態表現・
+    幅係数(w15/w2/w3相当)・下部固定レイアウトをそのまま移植する。
+    配置の正: brief/ref_ipad_keyboard_parts_v1.md（A＋B表）
+
+  ■ kb.htmlとの関係
+    描画・WS・エラー処理の骨格はkb.htmlと同一規則（D6/D9、[KD][T4-*]ログ書式）。
+    違いは以下のみ:
+    - surface.config の keymap.kind === "single" のとき board.rows を描画
+      （rows: [[{id, w}]]。wはflex-growに反映。省略時1.0）
+    - ラベル二段表示: KeyDefのlabelに小書き文字が要る場合は "sub\nmain" 形式か
+      label/subLabelの扱いをT7のスキーマに従う（勝手に発明せずSR起票）
+    - ヘッダに 取り消し(↺)=chord CTRL+Z / 進む(↻)=chord CTRL+Y のボタン。
+      これはkeyIdではなくDeckと同じくHub側で解決するか、ipad01キーマップの
+      ヘッダ用keyIdとして定義する（設計書T8参照。キーマップ定義済みのkeyIdを使うこと）
+    - キーボードは position:fixed; bottom:0。上部余白は対象アプリの表示領域想定
+
+  ■ 挙動・エラー処理
+    kb.htmlの■挙動/■エラー処理と同一（pointerdown/up送信・layer.state受信で
+    ラベル再解決・errorフレームは必ずconsole.error）。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>KeyDeck — iPad</title>
+  <style>
+    /* TODO(T8): モックの:rootトークンとキーCSSを移植（値を変えない） */
+  </style>
+</head>
+<body>
+  <header><!-- TODO(T8): ↺ ↻ / タイトル / Layerバッジ / 接続ドット --></header>
+  <main id="grid" aria-label="ipad keyboard"><!-- TODO(T8): surface.configから動的生成 --></main>
+  <footer role="status" id="status"></footer>
+  <script>
+    // TODO(T8): kb.htmlの実装を流用し、kind==="single"のboard描画とw対応を追加。
+    // [KD][T4-*]チェックポイントIDは踏襲。静的なキーをHTMLに書かないこと（G4）。
+  </script>
+</body>
+</html>

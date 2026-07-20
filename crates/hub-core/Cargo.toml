@@ -1,0 +1,13 @@
+[package]
+name = "hub-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Domain state, command authorization, idempotency, and inspector revision logic for Control Deck"
+
+[lib]
+name = "hub_core"
+path = "src/lib.rs"
+
+[dependencies]
+

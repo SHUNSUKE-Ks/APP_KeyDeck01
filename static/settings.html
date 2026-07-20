@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  settings.html — 設定画面（T9）。素のHTML+JSのみ（D2）。URL: /?token=…
+  v0.2でws.rs内に埋め込んでいたQR3枚並びランディングは廃止し、本ファイルが `/` になる。
+
+  ■ 見た目の正（必ず踏襲すること）
+    brief/mockup/screen_mock_v0.3.html の「② 設定画面（QRポップアップ）」画面。
+    一覧行=［フォーマット名｜kindチップ｜URL文字列｜QRボタン］、
+    QRボタン→モーダルに**単一QRをでかでか表示**（1画面1QR。一覧にQRを並べない）。
+
+  ■ データの取得
+    静的ページなのでフォーマット一覧はHubから取得する:
+    GET /api/formats?token=… → [{id:"kb-left",label,kind,url}, …]（T9で新設。tokenはHub検証）
+    QR画像は既存 /api/qr?target=… のSVGを<img>で表示（モーダル内で320px以上）。
+    ipad01行にはレイヤーExportリンク: /api/keymap/{id}/layer/{n}/export（G9）。
+
+  ■ 挙動・エラー
+    D9書式のconsoleログ（[KD][T9-1] ページ表示 / [KD][ERR][…] API失敗）。
+    API失敗時は行の代わりにエラー文言を表示（握りつぶし禁止）。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — 設定</title>
+  <style>
+    /* TODO(T9): モックの:rootトークン・.fmt-row・#qrmodal系CSSを移植（値を変えない） */
+  </style>
+</head>
+<body>
+  <h1>KeyDeck — 設定</h1>
+  <div id="list"><!-- TODO(T9): /api/formats から動的生成 --></div>
+  <div id="qrmodal"><!-- TODO(T9): モックの.qr-card構造。中身は /api/qr のSVG --></div>
+  <script>
+    // TODO(T9): 上記コメントの通りに実装。
+  </script>
+</body>
+</html>

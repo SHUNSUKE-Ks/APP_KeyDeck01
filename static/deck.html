@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- deck.html — Stream Deck面（T4）。素のHTML+JSのみ（D2）。設計書D6/D9/D11、
+     brief/keydeck_design_v0.2.md 参照。URL: /deck?token=… -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>KeyDeck — Deck</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #101526;
+      color: #f4f7ff;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      gap: 10px;
+    }
+    header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+    #dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #586174;
+      display: inline-block;
+    }
+    #dot.connected { background: #35c47a; }
+    main {
+      flex: 1;
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      align-content: start;
+    }
+    .slot {
+      min-height: 64px;
+      min-width: 64px;
+      border: 0;
+      border-radius: 14px;
+      background: #1c2338;
+      color: #f4f7ff;
+      font: inherit;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 6px;
+    }
+    .slot:active { background: #2d67d9; }
+    .slot[data-empty="true"] { background: #161c30; color: #4b5468; }
+    .slot img { max-width: 28px; max-height: 28px; display: block; margin: 0 auto 4px; }
+    footer[role="status"] {
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #b7bfd6;
+      min-height: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    footer.error { color: #ff8a8a; }
+    #exportLink { color: #7aa2ff; font-size: 12px; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">KeyDeck — Deck</h1>
+    <span id="dot" aria-hidden="true"></span>
+  </header>
+  <main id="grid" aria-label="deck"></main>
+  <footer role="status">
+    <span id="status">接続していません</span>
+    <a id="exportLink" href="#">Export JSON</a>
+  </footer>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+
+    const statusEl = document.getElementById("status");
+    const dotEl = document.getElementById("dot");
+    const gridEl = document.getElementById("grid");
+    const exportLinkEl = document.getElementById("exportLink");
+    exportLinkEl.href = "/api/deck/export?token=" + encodeURIComponent(token);
+
+    let socket = null;
+    let reconnectTimer = null;
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") {
+        console.error(line, context ?? "");
+      } else {
+        console.info(line, context ?? "");
+      }
+    }
+
+    function setStatus(text, isError) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", !!isError);
+    }
+
+    function render(deck) {
+      gridEl.style.gridTemplateColumns = "repeat(" + deck.grid.cols + ", 1fr)";
+      gridEl.innerHTML = "";
+      const page = deck.pages[0];
+      for (const slot of page.slots) {
+        const btn = document.createElement("button");
+        btn.className = "slot";
+        const isEmpty = slot.action.t === "none";
+        if (isEmpty) btn.dataset.empty = "true";
+        if (slot.icon) {
+          const img = document.createElement("img");
+          img.src = slot.icon;
+          img.alt = "";
+          btn.appendChild(img);
+        }
+        const label = document.createElement("span");
+        label.textContent = slot.label;
+        btn.appendChild(label);
+        btn.disabled = isEmpty;
+        btn.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          sendPress(slot.slotId);
+        });
+        gridEl.appendChild(btn);
+      }
+    }
+
+    function setSlotsEnabled(enabled) {
+      for (const btn of gridEl.querySelectorAll(".slot")) {
+        if (btn.dataset.empty === "true") continue;
+        btn.disabled = !enabled;
+      }
+    }
+
+    function sendPress(slotId) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; deck.press dropped", { slotId });
+        return;
+      }
+      const message = { type: "deck.press", slotId };
+      socket.send(JSON.stringify(message));
+      log("T4-2", "OK", "send deck.press", message);
+      setStatus(slotId + " を送信しました");
+    }
+
+    function connect() {
+      setStatus("接続中…");
+      socket = new WebSocket(
+        (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws?token=" + encodeURIComponent(token)
+      );
+
+      socket.addEventListener("open", () => {
+        log("T4-1", "OK", "ws open");
+        dotEl.classList.add("connected");
+        setStatus("接続しました");
+      });
+
+      socket.addEventListener("message", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          log("ERR", "INTERNAL", "failed to parse server message: " + error, event.data);
+          return;
+        }
+        handleServerMessage(data);
+      });
+
+      socket.addEventListener("close", () => {
+        dotEl.classList.remove("connected");
+        setSlotsEnabled(false);
+        setStatus("切断中は操作できません。再接続中…");
+        log("ERR", "WS_CLOSE", "disconnected; retrying");
+        scheduleReconnect();
+      });
+
+      socket.addEventListener("error", () => {
+        log("ERR", "WS_ERROR", "websocket error event");
+      });
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, 2000);
+    }
+
+    function handleServerMessage(data) {
+      switch (data.type) {
+        case "surface.config":
+          log("T4-1", "OK", "surface.config received", { deckId: data.deck.deckId });
+          render(data.deck);
+          setSlotsEnabled(true);
+          break;
+        case "layer.state":
+          // Deck面はレイヤー表示を持たない（kb.html側の責務）。無視してよい。
+          break;
+        case "error":
+          log("ERR", data.code, "cause: " + data.cause, data.context);
+          setStatus("エラー: " + data.code, true);
+          break;
+        default:
+          log("ERR", "INTERNAL", "unknown message type from server: " + data.type, data);
+      }
+    }
+
+    window.addEventListener("error", (event) => {
+      log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+    });
+
+    connect();
+  </script>
+</body>
+</html>

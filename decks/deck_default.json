@@ -1,0 +1,24 @@
+{
+  "deckId": "default",
+  "description": "初期セットリスト（D11: Import=このフォルダにファイルを置いて再起動 / Export=GET /api/deck/export）",
+  "grid": { "cols": 5, "rows": 3 },
+  "pages": [
+    { "id": 1, "slots": [
+      { "slotId": "S01", "label": "消音",      "action": { "t": "key", "vk": "MUTE" } },
+      { "slotId": "S02", "label": "Vol-",      "action": { "t": "key", "vk": "VOL_DOWN" } },
+      { "slotId": "S03", "label": "Vol+",      "action": { "t": "key", "vk": "VOL_UP" } },
+      { "slotId": "S04", "label": "⏮",         "action": { "t": "key", "vk": "MEDIA_PREV" } },
+      { "slotId": "S05", "label": "⏯",         "action": { "t": "key", "vk": "MEDIA_PLAY" } },
+      { "slotId": "S06", "label": "⏭",         "action": { "t": "key", "vk": "MEDIA_NEXT" } },
+      { "slotId": "S07", "label": "保存",      "action": { "t": "chord", "keys": ["CTRL", "S"] } },
+      { "slotId": "S08", "label": "Writing01", "action": { "t": "keymap.switch", "id": "writing01" } },
+      { "slotId": "S09", "label": "Default戻し", "action": { "t": "keymap.reset" } },
+      { "slotId": "S10", "label": "空", "action": { "t": "none" } },
+      { "slotId": "S11", "label": "空", "action": { "t": "none" } },
+      { "slotId": "S12", "label": "空", "action": { "t": "none" } },
+      { "slotId": "S13", "label": "空", "action": { "t": "none" } },
+      { "slotId": "S14", "label": "空", "action": { "t": "none" } },
+      { "slotId": "S15", "label": "空", "action": { "t": "none" } }
+    ] }
+  ]
+}

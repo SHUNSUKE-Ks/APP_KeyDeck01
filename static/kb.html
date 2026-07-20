@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- kb.html — 分割キーボード面（T4）。素のHTML+JSのみ（D2）。設計書D3/D6/D9、
+     brief/keydeck_design_v0.2.md 参照。URL: /kb?half=left|right&token=… -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>KeyDeck — Keyboard</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #101526;
+      color: #f4f7ff;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      gap: 10px;
+    }
+    header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+    #layerBadge {
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #2d67d9;
+    }
+    #dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #586174;
+      display: inline-block;
+    }
+    #dot.connected { background: #35c47a; }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px;
+    }
+    .row {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      gap: 8px;
+    }
+    .key {
+      min-height: 48px;
+      min-width: 48px;
+      border: 0;
+      border-radius: 10px;
+      background: #1c2338;
+      color: #f4f7ff;
+      font: inherit;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      touch-action: manipulation;
+    }
+    .key:active { background: #2d67d9; }
+    .key[data-empty="true"] { background: #161c30; color: #4b5468; }
+    body.layer-active .key { background: #232b48; }
+    body.layer-active .key:active { background: #2d67d9; }
+    footer[role="status"] {
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #b7bfd6;
+      min-height: 18px;
+    }
+    footer.error { color: #ff8a8a; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">KeyDeck</h1>
+    <span id="layerBadge">Layer 0</span>
+    <span id="dot" aria-hidden="true"></span>
+  </header>
+  <main id="grid" aria-label="split keyboard"></main>
+  <footer role="status" id="status">接続していません</footer>
+  <script>
+    // ---- 起動時の文脈 --------------------------------------------------
+    const params = new URLSearchParams(location.search);
+    const half = params.get("half") === "right" ? "right" : "left";
+    const token = params.get("token") || "";
+    document.getElementById("title").textContent = "KeyDeck — " + (half === "right" ? "Right" : "Left");
+
+    const statusEl = document.getElementById("status");
+    const dotEl = document.getElementById("dot");
+    const gridEl = document.getElementById("grid");
+    const layerBadgeEl = document.getElementById("layerBadge");
+
+    let socket = null;
+    let surfaceConfig = null; // 直近受信したsurface.config
+    let layerState = { momentary: [], toggled: [] };
+    let reconnectTimer = null;
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") {
+        console.error(line, context ?? "");
+      } else {
+        console.info(line, context ?? "");
+      }
+    }
+
+    function setStatus(text, isError) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", !!isError);
+    }
+
+    // ---- 描画 ------------------------------------------------------------
+
+    // D3と同じ規則をクライアント側でも適用してラベルを引く（発火判定は必ずHub側=表示専用）。
+    function resolveDisplay(keyId) {
+      if (!surfaceConfig) return null;
+      const active = new Set([0, ...layerState.momentary, ...layerState.toggled]);
+      const ordered = [...active].sort((a, b) => b - a);
+      for (const layerId of ordered) {
+        const layer = surfaceConfig.keymap.layers.find((l) => l.id === layerId);
+        if (!layer) continue;
+        const def = layer.keys[keyId];
+        if (def && def.action.t !== "trans") return def;
+      }
+      return null;
+    }
+
+    function render() {
+      if (!surfaceConfig) return;
+      const rows = surfaceConfig.keymap.halves[half].rows;
+      gridEl.innerHTML = "";
+      for (const row of rows) {
+        const rowEl = document.createElement("div");
+        rowEl.className = "row";
+        for (const keyId of row) {
+          const def = resolveDisplay(keyId);
+          const btn = document.createElement("button");
+          btn.className = "key";
+          btn.dataset.keyId = keyId;
+          if (!def) {
+            btn.dataset.empty = "true";
+            btn.textContent = "";
+          } else {
+            btn.textContent = def.label;
+          }
+          bindKey(btn, keyId);
+          rowEl.appendChild(btn);
+        }
+        gridEl.appendChild(rowEl);
+      }
+      const highestActive = Math.max(0, ...layerState.momentary, ...layerState.toggled);
+      layerBadgeEl.textContent = "Layer " + highestActive;
+      document.body.classList.toggle("layer-active", highestActive > 0);
+      document.getElementById("title").textContent =
+        "KeyDeck — " + (half === "right" ? "Right" : "Left") + " (" + surfaceConfig.activeKeymapId + ")";
+    }
+
+    function setKeysEnabled(enabled) {
+      for (const btn of gridEl.querySelectorAll(".key")) {
+        btn.disabled = !enabled;
+      }
+    }
+
+    function bindKey(btn, keyId) {
+      const down = (event) => {
+        event.preventDefault();
+        sendPress(keyId, "down");
+      };
+      const up = (event) => {
+        event.preventDefault();
+        sendPress(keyId, "up");
+      };
+      btn.addEventListener("pointerdown", down);
+      btn.addEventListener("pointerup", up);
+      btn.addEventListener("pointercancel", up);
+      btn.addEventListener("pointerleave", up);
+    }
+
+    // ---- 送受信 ------------------------------------------------------------
+
+    function sendPress(keyId, edge) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; key.press dropped", { keyId, edge });
+        return;
+      }
+      const message = { type: "key.press", keyId, edge };
+      socket.send(JSON.stringify(message));
+      log("T4-2", "OK", "send key.press", message);
+      if (edge === "down") {
+        setStatus(keyId + " を送信しました");
+      }
+    }
+
+    function connect() {
+      setStatus("接続中…");
+      socket = new WebSocket(
+        (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws?token=" + encodeURIComponent(token)
+      );
+
+      socket.addEventListener("open", () => {
+        log("T4-1", "OK", "ws open");
+        dotEl.classList.add("connected");
+        setStatus("接続しました");
+      });
+
+      socket.addEventListener("message", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          log("ERR", "INTERNAL", "failed to parse server message: " + error, event.data);
+          return;
+        }
+        handleServerMessage(data);
+      });
+
+      socket.addEventListener("close", () => {
+        dotEl.classList.remove("connected");
+        setKeysEnabled(false);
+        setStatus("切断中は操作できません。再接続中…");
+        log("ERR", "WS_CLOSE", "disconnected; retrying");
+        scheduleReconnect();
+      });
+
+      socket.addEventListener("error", () => {
+        // closeイベントが後続するため、ここではログのみ（二重の再接続予約はしない）。
+        log("ERR", "WS_ERROR", "websocket error event");
+      });
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, 2000);
+    }
+
+    function handleServerMessage(data) {
+      switch (data.type) {
+        case "surface.config":
+          surfaceConfig = data;
+          layerState = data.layer;
+          log("T4-1", "OK", "surface.config received", {
+            keymapId: data.activeKeymapId,
+            layers: data.keymap.layers.length,
+          });
+          setKeysEnabled(true);
+          render();
+          break;
+        case "layer.state":
+          layerState = data;
+          log("T4-2", "OK", "layer.state", data);
+          render();
+          break;
+        case "error":
+          log("ERR", data.code, "cause: " + data.cause, data.context);
+          setStatus("エラー: " + data.code, true);
+          break;
+        default:
+          log("ERR", "INTERNAL", "unknown message type from server: " + data.type, data);
+      }
+    }
+
+    // ---- 例外の取りこぼし防止（T4-3） ----------------------------------
+    window.addEventListener("error", (event) => {
+      log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+    });
+
+    connect();
+  </script>
+</body>
+</html>

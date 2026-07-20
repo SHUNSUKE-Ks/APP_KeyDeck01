@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  screen_mock_v0.4.html — Vol1.2 見た目モック（機能なし）
+  ① ipad01 Vol1.2: 記号を基盤から撤去しマス目拡大＋記号レイヤーキー（右Shift下）
+     ＋予測変換バー（フェーズC/見た目のみ）
+  ② 設定画面: VIAL型（上=対象キーボード、下=割当パレット、タブにマクロの場所だけ確保）
+     ＋QRポップアップ（1画面1QR、D15継続）
+  正: brief/keydeck_design_v0.4.md（D18〜D23） / 旧Vol1.1=screen_mock_v0.3.html（凍結）
+  注意: 上部タブはモック専用UI。押下色・記号盤切替・パレット選択ハイライトのみ動く（実機能なし）。
+  ============================================================ -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck v0.4 モック（Vol1.2）</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#101526; --panel:#1c2338; --panel-lit:#232b48; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+    --ink-dim:#4b5468; --empty:#161c30; --accent:#2d67d9; --accent-soft:#24478f;
+    --ok:#35c47a; --line:#2d3550; --key-radius:10px; --key-gap:7px;
+  }
+  * { box-sizing:border-box; } html,body{margin:0;height:100%;}
+  body{font-family:system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);}
+  #mocktabs{display:flex;gap:8px;padding:10px 14px;background:#0a0e1b;border-bottom:1px solid var(--line);}
+  #mocktabs button{border:1px solid var(--line);background:var(--panel);color:var(--ink-muted);border-radius:8px;padding:6px 14px;font:inherit;}
+  #mocktabs button.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .screen{display:none;} .screen.on{display:block;}
+
+  /* ===== ①キーボード Vol1.2 ===== */
+  #scr-ipad{min-height:calc(100vh - 47px);display:flex;flex-direction:column;}
+  .ipad-head{display:flex;align-items:center;gap:10px;padding:10px 14px;}
+  .ipad-head h1{font-size:15px;margin:0;font-weight:600;}
+  .badge{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--accent);}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--ok);}
+  .head-btn{min-width:48px;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:16px;}
+  .head-btn:active{background:var(--accent);}
+  .spacer{flex:1;}
+  .note{color:var(--ink-dim);font-size:12px;padding:0 14px;}
+  .kbwrap{margin-top:auto;padding:8px;background:#0c1120;border-top:1px solid var(--line);}
+  /* 予測変換バー（フェーズC。見た目のみ） */
+  .predict{display:flex;align-items:center;gap:8px;padding:4px 6px 10px;overflow-x:auto;}
+  .predict .cand{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:8px 14px;font:inherit;font-size:14px;white-space:nowrap;}
+  .predict .cand:active{background:var(--accent);}
+  .predict .src{font-size:11px;color:var(--ink-dim);white-space:nowrap;}
+  .krow{display:flex;gap:var(--key-gap);margin-bottom:var(--key-gap);}
+  /* Vol1.2: 記号列を撤去した分、min-heightを52→60pxに拡大（=マス目を大きく） */
+  .key{flex:1 1 0;min-height:60px;border:0;border-radius:var(--key-radius);background:var(--panel);color:var(--ink);
+       font:inherit;font-size:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+       line-height:1.1;touch-action:manipulation;user-select:none;padding:2px;}
+  .key small{font-size:10px;color:var(--ink-muted);}
+  .key:active,.key.pressed{background:var(--accent);}
+  .key.empty{background:var(--empty);color:var(--ink-dim);}
+  .key.empty:active{background:var(--empty);}
+  .key.fn{background:var(--accent-soft);}
+  .w15{flex-grow:1.5;} .w2{flex-grow:2;} .w25{flex-grow:2.5;} .w4{flex-grow:4;}
+  /* 記号盤（記号キーでトグル）: 地色を変えて「今は記号盤」だと一目で分かるように */
+  body.sym .key{background:#20304f;}
+  body.sym .key.empty{background:var(--empty);}
+  body.sym .key.fn{background:var(--accent);}
+  .zen{color:#ffd479;}   /* 記号盤の全角文字はアンバーで区別 */
+
+  /* ===== ②設定（VIAL型） ===== */
+  #scr-settings{padding:14px;display:flex;flex-direction:column;gap:12px;max-width:980px;}
+  .set-head{display:flex;align-items:center;gap:10px;}
+  .set-head h1{font-size:16px;margin:0;}
+  .set-head select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;}
+  .qr-btn{min-width:64px;min-height:38px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:inherit;}
+  .pane{background:#0c1120;border:1px solid var(--line);border-radius:12px;padding:12px;}
+  .pane h2{font-size:12px;color:var(--ink-muted);margin:0 0 8px;font-weight:600;}
+  /* 上ペイン: 対象キーボードのプレビュー（縮小盤。クリックで選択） */
+  .mini .krow{margin-bottom:4px;gap:4px;}
+  .mini .key{min-height:34px;font-size:11px;border-radius:6px;}
+  .mini .key.sel{outline:2px solid var(--accent);background:var(--accent-soft);}
+  /* 下ペイン: 割当パレット */
+  .paltabs{display:flex;gap:6px;margin-bottom:10px;}
+  .paltabs button{border:1px solid var(--line);background:var(--panel);color:var(--ink-muted);border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;}
+  .paltabs button.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .palette{display:none;flex-wrap:wrap;gap:6px;}
+  .palette.on{display:flex;}
+  .pkey{min-width:44px;min-height:40px;border:0;border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px;padding:4px 10px;}
+  .pkey:active{background:var(--accent);}
+  .macro-note{color:var(--ink-dim);font-size:13px;padding:18px;text-align:center;border:1px dashed var(--line);border-radius:10px;width:100%;}
+
+  /* QRポップアップ（v0.3から流用。1画面1QR） */
+  #qrmodal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,6,14,.88);z-index:10;}
+  #qrmodal.on{display:flex;}
+  .qr-card{background:var(--panel);border-radius:16px;padding:24px;text-align:center;}
+  .qr-fake{width:300px;height:300px;margin:0 auto;background:#fff;border-radius:10px;position:relative;
+    background-image:repeating-linear-gradient(0deg,#101526 0 8px,transparent 8px 16px),repeating-linear-gradient(90deg,#101526 0 8px,#fff 8px 16px);
+    background-size:75% 75%;background-position:center;background-repeat:no-repeat;}
+  .qr-close{margin-top:16px;min-width:120px;min-height:44px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:inherit;}
+</style>
+</head>
+<body>
+
+<nav id="mocktabs">
+  <button class="on" data-scr="scr-ipad">① キーボード Vol1.2</button>
+  <button data-scr="scr-settings">② 設定（VIAL型エディタ）</button>
+</nav>
+
+<!-- ============ ① Vol1.2 ============ -->
+<section id="scr-ipad" class="screen on">
+  <div class="ipad-head">
+    <button class="head-btn">↺</button><button class="head-btn">↻</button>
+    <h1>KeyDeck — iPad (ipad01_vol12)</h1>
+    <span class="badge" id="layerBadge">Layer 0</span>
+    <span class="spacer"></span><span class="dot"></span>
+  </div>
+  <p class="note">Vol1.1との差: 右側の記号列を撤去してキーを拡大（52→60px）。基盤に残す記号は , . ? のみ。最下段・右Shiftの真下に「記号」キー（青）— 押すと文字盤全体が記号盤に切替（もう一度で戻る）。記号盤のアンバー色＝全角、白＝半角（IME状態に関係なく指定どおり入る設計 D20）。キーボード上部は予測変換バー（辞書DB・フェーズC、見た目のみ）。</p>
+
+  <div class="kbwrap">
+    <div class="predict">
+      <span class="src">予測:</span>
+      <button class="cand">これ</button><button class="cand">これが</button><button class="cand">これで</button>
+      <button class="cand">これは</button><button class="cand">コレ</button><button class="cand">これから</button>
+      <span class="src">（独自辞書DBから前方一致・タップで確定）</span>
+    </div>
+    <!-- Row1: Fn + 数字 + Bksp（=- ~^ |¥ を撤去） -->
+    <div class="krow">
+      <button class="key fn" id="fnkey">Fn</button>
+      <button class="key" data-sym="。" data-symz="1">1</button>
+      <button class="key" data-sym="、" data-symz="1">2</button>
+      <button class="key" data-sym="？" data-symz="1">3</button>
+      <button class="key" data-sym="！" data-symz="1">4</button>
+      <button class="key" data-sym="「" data-symz="1">5</button>
+      <button class="key" data-sym="」" data-symz="1">6</button>
+      <button class="key" data-sym="・" data-symz="1">7</button>
+      <button class="key" data-sym="ー" data-symz="1">8</button>
+      <button class="key" data-sym="：" data-symz="1">9</button>
+      <button class="key" data-sym="…" data-symz="1">0</button>
+      <button class="key w15">Bksp</button>
+    </div>
+    <!-- Row2: Tab + qwertyuiop（@` [{ を撤去→記号盤へ） -->
+    <div class="krow">
+      <button class="key w15">Tab</button>
+      <button class="key" data-sym="(">q</button><button class="key" data-sym=")">w</button>
+      <button class="key" data-sym="{">e</button><button class="key" data-sym="}">r</button>
+      <button class="key" data-sym="&lt;">t</button><button class="key" data-sym="&gt;">y</button>
+      <button class="key" data-sym="[">u</button><button class="key" data-sym="]">i</button>
+      <button class="key" data-sym="=">o</button><button class="key" data-sym="_">p</button>
+      <button class="key empty"></button>
+    </div>
+    <!-- Row3: asdfghjkl + Enter（;+ :* ]} を撤去→記号盤へ） -->
+    <div class="krow">
+      <button class="key empty w15"></button>
+      <button class="key" data-sym="/">a</button><button class="key" data-sym="*">s</button>
+      <button class="key" data-sym="+">d</button><button class="key" data-sym="-">f</button>
+      <button class="key" data-sym="#">g</button><button class="key" data-sym="&quot;">h</button>
+      <button class="key" data-sym="'">j</button><button class="key" data-sym="&amp;">k</button>
+      <button class="key" data-sym="%">l</button>
+      <button class="key empty"></button>
+      <button class="key w2">Enter</button>
+    </div>
+    <!-- Row4: zxcvbnm + , . ?（- を撤去。, . ? はIME全角時に 、。？） -->
+    <div class="krow">
+      <button class="key empty w2"></button>
+      <button class="key" data-sym="@">z</button><button class="key" data-sym="~">x</button>
+      <button class="key" data-sym="|">c</button><button class="key" data-sym="¥">v</button>
+      <button class="key" data-sym="^">b</button><button class="key" data-sym="$">n</button>
+      <button class="key" data-sym=";">m</button>
+      <button class="key" data-sym="：" data-symz="1"><small>、</small>,</button>
+      <button class="key" data-sym="；" data-symz="1"><small>。</small>.</button>
+      <button class="key" data-sym="〜" data-symz="1"><small>？</small>?</button>
+      <button class="key w2">Shift</button>
+    </div>
+    <!-- Row5: Ctrl / Space(幅短縮) / 英数⇄日本語 / 記号（右Shiftの真下） -->
+    <div class="krow">
+      <button class="key fn w15">Ctrl</button>
+      <button class="key empty"></button>
+      <button class="key w4">Space</button>
+      <button class="key fn w15">英数⇄日本語</button>
+      <button class="key fn w2" id="symkey">記号</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ② 設定（VIAL型） ============ -->
+<section id="scr-settings" class="screen">
+  <div class="set-head">
+    <h1>KeyDeck — 設定</h1>
+    <select><option>ipad01_vol12（編集対象）</option><option>ipad01_vol11（凍結）</option><option>分割 左手</option><option>分割 右手</option><option>Stream Deck</option></select>
+    <span class="spacer"></span>
+    <button class="qr-btn" id="qropen">QR</button>
+  </div>
+
+  <div class="pane mini" id="preview">
+    <h2>対象キーボード（キーをタップして選択 → 下のパレットから割当。実書込はフェーズB）</h2>
+    <div class="krow">
+      <button class="key fn">Fn</button><button class="key">1</button><button class="key">2</button><button class="key">3</button><button class="key">4</button><button class="key">5</button><button class="key">6</button><button class="key">7</button><button class="key">8</button><button class="key">9</button><button class="key">0</button><button class="key w15">Bksp</button>
+    </div>
+    <div class="krow">
+      <button class="key w15">Tab</button><button class="key">q</button><button class="key">w</button><button class="key">e</button><button class="key">r</button><button class="key">t</button><button class="key">y</button><button class="key">u</button><button class="key">i</button><button class="key">o</button><button class="key">p</button><button class="key empty"></button>
+    </div>
+    <div class="krow">
+      <button class="key empty w15"></button><button class="key">a</button><button class="key">s</button><button class="key">d</button><button class="key">f</button><button class="key">g</button><button class="key">h</button><button class="key">j</button><button class="key">k</button><button class="key">l</button><button class="key w25">Enter</button>
+    </div>
+    <div class="krow">
+      <button class="key empty w2"></button><button class="key">z</button><button class="key">x</button><button class="key">c</button><button class="key">v</button><button class="key">b</button><button class="key">n</button><button class="key">m</button><button class="key">,</button><button class="key">.</button><button class="key">?</button><button class="key w2">Shift</button>
+    </div>
+    <div class="krow">
+      <button class="key fn w15">Ctrl</button><button class="key empty"></button><button class="key w4">Space</button><button class="key fn w15">英数⇄日本語</button><button class="key fn w2">記号</button>
+    </div>
+  </div>
+
+  <div class="pane">
+    <h2>割当パレット</h2>
+    <div class="paltabs">
+      <button class="on" data-pal="pal-basic">基本</button>
+      <button data-pal="pal-sym">記号</button>
+      <button data-pal="pal-layer">レイヤー</button>
+      <button data-pal="pal-macro">マクロ（準備中）</button>
+    </div>
+    <div class="palette on" id="pal-basic">
+      <button class="pkey">A</button><button class="pkey">B</button><button class="pkey">C</button><button class="pkey">…</button>
+      <button class="pkey">1</button><button class="pkey">0</button><button class="pkey">Enter</button><button class="pkey">Space</button>
+      <button class="pkey">Tab</button><button class="pkey">Bksp</button><button class="pkey">Shift</button><button class="pkey">Ctrl</button>
+      <button class="pkey">↑</button><button class="pkey">↓</button><button class="pkey">←</button><button class="pkey">→</button>
+      <button class="pkey">空</button>
+    </div>
+    <div class="palette" id="pal-sym">
+      <button class="pkey">(</button><button class="pkey">)</button><button class="pkey">{</button><button class="pkey">}</button>
+      <button class="pkey">&lt;</button><button class="pkey">&gt;</button><button class="pkey">[</button><button class="pkey">]</button>
+      <button class="pkey">=</button><button class="pkey">_</button><button class="pkey">/</button><button class="pkey">*</button>
+      <button class="pkey">+</button><button class="pkey">-</button><button class="pkey">#</button>
+      <button class="pkey zen">。</button><button class="pkey zen">、</button><button class="pkey zen">？</button><button class="pkey zen">「</button><button class="pkey zen">」</button>
+    </div>
+    <div class="palette" id="pal-layer">
+      <button class="pkey">MO(1)</button><button class="pkey">TG(記号)</button><button class="pkey">英数⇄日本語</button><button class="pkey">keymap切替</button>
+    </div>
+    <div class="palette" id="pal-macro">
+      <div class="macro-note">マクロは将来ここに追加（v0.4では場所のみ確保 — D22）。<br>例: 定型文の一括入力、複数キーのシーケンス実行 など</div>
+    </div>
+  </div>
+</section>
+
+<!-- QRポップアップ（1画面1QR） -->
+<div id="qrmodal">
+  <div class="qr-card">
+    <h2 id="qrtitle">ipad01_vol12</h2>
+    <div class="qr-fake"></div>
+    <p style="font-size:11px;color:var(--ink-muted);max-width:300px;word-break:break-all;">実装時は /api/qr のSVGがここに入る</p>
+    <button class="qr-close" id="qrclose">閉じる</button>
+  </div>
+</div>
+
+<script>
+  // モック専用: URLハッシュで画面を直接開ける（#settings）。レビュー時の深リンク用
+  if (location.hash === '#settings') {
+    document.querySelectorAll('#mocktabs button, .screen').forEach(x=>x.classList.remove('on'));
+    document.querySelector('[data-scr="scr-settings"]').classList.add('on');
+    document.getElementById('scr-settings').classList.add('on');
+  }
+  // モック専用: 画面切替
+  for (const b of document.querySelectorAll('#mocktabs button')) {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#mocktabs button').forEach(x=>x.classList.remove('on'));
+      document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on'); document.getElementById(b.dataset.scr).classList.add('on');
+    });
+  }
+  // 見た目のみ: 記号盤トグル（data-sym差替。data-symz=1は全角=アンバー表示）
+  document.getElementById('symkey').addEventListener('click', () => {
+    const on = document.body.classList.toggle('sym');
+    document.getElementById('layerBadge').textContent = on ? '記号' : 'Layer 0';
+    for (const k of document.querySelectorAll('#scr-ipad [data-sym]')) {
+      if (!k.dataset.orig) k.dataset.orig = k.innerHTML;
+      if (on) { k.innerHTML = k.dataset.sym; k.classList.toggle('zen', k.dataset.symz === '1'); }
+      else    { k.innerHTML = k.dataset.orig; k.classList.remove('zen'); }
+    }
+  });
+  // 見た目のみ: Fn（レイヤー1のプレースホルダ。記号盤とは独立）
+  document.getElementById('fnkey').addEventListener('click', () => {
+    const badge = document.getElementById('layerBadge');
+    badge.textContent = badge.textContent === 'Layer 1' ? 'Layer 0' : 'Layer 1';
+  });
+  // 見た目のみ: 設定プレビューのキー選択
+  for (const k of document.querySelectorAll('#preview .key')) {
+    k.addEventListener('click', () => {
+      document.querySelectorAll('#preview .key.sel').forEach(x=>x.classList.remove('sel'));
+      k.classList.add('sel');
+    });
+  }
+  // 見た目のみ: パレットタブ
+  for (const b of document.querySelectorAll('.paltabs button')) {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.paltabs button').forEach(x=>x.classList.remove('on'));
+      document.querySelectorAll('.palette').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on'); document.getElementById(b.dataset.pal).classList.add('on');
+    });
+  }
+  // 見た目のみ: QRポップアップ
+  document.getElementById('qropen').addEventListener('click', ()=>document.getElementById('qrmodal').classList.add('on'));
+  document.getElementById('qrclose').addEventListener('click', ()=>document.getElementById('qrmodal').classList.remove('on'));
+</script>
+</body>
+</html>

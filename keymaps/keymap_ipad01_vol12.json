@@ -1,0 +1,7 @@
+{
+  "keymapId": "ipad01_vol12",
+  "kind": "single",
+  "description": "iPad Pro 12.9(第3世代)一枚キーボード。骨組み(T8でSonnetが完成させる)。配置の正=brief/ref_ipad_keyboard_parts_v1.md、見た目の正=brief/mockup/screen_mock_v0.3.html。boardは5行・幅係数w付き(モックのw15=1.5/w2=2/w3=3に一致させる)。keyIdはK+行+列2桁(例K101)。赤指定キーはlayers側でt:none。layerFilesの2ファイルをkeymaps/layers/に作成すること(layer0=文字入力、layer1=最小プレースホルダ(数字段F1..F12))。",
+  "board": { "rows": [] },
+  "layerFiles": ["layers/ipad01_vol12_layer0.json", "layers/ipad01_vol12_layer1.json"]
+}
