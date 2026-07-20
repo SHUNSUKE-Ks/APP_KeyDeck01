@@ -16,6 +16,7 @@
     "K112": { "label": "Bksp", "action": { "t": "key", "vk": "BKSP" } },
 
     "K201": { "label": "Tab", "action": { "t": "key", "vk": "TAB" } },
+    "K202": { "label": "", "action": { "t": "none" } },
     "K203": { "label": "q", "action": { "t": "key", "vk": "Q" } },
     "K204": { "label": "w", "action": { "t": "key", "vk": "W" } },
     "K205": { "label": "e", "action": { "t": "key", "vk": "E" } },
@@ -29,6 +30,7 @@
     "K213": { "label": "Enter", "action": { "t": "key", "vk": "ENTER" } },
 
     "K301": { "label": "", "action": { "t": "none" } },
+    "K302": { "label": "", "action": { "t": "none" } },
     "K303": { "label": "a", "action": { "t": "key", "vk": "A" } },
     "K304": { "label": "s", "action": { "t": "key", "vk": "S" } },
     "K305": { "label": "d", "action": { "t": "key", "vk": "D" } },
@@ -41,6 +43,7 @@
     "K312": { "label": "", "action": { "t": "none" } },
 
     "K401": { "label": "", "action": { "t": "none" } },
+    "K402": { "label": "", "action": { "t": "none" } },
     "K403": { "label": "z", "action": { "t": "key", "vk": "Z" } },
     "K404": { "label": "x", "action": { "t": "key", "vk": "X" } },
     "K405": { "label": "c", "action": { "t": "key", "vk": "C" } },
@@ -54,6 +57,7 @@
     "K413": { "label": "Shift", "action": { "t": "key", "vk": "SHIFT" } },
 
     "K501": { "label": "Ctrl", "action": { "t": "key", "vk": "CTRL" } },
+    "K502": { "label": "", "action": { "t": "none" } },
     "K503": { "label": "", "action": { "t": "none" } },
     "K504": { "label": "Space", "action": { "t": "key", "vk": "SPACE" } },
     "K510": { "label": "", "action": { "t": "none" } },

@@ -99,3 +99,10 @@
 - SR-001裁定済み: ①label"\n"二段規約=承認 ②記号盤アンバー強調はT9送り ③K410-412の全角割当は意図どおり（typoではない）
 - 統治導入: `CLAUDE.md`（全AI規則）＋`.claude/agents/keydeck-guardian.md`（守護agent）＋`start_hub.cmd`
 - **次: 一枚キーボードの実機テスト**（start_hub.cmd → PCで `/` → ヘッダQRボタン → iPad/AndroidのカメラでQR読取 → /ipad）
+
+### 2026-07-20 実機表示崩れ修正（FABLE。ユーザー実機テストFB反映）
+
+- 原因特定: CSS Gridの`1fr`は既定で「トラック内容の最小幅」を下回れないため、13列の合計最小幅が狭いWebView（QRスキャナー内蔵ブラウザ）の画面幅を超え、右側（asdf行・zxcv行等）が不可視になっていた
+- 修正: `.kbgrid`を`repeat(13, minmax(0,1fr))`に、`.key`に`min-width:0`＋省略表示を追加。ヘッダ`h1`も同様に縮小可能化（ヘッダ自体が画面幅を超えていた別要因）。狭幅(480px以下)向けmedia queryでフォント/gapを縮小
+- 簡略化: Tab・Ctrl（row2/row5先頭）をcolSpan2→1に変更（ユーザー指示）。空いた列2に空白キー追加(K202/K302/K402/K502)。モック・実装(ipad.html)・盤面JSON(keymap_ipad01_vol12.json)・layer0全て同期
+- 検証: `cargo test --workspace`=49件維持。Browser paneで320px/375px幅ともに横はみ出しゼロ（`document.body.scrollWidth === window.innerWidth`）を確認。L字Enter・記号盤は無変更で維持

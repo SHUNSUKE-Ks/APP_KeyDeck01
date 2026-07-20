@@ -45,13 +45,23 @@
   .predict .src{font-size:11px;color:var(--ink-dim);white-space:nowrap;}
   .krow{display:flex;gap:var(--key-gap);margin-bottom:var(--key-gap);}
   /* メインキーボードは13列グリッド。Enterはgrid-rowで2行(row2/row3)をまたぎ、
-     本物のL字キー（右側だけ背が高い）を実現する。ミニプレビュー(.krow)は従来のflexのまま。 */
-  .kbgrid{display:grid;grid-template-columns:repeat(13, 1fr);grid-auto-rows:60px;gap:var(--key-gap);}
+     本物のL字キー（右側だけ背が高い）を実現する。ミニプレビュー(.krow)は従来のflexのまま。
+     修正(2026-07-20): 1frは既定でトラックの内容最小幅を下回れないため、狭いWebView
+     （QRスキャナー内蔵ブラウザ等）では13列の合計最小幅が画面を超え右側が見えなくなる
+     不具合があった。minmax(0,1fr)で明示的に縮小可能にする（グリッド構造・L字Enterは不変）。 */
+  .kbgrid{display:grid;grid-template-columns:repeat(13, minmax(0, 1fr));grid-auto-rows:60px;gap:var(--key-gap);}
   /* Vol1.2: 記号列を撤去した分、min-heightを52→60pxに拡大（=マス目を大きく） */
-  .key{flex:1 1 0;min-height:60px;border:0;border-radius:var(--key-radius);background:var(--panel);color:var(--ink);
+  .key{flex:1 1 0;min-width:0;min-height:60px;border:0;border-radius:var(--key-radius);background:var(--panel);color:var(--ink);
        font:inherit;font-size:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;
-       line-height:1.1;touch-action:manipulation;user-select:none;padding:2px;}
+       line-height:1.1;touch-action:manipulation;user-select:none;padding:2px;
+       overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
   .key small{font-size:10px;color:var(--ink-muted);}
+  @media (max-width: 480px) {
+    :root{ --key-gap:4px; }
+    .kbgrid .key{font-size:12px;}
+    .kbgrid .key small{font-size:8px;}
+    .kbgrid{grid-auto-rows:48px;}
+  }
   .key:active,.key.pressed{background:var(--accent);}
   .key.empty{background:var(--empty);color:var(--ink-dim);}
   .key.empty:active{background:var(--empty);}
@@ -136,8 +146,9 @@
       <button class="key" data-sym="…" data-symz="1" style="grid-column:11;grid-row:1;">0</button>
       <button class="key" style="grid-column:12/14;grid-row:1;">Bksp</button>
 
-      <!-- Row2: Tab + qwertyuiop（@` [{ を撤去→記号盤へ）。13列目はEnterが覆うので何も置かない -->
-      <button class="key" style="grid-column:1/3;grid-row:2;">Tab</button>
+      <!-- Row2: Tab(1マス幅・簡略化) + 空白1マス + qwertyuiop（@` [{ を撤去→記号盤へ）。13列目はEnterが覆うので何も置かない -->
+      <button class="key" style="grid-column:1;grid-row:2;">Tab</button>
+      <button class="key empty" style="grid-column:2;grid-row:2;"></button>
       <button class="key" data-sym="(" style="grid-column:3;grid-row:2;">q</button>
       <button class="key" data-sym=")" style="grid-column:4;grid-row:2;">w</button>
       <button class="key" data-sym="{" style="grid-column:5;grid-row:2;">e</button>
@@ -150,7 +161,8 @@
       <button class="key" data-sym="_" style="grid-column:12;grid-row:2;">p</button>
 
       <!-- Row3: asdfghjkl + 空白1マス + Enter（Enterはここでrow2にも食い込む本物のL字） -->
-      <button class="key empty" style="grid-column:1/3;grid-row:3;"></button>
+      <button class="key empty" style="grid-column:1;grid-row:3;"></button>
+      <button class="key empty" style="grid-column:2;grid-row:3;"></button>
       <button class="key" data-sym="/" style="grid-column:3;grid-row:3;">a</button>
       <button class="key" data-sym="*" style="grid-column:4;grid-row:3;">s</button>
       <button class="key" data-sym="+" style="grid-column:5;grid-row:3;">d</button>
@@ -164,7 +176,8 @@
       <button class="key" style="grid-column:13;grid-row:2/4;">Enter</button>
 
       <!-- Row4: zxcvbnm + , . ?（- を撤去。, . ? はIME全角時に 、。？）+ Shift(13列目=Enterの真下) -->
-      <button class="key empty" style="grid-column:1/3;grid-row:4;"></button>
+      <button class="key empty" style="grid-column:1;grid-row:4;"></button>
+      <button class="key empty" style="grid-column:2;grid-row:4;"></button>
       <button class="key" data-sym="@" style="grid-column:3;grid-row:4;">z</button>
       <button class="key" data-sym="~" style="grid-column:4;grid-row:4;">x</button>
       <button class="key" data-sym="|" style="grid-column:5;grid-row:4;">c</button>
@@ -177,8 +190,9 @@
       <button class="key" data-sym="〜" data-symz="1" style="grid-column:12;grid-row:4;"><small>？</small>?</button>
       <button class="key" style="grid-column:13;grid-row:4;">Shift</button>
 
-      <!-- Row5: Ctrl / Space(幅短縮) / 英数⇄日本語 / 記号（13列目=Shiftの真下） -->
-      <button class="key fn" style="grid-column:1/3;grid-row:5;">Ctrl</button>
+      <!-- Row5: Ctrl(1マス幅・簡略化) / 空白 / Space(幅短縮) / 英数⇄日本語 / 記号（13列目=Shiftの真下） -->
+      <button class="key fn" style="grid-column:1;grid-row:5;">Ctrl</button>
+      <button class="key empty" style="grid-column:2;grid-row:5;"></button>
       <button class="key empty" style="grid-column:3;grid-row:5;"></button>
       <button class="key" style="grid-column:4/10;grid-row:5;">Space</button>
       <button class="key empty" style="grid-column:10;grid-row:5;"></button>

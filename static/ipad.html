@@ -49,7 +49,9 @@
 
     /* ===== ヘッダ（D25/D26） ===== */
     .ipad-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
-    .ipad-head h1 { font-size: 15px; margin: 0; font-weight: 600; }
+    /* 修正(2026-07-20): h1が縮まずヘッダごと画面幅を超えていた（狭いWebViewで発生）。
+       min-width:0+省略表示で、タイトルが必要に応じて縮む・切り詰められるようにする。 */
+    .ipad-head h1 { font-size: 15px; margin: 0; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent); }
     .head-btn {
       min-width: 48px; min-height: 40px; border: 1px solid var(--line); border-radius: 8px;
@@ -73,14 +75,26 @@
     }
 
     /* ===== キーボード本体（Vol1.2。screen_mock_v0.4.htmlの①から移植・値は不変） ===== */
-    .kbwrap { margin-top: auto; padding: 8px; background: #0c1120; border-top: 1px solid var(--line); }
-    .kbgrid { display: grid; grid-template-columns: repeat(13, 1fr); grid-auto-rows: 60px; gap: var(--key-gap); }
+    .kbwrap { margin-top: auto; padding: 8px; background: #0c1120; border-top: 1px solid var(--line); overflow-x: hidden; }
+    /* 修正(2026-07-20): 1frは既定でトラックの内容最小幅を下回れないため、狭いWebView
+       （例: QRスキャナー内蔵ブラウザ）では13列の合計最小幅が画面を超え右側が見えなくなる
+       不具合があった。minmax(0,1fr)で明示的に縮小可能にし、.keyにもmin-width:0を与えて
+       ボタン自体が中身より縮められるようにする（グリッド構造・L字Enterは変更しない）。 */
+    .kbgrid { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); grid-auto-rows: 60px; gap: var(--key-gap); }
     .key {
-      border: 0; border-radius: var(--key-radius); background: var(--panel); color: var(--ink);
+      min-width: 0; border: 0; border-radius: var(--key-radius); background: var(--panel); color: var(--ink);
       font: inherit; font-size: 16px; display: flex; flex-direction: column; align-items: center;
       justify-content: center; line-height: 1.1; touch-action: manipulation; user-select: none; padding: 2px;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     }
     .key small { font-size: 10px; color: var(--ink-muted); }
+    /* 狭いビューポート（QRスキャナー内蔵ブラウザ等）向けに文字サイズ・余白を縮小 */
+    @media (max-width: 480px) {
+      :root { --key-gap: 4px; }
+      .key { font-size: 12px; }
+      .key small { font-size: 8px; }
+      .kbgrid { grid-auto-rows: 48px; }
+    }
     .key:active, .key.pressed { background: var(--accent); }
     .key[data-empty="true"] { background: var(--empty); color: var(--ink-dim); }
     .key[data-empty="true"]:active { background: var(--empty); }
