@@ -1,0 +1,69 @@
+{
+  "$purpose": "AI向け暗黙知データベース。CLAUDE.md(憲法)/vision(北極星)/DEVBOARD(現在地)に載らない文脈・教訓・罠を機械可読で保存。新セッションのAIはCLAUDE.md→vision→DEVBOARD→本書の順に読む",
+  "$updated": "2026-07-20",
+  "identity": {
+    "goal": "あらゆるアプリ・画面に最適な入力デバイスを後付けできる基盤。入力面=JSONデータ、コード不要で増殖",
+    "architecture_fixed": "Rust Hub(頭脳/axum/SendInput) + 素のブラウザ端末(位置IDのみ送信)。ReactNative/PWA/framework永久不採用",
+    "why_this_shape": "非エンジニアのユーザーがJSON編集だけで改造でき、AIが壊しにくく、端末追加コストゼロのため"
+  },
+  "user_profile": {
+    "role": "非エンジニアのPM/オーナー。設計判断は自分で行い実装はAIに委任",
+    "workflow_preference": ["見た目(モック)が最優先・先行", "Git復元ポイント(タグ)を常に確保", "使える状態になったらVol凍結し次Volで改造", "FABLE=裁定/設計, Sonnet=実装, Opus=検証のモデル分業", "トークン残量を気にする→重い読みはサブagentへ"],
+    "communication": "日本語。結論先行。実機(iPad Pro 12.9 3rd/Android)で自分でテストする",
+    "future_intent": "KeyDeckを開発の根本に据え、専用設定アプリ群とペアで育てる。アイディア→製品化ループの自動化"
+  },
+  "model_division": {
+    "FABLE": "裁定・設計5点セット・SR裁定・DEVBOARD統治。実装禁止。読み最小(3ファイル)",
+    "Sonnet": "凍結仕様の実装のみ。再解釈禁止。曖昧→SR起票して停止",
+    "Opus": "独立検証。実装者の自己申告を信じず再実行",
+    "guardian": "変更後点検(凍結領域diff/テスト回帰/不変条件grep)。修正はしない",
+    "explorer": "提案書P-###起票のみ。昇格条件5項目の自己評価付き"
+  },
+  "pitfalls_learned": [
+    {"id": "PF1", "lesson": "CSS Grid 1frは内容最小幅を下回れない。狭WebView(QRスキャナ内蔵ブラウザ)で右半分不可視になった。minmax(0,1fr)+min-width:0が必須", "fixed": "2ac5d32"},
+    {"id": "PF2", "lesson": "Browser paneのscreenshotは頻繁に固着(タイムアウト/古フレーム)。get_page_text/javascript_toolのDOM検証で代替する", "status": "環境問題・恒常"},
+    {"id": "PF3", "lesson": "tokenはHubプロセス毎に再生成(D8)。再起動後に旧URL/QRで繋ぐとWS_TOKEN_INVALID。ユーザーが繋がらないと言ったら最初にHub生死と新tokenを疑う"},
+    {"id": "PF4", "lesson": "flex行方式ではL字Enter(2行跨ぎ)は原理的に不可能。単一グリッド+rowSpanが正解", "restore_tags": {"flex": "format-flex-v0.4=19ab731", "grid": "format-grid-v0.4=c3286fe"}},
+    {"id": "PF5", "lesson": "英数⇄日本語=chord ALT+GRAVEはMS-IME既定依存。効かない環境が出たらSR起票(imm32やVK_IME_ON検討)", "status": "実機で未確定"},
+    {"id": "PF6", "lesson": "SendInputの自動テストは実キーが飛び危険。テストはvk表網羅+Unsupported経路のみ、実発火はexamples/手動smokeに分離"},
+    {"id": "PF7", "lesson": "サーバー起動はブラウザから物理的に不可(ページはサーバーが配る)。start_hub.cmd+状態ボタン(再接続のみ)が正解。ユーザーは時々これを忘れる"},
+    {"id": "PF8", "lesson": "Sonnetに長く任せると見た目がモックからドリフトする。指示に『正=モック/JSON、ズレたら実装側を直す』を毎回明記+guardian点検をゲート化"}
+  ],
+  "design_decisions_index": {
+    "note": "D1-D12=v0.2(brief/keydeck_design_v0.2.md), D13-D23=v0.3/v0.4, D24-D27=v0.4.1追記。全文は各設計書",
+    "load_bearing": {
+      "D3": "レイヤー={0}∪momentary∪toggled番号最大優先+transフォールスルー。決定的",
+      "D5": "許可リスト=起動時ロードJSONのアクション集合。クライアントは位置IDのみ",
+      "D9": "全エラー=code+cause1行(Hub tracing+ブラウザconsole)。panic禁止",
+      "D10": "default=不変リセット原本/writing01=改造用。Vol凍結は複製して次へ",
+      "D20": "text action=KEYEVENTF_UNICODE。IME状態非依存の文字注入。全角/半角記号のウリ",
+      "D24": "single盤面=13列grid(row/col/colSpan/rowSpan)。配置の正はモックのgrid指定",
+      "D22": "書込APIはkeymaps/layers/配下+スキーマ検証+.bakのみ。アップロードAPI禁止"
+    }
+  },
+  "open_threads": [
+    {"id": "OT1", "what": "背景SonnetのF1-F4(ドリフト修正/ディレクトリスキャン/reload API)実行中or完了直後。コミット未push。次セッションはgit logとDEVBOARD検証記録を確認", "next": "guardian点検→push→実機再テスト→Vol1.2凍結"},
+    {"id": "OT2", "what": "T9 VIAL型設定GUI未着手(モック②が正)。/api/formats新設が前提", "next": "F完了+実機OK後"},
+    {"id": "OT3", "what": "保留(先回り実装禁止): クリップボード10件board/記号盤アンバー色(KeyDefにzen欄追加時)/label二段のsubフィールド化/予測変換・独自辞書DB(フェーズC)/複数端末同時・権限"},
+    {"id": "OT4", "what": "ipad実機での英数⇄日本語(ALT+GRAVE)と記号盤text入力の動作確認が未報告", "next": "ユーザー実機テスト結果を聞く"},
+    {"id": "OT5", "what": "ControlDeck(APP_ControlDeck)はCODEX担当の別アプリ。wiring v0.2指示済みのまま。相互不可侵"}
+  ],
+  "product_loop": {
+    "flow": ["観察/着想", "提案書brief/proposals/P-###.md(explorer)", "FABLE裁定→D番号化", "モック(planner-html-mockupスキル)", "設計5点セット", "Sonnet実装", "guardian点検", "Opus検証", "Vol凍結(keymap_<id>_volNN+gitタグ)", "次Vol"],
+    "promotion_gate": ["MVP完成", "利用場面1つ", "受入基準先行", "既存Protocol内", "10日粒度"],
+    "artifact_rule": "全工程の成果物をリポジトリのファイルに残す=文脈ゼロ再開可能"
+  },
+  "new_surface_checklist": ["CLAUDE.mdに不変条件追記", "guardianに回帰スモーク1行追記", "モック+スキーマ+設計D作成", "その後で実装", "agent定義本体は薄く保つ(知識はCLAUDE.md/設計書へ集約)"],
+  "verification_recipes": {
+    "quick": "cargo test --workspace(基準49+)+cargo run -p proto-hub起動+curl /ipad=200,/=200,ws無token=401",
+    "e2e_inject": "Node組込WebSocketでkey.press注入(scratchpadのws_probe.mjs方式)。errorフレーム0=SendInput受理",
+    "layout": "javascript_toolでdocument.body.scrollWidth===window.innerWidth(横はみ出し0)",
+    "freeze_check": "git diff <base>..HEAD --stat -- crates/hub-core brief/ =0行"
+  },
+  "repo_facts": {
+    "github": "https://github.com/SHUNSUKE-Ks/APP_KeyDeck01(main)",
+    "independent_from": "C:/00_master(親repoではuntracked扱い。書き込み不可侵)",
+    "port": 8770, "launcher": "start_hub.cmd",
+    "mock_archive": "C:/00_master/MockUp/APP_KeyDeck01/"
+  }
+}
