@@ -92,3 +92,10 @@
 ## 差し戻し（SR）
 
 `brief/spec_return_log.md` 参照。現在0件。
+
+### 2026-07-20 T7/T8受け入れ（FABLE守護点検 PASS）
+
+- Sonnet実装（コミット `99ad9db` T7 / `2265db1` T8）をFABLEが独立点検: 凍結領域差分0（hub-core/設計書/モック）・default原本のキー定義保全・`cargo test --workspace`=**49 passed**（7+28+8+6）を再実行確認・起動スモーク（/ipad=200, /=200, token無しWS=401, /api/qr?target=ipad=200）
+- SR-001裁定済み: ①label"\n"二段規約=承認 ②記号盤アンバー強調はT9送り ③K410-412の全角割当は意図どおり（typoではない）
+- 統治導入: `CLAUDE.md`（全AI規則）＋`.claude/agents/keydeck-guardian.md`（守護agent）＋`start_hub.cmd`
+- **次: 一枚キーボードの実機テスト**（start_hub.cmd → PCで `/` → ヘッダQRボタン → iPad/AndroidのカメラでQR読取 → /ipad）
