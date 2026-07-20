@@ -1,4 +1,4 @@
-//! WSルーティング・メッセージ処理・エラー整形（D6/D9/D10/D11）。
+//! WSルーティング・メッセージ処理・エラー整形（D6/D9/D10/D11、T8でipad面を追加）。
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
@@ -13,12 +13,22 @@ use tower_http::services::ServeFile;
 
 use crate::error::*;
 use crate::protocol::{ClientMessage, LayerStateWire, ServerMessage, SurfaceConfig};
-use crate::state::{canonical_command_id, AdapterJob, ClientId, SharedState};
-use proto_keymap::{resolve, Action, Edge, Resolved};
+use crate::state::{
+    canonical_command_id, AdapterJob, ClientId, HubState, SharedState, SurfaceKind, IPAD_KEYMAP_ID,
+};
+use proto_keymap::{resolve, Action, Edge, Keymap, LayerState, Resolved};
 
 #[derive(Debug, Deserialize)]
 pub struct TokenQuery {
     pub token: Option<String>,
+}
+
+/// T8: `/ws?token=...&surface=ipad` でipad面として接続する。省略時は従来どおり
+/// 分割/Deckの共有state（active_keymap_id/layer_state）を使うSplit面として扱う。
+#[derive(Debug, Deserialize)]
+pub struct WsQuery {
+    pub token: Option<String>,
+    pub surface: Option<String>,
 }
 
 pub fn router(state: SharedState) -> Router {
@@ -29,16 +39,18 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/deck/export", get(deck_export))
         .route_service("/kb", ServeFile::new("static/kb.html"))
         .route_service("/deck", ServeFile::new("static/deck.html"))
+        .route_service("/ipad", ServeFile::new("static/ipad.html"))
         .with_state(state)
 }
 
-/// D12: 手でURL/tokenを入力しなくて済むよう、QRコード付きのランディングページを出す。
+/// D12/D25: 手でURL/tokenを入力しなくて済むよう、QRコード付きのランディングページを出す。
 /// token自体はこのページのHTML/JSには一切埋め込まない（QR画像は`/api/qr`が都度生成する）。
 async fn index_page(State(state): State<SharedState>) -> Response {
     let targets = [
         ("kb-left", "分割キーボード（左手）"),
         ("kb-right", "分割キーボード（右手）"),
         ("deck", "Stream Deck"),
+        ("ipad", "iPad一枚キーボード（Vol1.2）"),
     ];
     let mut cards = String::new();
     for (target, label) in targets {
@@ -111,18 +123,18 @@ async fn qr_image(State(state): State<SharedState>, Query(query): Query<QrQuery>
     }
 }
 
-fn token_ok(state: &SharedState, query: &TokenQuery) -> bool {
+fn token_ok(state: &SharedState, token: Option<&str>) -> bool {
     let s = state.lock().unwrap();
-    query.token.as_deref().is_some_and(|candidate| s.token.is_valid(candidate))
+    token.is_some_and(|candidate| s.token.is_valid(candidate))
 }
 
 async fn ws_handler(
     State(state): State<SharedState>,
-    Query(query): Query<TokenQuery>,
+    Query(query): Query<WsQuery>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     // [T3-2] token検証。切断ではなく、まだ確立していないアップグレード自体を401で拒否する。
-    if !token_ok(&state, &query) {
+    if !token_ok(&state, query.token.as_deref()) {
         tracing::error!(
             chk = "T3-2",
             code = WS_TOKEN_INVALID,
@@ -131,12 +143,13 @@ async fn ws_handler(
         );
         return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
     }
-    tracing::info!(chk = "T3-2", "websocket upgrade authorized");
-    upgrade.on_upgrade(move |socket| handle_socket(socket, state))
+    let surface = SurfaceKind::from_query(query.surface.as_deref());
+    tracing::info!(chk = "T3-2", ?surface, "websocket upgrade authorized");
+    upgrade.on_upgrade(move |socket| handle_socket(socket, state, surface))
 }
 
 async fn deck_export(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
-    if !token_ok(&state, &query) {
+    if !token_ok(&state, query.token.as_deref()) {
         tracing::error!(code = WS_TOKEN_INVALID, "rejecting deck export request");
         return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
     }
@@ -157,7 +170,7 @@ async fn deck_export(State(state): State<SharedState>, Query(query): Query<Token
         .into_response()
 }
 
-async fn handle_socket(socket: WebSocket, state: SharedState) {
+async fn handle_socket(socket: WebSocket, state: SharedState, surface: SurfaceKind) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
@@ -165,10 +178,10 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         let mut s = state.lock().unwrap();
         let id = s.next_client_id;
         s.next_client_id += 1;
-        s.clients.insert(id, tx.clone());
+        s.register_client(id, tx.clone(), surface);
         id
     };
-    tracing::info!(chk = "T3-3", client_id, "client connected");
+    tracing::info!(chk = "T3-3", client_id, ?surface, "client connected");
 
     let forward_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
@@ -178,11 +191,11 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         }
     });
 
-    send_surface_config_to(&state, client_id);
+    send_surface_config_to(&state, client_id, surface);
 
     while let Some(Ok(message)) = receiver.next().await {
         match message {
-            Message::Text(text) => handle_client_text(&state, client_id, text.as_str()).await,
+            Message::Text(text) => handle_client_text(&state, client_id, surface, text.as_str()).await,
             Message::Close(_) => break,
             _ => {}
         }
@@ -190,7 +203,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 
     {
         let mut s = state.lock().unwrap();
-        s.clients.remove(&client_id);
+        s.unregister_client(client_id);
     }
     forward_task.abort();
     tracing::info!(chk = "T3-3", client_id, "client disconnected");
@@ -198,7 +211,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 
 // ── メッセージ処理 [T3-3] ────────────────────────────────────
 
-async fn handle_client_text(state: &SharedState, client_id: ClientId, text: &str) {
+async fn handle_client_text(state: &SharedState, client_id: ClientId, surface: SurfaceKind, text: &str) {
     let parsed: Result<ClientMessage, _> = serde_json::from_str(text);
     let message = match parsed {
         Ok(message) => message,
@@ -217,21 +230,46 @@ async fn handle_client_text(state: &SharedState, client_id: ClientId, text: &str
 
     match message {
         ClientMessage::KeyPress { key_id, edge } => {
-            handle_key_press(state, client_id, &key_id, edge.into()).await
+            handle_key_press(state, client_id, surface, &key_id, edge.into()).await
         }
         ClientMessage::DeckPress { slot_id } => handle_deck_press(state, client_id, &slot_id).await,
     }
 }
 
-async fn handle_key_press(state: &SharedState, client_id: ClientId, key_id: &str, edge: Edge) {
+/// T8: どのkeymap/layer_stateを使うかはsurfaceで決まる。Ipadは常にIPAD_KEYMAP_ID＋
+/// 専用のipad_layer_state（分割/Deckのactive系とは独立）、それ以外は従来どおり
+/// active_keymap_id＋layer_state（G2の分割同期はここで維持される）。
+fn resolve_for_surface(s: &mut HubState, surface: SurfaceKind, key_id: &str, edge: Edge) -> Resolved {
+    match surface {
+        SurfaceKind::Ipad => {
+            let keymap: Keymap = s
+                .keymaps
+                .get(IPAD_KEYMAP_ID)
+                .expect("ipad01_vol12 keymap is always loaded at startup (checked in main.rs)")
+                .clone();
+            resolve(&keymap, &mut s.ipad_layer_state, key_id, edge)
+        }
+        SurfaceKind::Split => {
+            let keymap: Keymap = s
+                .keymaps
+                .get(&s.active_keymap_id)
+                .expect("active_keymap_id always refers to a loaded keymap")
+                .clone();
+            resolve(&keymap, &mut s.layer_state, key_id, edge)
+        }
+    }
+}
+
+async fn handle_key_press(
+    state: &SharedState,
+    client_id: ClientId,
+    surface: SurfaceKind,
+    key_id: &str,
+    edge: Edge,
+) {
     let resolved = {
         let mut s = state.lock().unwrap();
-        let keymap = s
-            .keymaps
-            .get(&s.active_keymap_id)
-            .expect("active_keymap_id always refers to a loaded keymap")
-            .clone();
-        resolve(&keymap, &mut s.layer_state, key_id, edge)
+        resolve_for_surface(&mut s, surface, key_id, edge)
     };
 
     match resolved {
@@ -255,10 +293,13 @@ async fn handle_key_press(state: &SharedState, client_id: ClientId, key_id: &str
         Resolved::LayerChanged => {
             let wire = {
                 let s = state.lock().unwrap();
-                LayerStateWire::from(&s.layer_state)
+                match surface {
+                    SurfaceKind::Ipad => LayerStateWire::from(&s.ipad_layer_state),
+                    SurfaceKind::Split => LayerStateWire::from(&s.layer_state),
+                }
             };
-            tracing::info!(chk = "T3-3", ?wire, "layer state changed; broadcasting");
-            broadcast(state, &ServerMessage::LayerState(wire));
+            tracing::info!(chk = "T3-3", ?surface, ?wire, "layer state changed; broadcasting");
+            broadcast_layer_state(state, surface, &wire);
         }
         Resolved::Fire(action) => fire_action(state, client_id, action).await,
     }
@@ -288,7 +329,7 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
     match &action {
         Action::KeymapSwitch { id } => switch_keymap(state, client_id, id.clone()).await,
         Action::KeymapReset => switch_keymap(state, client_id, "default".to_string()).await,
-        Action::Key { .. } | Action::Chord { .. } => {
+        Action::Key { .. } | Action::Chord { .. } | Action::Text { .. } => {
             let Some(command_id) = canonical_command_id(&action) else {
                 emit_error(
                     state,
@@ -357,12 +398,12 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
             }
         }
         other => unreachable!(
-            "resolve() only Fires Key/Chord/KeymapSwitch/KeymapReset; got {other:?}"
+            "resolve() only Fires Key/Chord/Text/KeymapSwitch/KeymapReset; got {other:?}"
         ),
     }
 }
 
-// ── D10: keymap切替 ─────────────────────────────────────────
+// ── D10: keymap切替（Split面のみ。ipad面はIPAD_KEYMAP_ID固定で独立） ──────────
 
 async fn switch_keymap(state: &SharedState, client_id: ClientId, target_id: String) {
     let exists = {
@@ -386,19 +427,32 @@ async fn switch_keymap(state: &SharedState, client_id: ClientId, target_id: Stri
         s.active_keymap_id = target_id;
         s.layer_state.reset();
     }
-    tracing::info!(chk = "T3-4", "keymap switched; broadcasting surface.config");
-    broadcast_surface_config(state);
+    tracing::info!(chk = "T3-4", "keymap switched; broadcasting surface.config to split/deck clients");
+    broadcast_surface_config_for(state, SurfaceKind::Split);
 }
 
 // ── 送信ヘルパー ─────────────────────────────────────────────
 
-fn surface_config_json(state: &SharedState) -> Option<String> {
+/// surfaceに応じたsurface.config JSON文字列を組み立てる。IpadはIPAD_KEYMAP_ID固定・
+/// ipad_layer_state、Splitは従来どおりactive_keymap_id・layer_state。
+fn surface_config_json_for(state: &SharedState, surface: SurfaceKind) -> Option<String> {
     let s = state.lock().unwrap();
-    let keymap = s.keymaps.get(&s.active_keymap_id)?;
+    let (keymap_id, keymap, layer): (&str, &Keymap, LayerState) = match surface {
+        SurfaceKind::Ipad => (
+            IPAD_KEYMAP_ID,
+            s.keymaps.get(IPAD_KEYMAP_ID)?,
+            s.ipad_layer_state.clone(),
+        ),
+        SurfaceKind::Split => (
+            s.active_keymap_id.as_str(),
+            s.keymaps.get(&s.active_keymap_id)?,
+            s.layer_state.clone(),
+        ),
+    };
     let message = ServerMessage::SurfaceConfig(SurfaceConfig {
-        active_keymap_id: &s.active_keymap_id,
+        active_keymap_id: keymap_id,
         keymap,
-        layer: LayerStateWire::from(&s.layer_state),
+        layer: LayerStateWire::from(&layer),
         deck: &s.deck,
     });
     match serde_json::to_string(&message) {
@@ -410,38 +464,34 @@ fn surface_config_json(state: &SharedState) -> Option<String> {
     }
 }
 
-fn send_surface_config_to(state: &SharedState, client_id: ClientId) {
-    let Some(text) = surface_config_json(state) else {
+fn send_surface_config_to(state: &SharedState, client_id: ClientId, surface: SurfaceKind) {
+    let Some(text) = surface_config_json_for(state, surface) else {
         return;
     };
     let s = state.lock().unwrap();
-    if let Some(tx) = s.clients.get(&client_id) {
-        let _ = tx.send(Message::Text(text.into()));
-    }
+    s.send_to(client_id, Message::Text(text.into()));
 }
 
-fn broadcast_surface_config(state: &SharedState) {
-    let Some(text) = surface_config_json(state) else {
+/// `surface`に該当するクライアント全員へsurface.configを再配信する（keymap.switch/reset時）。
+fn broadcast_surface_config_for(state: &SharedState, surface: SurfaceKind) {
+    let Some(text) = surface_config_json_for(state, surface) else {
         return;
     };
     let s = state.lock().unwrap();
-    for tx in s.clients.values() {
-        let _ = tx.send(Message::Text(text.clone().into()));
-    }
+    s.broadcast_to(surface, &text);
 }
 
-fn broadcast(state: &SharedState, message: &ServerMessage<'_>) {
-    let text = match serde_json::to_string(message) {
+/// `surface`に該当するクライアントのみへlayer.stateを配信する（分割とipadを混線させない）。
+fn broadcast_layer_state(state: &SharedState, surface: SurfaceKind, wire: &LayerStateWire) {
+    let text = match serde_json::to_string(&ServerMessage::LayerState(wire.clone())) {
         Ok(text) => text,
         Err(error) => {
-            tracing::error!(code = INTERNAL, cause = %error, "failed to serialize broadcast message");
+            tracing::error!(code = INTERNAL, cause = %error, "failed to serialize layer.state broadcast");
             return;
         }
     };
     let s = state.lock().unwrap();
-    for tx in s.clients.values() {
-        let _ = tx.send(Message::Text(text.clone().into()));
-    }
+    s.broadcast_to(surface, &text);
 }
 
 /// [T3-5] D9のエラー整形の要。Hub側は1行ログ、クライアント側にはerrorフレームを送る。
@@ -467,7 +517,5 @@ fn emit_error(
         }
     };
     let s = state.lock().unwrap();
-    if let Some(tx) = s.clients.get(&client_id) {
-        let _ = tx.send(Message::Text(text.into()));
-    }
+    s.send_to(client_id, Message::Text(text.into()));
 }

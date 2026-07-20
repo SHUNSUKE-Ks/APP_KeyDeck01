@@ -18,6 +18,14 @@
 //! 3. panic禁止（D9）。未対応Action（Mo/Tg/Trans等が来たら）AdapterError::Unsupported。
 //!    ※ 本来Hub側で弾かれて到達しないが、防御として。
 //!
+//! ── T8: Text Action（D20。v0.4のkeymap_design_v0.4.md D20）─────────────
+//! 4. [T8-1] Text{string}: KEYEVENTF_UNICODEでIME状態に依存せず文字列を直接注入する。
+//!    - vk辞書は使わない（wVk=0、wScanにUTF-16コード単位を積む方式）。
+//!    - サロゲートペア対応: `str::encode_utf16()`でUTF-16コード単位に分解し、
+//!      各コード単位ごとにdown→upを1組ずつ送出する（絵文字等の非BMP文字も1組の
+//!      サロゲートペア=2組のdown/upとして機械的に扱える）。
+//!    - 既存のkey/chord経路（vk辞書ベース）はいっさい変更しない。
+//!
 //! ── smoke（T2完了の目印）────────────────────────────────────
 //! 自動`cargo test`の中では実際にSendInputを呼ばない（フォーカス中の任意ウィンドウへ本物の
 //! キーが飛んでしまうため、CI・通常のテスト実行では危険）。代わりに手動実行用のバイナリ
@@ -110,11 +118,12 @@ pub fn vk_code(vk: &str) -> Option<u16> {
 // [T2-2] send(action)
 // ============================================================================
 
-/// D4のActionをOSへ送出する。Key/Chord以外はUnsupported（防御。呼び出し側で弾かれる想定）。
+/// D4のActionをOSへ送出する。Key/Chord/Text以外はUnsupported（防御。呼び出し側で弾かれる想定）。
 pub fn send(action: &Action) -> Result<(), AdapterError> {
     match action {
         Action::Key { vk } => send_key(vk),
         Action::Chord { keys } => send_chord(keys),
+        Action::Text { string } => send_text(string),
         other => Err(AdapterError::Unsupported {
             cause: format!("action cannot be sent to the OS: {other:?}"),
         }),
@@ -166,6 +175,21 @@ fn send_chord(keys: &[String]) -> Result<(), AdapterError> {
     main_result
 }
 
+/// [T8-1] D20: KEYEVENTF_UNICODEで文字列を直接注入する。vk辞書は経由しない。
+/// サロゲートペア対応のためUTF-16コード単位ごとにdown→upを1組ずつ送出する。
+fn send_text(string: &str) -> Result<(), AdapterError> {
+    if string.is_empty() {
+        return Err(AdapterError::Unsupported {
+            cause: "text action string must not be empty".into(),
+        });
+    }
+    for code_unit in string.encode_utf16() {
+        press_unicode(code_unit)?;
+        release_unicode(code_unit)?;
+    }
+    Ok(())
+}
+
 fn resolve_code(vk: &str) -> Result<u16, AdapterError> {
     if !is_known_vk(vk) {
         // proto-keymapのロード検証を通っていればここには来ないはずだが、防御的に扱う。
@@ -201,10 +225,22 @@ fn release(code: u16, vk_name: &str) -> Result<(), AdapterError> {
 }
 
 #[cfg(windows)]
+fn press_unicode(code_unit: u16) -> Result<(), AdapterError> {
+    win::send_unicode(code_unit, false)
+        .map_err(|cause| AdapterError::SendFailed { cause: format!("text U+{code_unit:04X}: {cause}") })
+}
+
+#[cfg(windows)]
+fn release_unicode(code_unit: u16) -> Result<(), AdapterError> {
+    win::send_unicode(code_unit, true)
+        .map_err(|cause| AdapterError::SendFailed { cause: format!("text U+{code_unit:04X}: {cause}") })
+}
+
+#[cfg(windows)]
 mod win {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-        VIRTUAL_KEY,
+        KEYEVENTF_UNICODE, VIRTUAL_KEY,
     };
 
     pub fn send_vk(vk: u16, key_up: bool) -> Result<(), String> {
@@ -219,6 +255,33 @@ mod win {
                 ki: KEYBDINPUT {
                     wVk: VIRTUAL_KEY(vk),
                     wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        if sent != 1 {
+            return Err(format!("SendInput returned {sent}, expected 1"));
+        }
+        Ok(())
+    }
+
+    /// D20: KEYEVENTF_UNICODE。wVkは0固定・wScanにUTF-16コード単位を積む
+    /// （windows crateのKEYBDINPUT.wScan経由。IME状態に依存しない直接注入）。
+    pub fn send_unicode(code_unit: u16, key_up: bool) -> Result<(), String> {
+        let mut flags = KEYEVENTF_UNICODE;
+        if key_up {
+            flags |= KEYEVENTF_KEYUP;
+        }
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: code_unit,
                     dwFlags: flags,
                     time: 0,
                     dwExtraInfo: 0,
@@ -251,6 +314,20 @@ fn release(code: u16, vk_name: &str) -> Result<(), AdapterError> {
     let _ = code;
     dummy_log();
     let _ = vk_name;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn press_unicode(code_unit: u16) -> Result<(), AdapterError> {
+    let _ = code_unit;
+    dummy_log();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn release_unicode(code_unit: u16) -> Result<(), AdapterError> {
+    let _ = code_unit;
+    dummy_log();
     Ok(())
 }
 
@@ -333,6 +410,13 @@ mod tests {
         assert!(matches!(error, AdapterError::Unsupported { .. }));
     }
 
+    // [T8-1] D20: 空文字列のtextはUnsupported（送出する内容が無いため）。
+    #[test]
+    fn t8_1_empty_text_action_is_unsupported_not_panic() {
+        let error = send(&Action::Text { string: String::new() }).unwrap_err();
+        assert!(matches!(error, AdapterError::Unsupported { .. }));
+    }
+
     // 非Windows環境（CI等）ではKey/Chordの送出がダミーとして成功することを確認する。
     // Windows実機ではsend()が実際にSendInputを呼ぶため、このテストはここでは実行しない
     // （実機smokeは examples/smoke_notepad.rs を手動実行すること）。
@@ -344,5 +428,16 @@ mod tests {
             keys: vec!["CTRL".into(), "S".into()]
         })
         .is_ok());
+    }
+
+    // [T8-1] 非Windows環境ではtext送出もダミーとして成功する。全角記号・非BMP文字
+    // （サロゲートペア）を含めて、encode_utf16の分解経路がpanicしないことを確認する。
+    #[cfg(not(windows))]
+    #[test]
+    fn t8_1_dummy_backend_reports_success_for_text_including_surrogate_pairs() {
+        assert!(send(&Action::Text { string: "(".into() }).is_ok());
+        assert!(send(&Action::Text { string: "。、「」".into() }).is_ok());
+        // 🎉 U+1F389 は非BMP文字でありUTF-16ではサロゲートペア(2コード単位)になる。
+        assert!(send(&Action::Text { string: "🎉".into() }).is_ok());
     }
 }

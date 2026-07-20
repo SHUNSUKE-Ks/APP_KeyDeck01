@@ -1,0 +1,48 @@
+{
+  "layer": 2,
+  "description": "記号レイヤー（D19/D20）。K513(TG)でここへ切替・もう一度で戻る。screen_mock_v0.4.htmlのdata-sym属性の値をそのままtextアクションで送出する（IME全角/半角状態に関係なく指定どおりの文字を注入。D20）。ここで触れないキー（Tab/Enter/Ctrl/Space/Shift/Bksp/Fn/英数⇄日本語/記号自身/空ボタン）はlayer0へフォールスルーする。",
+  "keys": {
+    "K102": { "label": "。", "action": { "t": "text", "string": "。" } },
+    "K103": { "label": "、", "action": { "t": "text", "string": "、" } },
+    "K104": { "label": "？", "action": { "t": "text", "string": "？" } },
+    "K105": { "label": "！", "action": { "t": "text", "string": "！" } },
+    "K106": { "label": "「", "action": { "t": "text", "string": "「" } },
+    "K107": { "label": "」", "action": { "t": "text", "string": "」" } },
+    "K108": { "label": "・", "action": { "t": "text", "string": "・" } },
+    "K109": { "label": "ー", "action": { "t": "text", "string": "ー" } },
+    "K110": { "label": "：", "action": { "t": "text", "string": "：" } },
+    "K111": { "label": "…", "action": { "t": "text", "string": "…" } },
+
+    "K203": { "label": "(", "action": { "t": "text", "string": "(" } },
+    "K204": { "label": ")", "action": { "t": "text", "string": ")" } },
+    "K205": { "label": "{", "action": { "t": "text", "string": "{" } },
+    "K206": { "label": "}", "action": { "t": "text", "string": "}" } },
+    "K207": { "label": "<", "action": { "t": "text", "string": "<" } },
+    "K208": { "label": ">", "action": { "t": "text", "string": ">" } },
+    "K209": { "label": "[", "action": { "t": "text", "string": "[" } },
+    "K210": { "label": "]", "action": { "t": "text", "string": "]" } },
+    "K211": { "label": "=", "action": { "t": "text", "string": "=" } },
+    "K212": { "label": "_", "action": { "t": "text", "string": "_" } },
+
+    "K303": { "label": "/", "action": { "t": "text", "string": "/" } },
+    "K304": { "label": "*", "action": { "t": "text", "string": "*" } },
+    "K305": { "label": "+", "action": { "t": "text", "string": "+" } },
+    "K306": { "label": "-", "action": { "t": "text", "string": "-" } },
+    "K307": { "label": "#", "action": { "t": "text", "string": "#" } },
+    "K308": { "label": "\"", "action": { "t": "text", "string": "\"" } },
+    "K309": { "label": "'", "action": { "t": "text", "string": "'" } },
+    "K310": { "label": "&", "action": { "t": "text", "string": "&" } },
+    "K311": { "label": "%", "action": { "t": "text", "string": "%" } },
+
+    "K403": { "label": "@", "action": { "t": "text", "string": "@" } },
+    "K404": { "label": "~", "action": { "t": "text", "string": "~" } },
+    "K405": { "label": "|", "action": { "t": "text", "string": "|" } },
+    "K406": { "label": "¥", "action": { "t": "text", "string": "¥" } },
+    "K407": { "label": "^", "action": { "t": "text", "string": "^" } },
+    "K408": { "label": "$", "action": { "t": "text", "string": "$" } },
+    "K409": { "label": ";", "action": { "t": "text", "string": ";" } },
+    "K410": { "label": "：", "action": { "t": "text", "string": "：" } },
+    "K411": { "label": "；", "action": { "t": "text", "string": "；" } },
+    "K412": { "label": "〜", "action": { "t": "text", "string": "〜" } }
+  }
+}

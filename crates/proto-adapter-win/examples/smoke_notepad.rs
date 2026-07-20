@@ -30,4 +30,14 @@ fn main() {
         Ok(()) => println!("  OK（保存ダイアログが開いたか確認してください。閉じてOK）"),
         Err(error) => println!("  失敗: {error}"),
     }
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    println!("送出: Text \"(「。\" (D20: KEYEVENTF_UNICODE。IME全角/半角状態に関係なく指定どおりに入るはず)");
+    match proto_adapter_win::send(&Action::Text {
+        string: "(「。".into(),
+    }) {
+        Ok(()) => println!("  OK（メモ帳に '(「。' がそのまま入力されたか確認してください）"),
+        Err(error) => println!("  失敗: {error}"),
+    }
 }

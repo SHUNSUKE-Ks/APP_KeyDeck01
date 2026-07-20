@@ -4,43 +4,380 @@
   ipad.html — iPad一枚キーボード面（T8）。素のHTML+JSのみ（D2）。
   URL: /ipad?token=…
 
-  ■ 見た目の正（必ず踏襲すること）
-    brief/mockup/screen_mock_v0.3.html の「① ipad01 キーボード」画面。
-    配色トークン(:rootのCSS変数)・キー角丸/間隔・empty/pressed/layer1の状態表現・
-    幅係数(w15/w2/w3相当)・下部固定レイアウトをそのまま移植する。
-    配置の正: brief/ref_ipad_keyboard_parts_v1.md（A＋B表）
+  ■ 見た目の正
+    brief/mockup/screen_mock_v0.4.html の「① キーボード Vol1.2」画面。
+    :rootトークン・.kbgrid（13列グリッド）・.key状態表現はそのまま移植（値を変えない）。
+    配置の正: surface.config.keymap.board（D24グリッド式。row/col/colSpan/rowSpanを
+    そのままgrid-row/grid-columnへ転記する）。静的なキーをHTMLに書かない（G4）。
 
   ■ kb.htmlとの関係
     描画・WS・エラー処理の骨格はkb.htmlと同一規則（D6/D9、[KD][T4-*]ログ書式）。
-    違いは以下のみ:
-    - surface.config の keymap.kind === "single" のとき board.rows を描画
-      （rows: [[{id, w}]]。wはflex-growに反映。省略時1.0）
-    - ラベル二段表示: KeyDefのlabelに小書き文字が要る場合は "sub\nmain" 形式か
-      label/subLabelの扱いをT7のスキーマに従う（勝手に発明せずSR起票）
-    - ヘッダに 取り消し(↺)=chord CTRL+Z / 進む(↻)=chord CTRL+Y のボタン。
-      これはkeyIdではなくDeckと同じくHub側で解決するか、ipad01キーマップの
-      ヘッダ用keyIdとして定義する（設計書T8参照。キーマップ定義済みのkeyIdを使うこと）
-    - キーボードは position:fixed; bottom:0。上部余白は対象アプリの表示領域想定
+    違いはkeymap.kind==="single"のboardをグリッド式で描画する点と、
+    ヘッダに取り消し(↺=H01/CTRL+Z)・進む(↻=H02/CTRL+Y)・QRボタン(D25)・
+    状態ボタン(D26)を持つ点。
 
-  ■ 挙動・エラー処理
-    kb.htmlの■挙動/■エラー処理と同一（pointerdown/up送信・layer.state受信で
-    ラベル再解決・errorフレームは必ずconsole.error）。
+  ■ 挙動
+    - WS接続は `/ws?token=…&surface=ipad` （T8: ipad面は分割/Deckのactive系とは
+      独立のkeymap=ipad01_vol12固定・専用layer_stateをHub側で使う）。
+    - pointerdown/up送信・layer.state受信でラベル再解決・errorフレームは必ずconsole.error。
+    - H01/H02はboard外のヘッダ専用keyId（キーマップのlayer0に定義済み。盤面には出ない）。
   ============================================================ -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>KeyDeck — iPad</title>
   <style>
-    /* TODO(T8): モックの:rootトークンとキーCSSを移植（値を変えない） */
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel-lit:#232b48; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+      --ink-dim:#4b5468; --empty:#161c30; --accent:#2d67d9; --accent-soft:#24478f;
+      --ok:#35c47a; --err:#e2555a; --line:#2d3550; --key-radius:10px; --key-gap:7px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+
+    /* ===== ヘッダ（D25/D26） ===== */
+    .ipad-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+    .ipad-head h1 { font-size: 15px; margin: 0; font-weight: 600; }
+    .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent); }
+    .head-btn {
+      min-width: 48px; min-height: 40px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel); color: var(--ink); font: inherit; font-size: 16px;
+    }
+    .head-btn:active { background: var(--accent); }
+    .spacer { flex: 1; }
+    /* D26: 接続ドットを状態ボタンに昇格。色だけに頼らずラベル併記。タップで再接続試行 */
+    #statusBtn {
+      display: flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+      border-radius: 999px; background: var(--panel); color: var(--ink); font: inherit;
+      font-size: 12px; padding: 5px 12px 5px 8px;
+    }
+    #statusBtn .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-dim); display: inline-block; }
+    #statusBtn.connected .dot { background: var(--ok); }
+    #statusBtn.disconnected .dot { background: var(--err); }
+    /* D25: ヘッダ右隅のQRボタン */
+    #qrOpenBtn {
+      min-width: 44px; min-height: 40px; border: 0; border-radius: 8px;
+      background: var(--accent); color: #fff; font: inherit; font-size: 13px; padding: 0 12px;
+    }
+
+    /* ===== キーボード本体（Vol1.2。screen_mock_v0.4.htmlの①から移植・値は不変） ===== */
+    .kbwrap { margin-top: auto; padding: 8px; background: #0c1120; border-top: 1px solid var(--line); }
+    .kbgrid { display: grid; grid-template-columns: repeat(13, 1fr); grid-auto-rows: 60px; gap: var(--key-gap); }
+    .key {
+      border: 0; border-radius: var(--key-radius); background: var(--panel); color: var(--ink);
+      font: inherit; font-size: 16px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; line-height: 1.1; touch-action: manipulation; user-select: none; padding: 2px;
+    }
+    .key small { font-size: 10px; color: var(--ink-muted); }
+    .key:active, .key.pressed { background: var(--accent); }
+    .key[data-empty="true"] { background: var(--empty); color: var(--ink-dim); }
+    .key[data-empty="true"]:active { background: var(--empty); }
+    .key.fn { background: var(--accent-soft); }
+    body.layer-active .key { background: var(--panel-lit); }
+    body.layer-active .key:active { background: var(--accent); }
+    /* 記号レイヤー(layer 2)がtoggled中は地色を変えて「今は記号盤」と分かるようにする（D19） */
+    body.sym .key { background: #20304f; }
+    body.sym .key[data-empty="true"] { background: var(--empty); }
+    body.sym .key.fn { background: var(--accent); }
+
+    footer[role="status"] { padding: 6px 14px 10px; font-size: 12px; color: var(--ink-muted); min-height: 16px; }
+    footer.error { color: #ff8a8a; }
+
+    /* ===== QRモーダル（D25。1画面1QR） ===== */
+    #qrModal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,14,.88); z-index: 10; }
+    #qrModal.on { display: flex; }
+    .qr-card { background: var(--panel); border-radius: 16px; padding: 24px; text-align: center; }
+    .qr-card img { width: 300px; height: 300px; background: #fff; border-radius: 10px; display: block; margin: 0 auto; }
+    .qr-close { margin-top: 16px; min-width: 120px; min-height: 44px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; }
   </style>
 </head>
 <body>
-  <header><!-- TODO(T8): ↺ ↻ / タイトル / Layerバッジ / 接続ドット --></header>
-  <main id="grid" aria-label="ipad keyboard"><!-- TODO(T8): surface.configから動的生成 --></main>
+  <header class="ipad-head">
+    <button class="head-btn" id="undoBtn" aria-label="取り消し">↺</button>
+    <button class="head-btn" id="redoBtn" aria-label="進む">↻</button>
+    <h1 id="title">KeyDeck — iPad</h1>
+    <span class="badge" id="layerBadge">Layer 0</span>
+    <span class="spacer"></span>
+    <button id="statusBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="statusLabel">未接続</span></button>
+    <button id="qrOpenBtn" type="button">QR</button>
+  </header>
+
+  <div class="kbwrap">
+    <div class="kbgrid" id="grid" aria-label="ipad keyboard"></div>
+  </div>
+
   <footer role="status" id="status"></footer>
+
+  <div id="qrModal">
+    <div class="qr-card">
+      <h2>ipad01_vol12</h2>
+      <img src="/api/qr?target=ipad" alt="QR: ipad01_vol12">
+      <button class="qr-close" id="qrCloseBtn">閉じる</button>
+    </div>
+  </div>
+
   <script>
-    // TODO(T8): kb.htmlの実装を流用し、kind==="single"のboard描画とw対応を追加。
-    // [KD][T4-*]チェックポイントIDは踏襲。静的なキーをHTMLに書かないこと（G4）。
+    // ---- 起動時の文脈 --------------------------------------------------
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+
+    const statusEl = document.getElementById("status");
+    const statusBtnEl = document.getElementById("statusBtn");
+    const statusLabelEl = document.getElementById("statusLabel");
+    const gridEl = document.getElementById("grid");
+    const layerBadgeEl = document.getElementById("layerBadge");
+    const titleEl = document.getElementById("title");
+
+    let socket = null;
+    let surfaceConfig = null; // 直近受信したsurface.config
+    let layerState = { momentary: [], toggled: [] };
+    let reconnectTimer = null;
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") {
+        console.error(line, context ?? "");
+      } else {
+        console.info(line, context ?? "");
+      }
+    }
+
+    function setStatus(text, isError) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", !!isError);
+    }
+
+    function setConnectionBadge(connected) {
+      statusBtnEl.classList.toggle("connected", connected);
+      statusBtnEl.classList.toggle("disconnected", !connected);
+      statusLabelEl.textContent = connected ? "接続中" : "切断・タップで再接続";
+    }
+
+    // ---- 描画 ------------------------------------------------------------
+
+    // D3と同じ規則をクライアント側でも適用してラベルを引く（発火判定は必ずHub側=表示専用）。
+    function resolveDisplay(keyId) {
+      if (!surfaceConfig) return null;
+      const active = new Set([0, ...layerState.momentary, ...layerState.toggled]);
+      const ordered = [...active].sort((a, b) => b - a);
+      for (const layerId of ordered) {
+        const layer = surfaceConfig.keymap.layers.find((l) => l.id === layerId);
+        if (!layer) continue;
+        const def = layer.keys[keyId];
+        if (def && def.action.t !== "trans") return def;
+      }
+      return null;
+    }
+
+    // labelに"\n"が含まれる場合は1行目を<small>（例: 、/。/？のヒント）、
+    // 残りをメインテキストとして表示する（KeyDef.labelの範囲内での表現。D14/D24どおり
+    // スキーマに新フィールドは追加していない）。
+    function renderLabel(btn, label) {
+      btn.textContent = "";
+      const lines = label.split("\n");
+      if (lines.length >= 2) {
+        const small = document.createElement("small");
+        small.textContent = lines[0];
+        btn.appendChild(small);
+        btn.appendChild(document.createTextNode(lines.slice(1).join("\n")));
+      } else {
+        btn.textContent = label;
+      }
+    }
+
+    function render() {
+      if (!surfaceConfig) return;
+      const board = surfaceConfig.keymap.board;
+      gridEl.innerHTML = "";
+      if (!board) {
+        log("ERR", "INTERNAL", "surface.config has no board for kind=single", surfaceConfig.keymap);
+        return;
+      }
+      for (const boardKey of board.keys) {
+        const def = resolveDisplay(boardKey.id);
+        const btn = document.createElement("button");
+        btn.className = "key";
+        btn.dataset.keyId = boardKey.id;
+        const colSpan = boardKey.colSpan || 1;
+        const rowSpan = boardKey.rowSpan || 1;
+        btn.style.gridColumn = boardKey.col + " / " + (boardKey.col + colSpan);
+        btn.style.gridRow = boardKey.row + " / " + (boardKey.row + rowSpan);
+
+        const isEmpty = !def || def.action.t === "none";
+        if (isEmpty) {
+          btn.dataset.empty = "true";
+          renderLabel(btn, "");
+        } else {
+          if (def.action.t === "mo" || def.action.t === "tg") btn.classList.add("fn");
+          renderLabel(btn, def.label);
+        }
+        bindKey(btn, boardKey.id);
+        gridEl.appendChild(btn);
+      }
+
+      const highestActive = Math.max(0, ...layerState.momentary, ...layerState.toggled);
+      const symbolActive = layerState.toggled.includes(2);
+      document.body.classList.toggle("sym", symbolActive);
+      layerBadgeEl.textContent = symbolActive ? "記号" : "Layer " + highestActive;
+      document.body.classList.toggle("layer-active", highestActive > 0);
+      titleEl.textContent = "KeyDeck — iPad (" + surfaceConfig.activeKeymapId + ")";
+    }
+
+    function setKeysEnabled(enabled) {
+      for (const btn of gridEl.querySelectorAll(".key")) {
+        btn.disabled = !enabled;
+      }
+      document.getElementById("undoBtn").disabled = !enabled;
+      document.getElementById("redoBtn").disabled = !enabled;
+    }
+
+    function bindKey(btn, keyId) {
+      const down = (event) => {
+        event.preventDefault();
+        sendPress(keyId, "down");
+      };
+      const up = (event) => {
+        event.preventDefault();
+        sendPress(keyId, "up");
+      };
+      btn.addEventListener("pointerdown", down);
+      btn.addEventListener("pointerup", up);
+      btn.addEventListener("pointercancel", up);
+      btn.addEventListener("pointerleave", up);
+    }
+
+    // ヘッダの取り消し/進むはboard外のkeyId(H01/H02)。通常キーと同じdown/up経路で送る。
+    bindKey(document.getElementById("undoBtn"), "H01");
+    bindKey(document.getElementById("redoBtn"), "H02");
+
+    // ---- 送受信 ------------------------------------------------------------
+
+    function sendPress(keyId, edge) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; key.press dropped", { keyId, edge });
+        return;
+      }
+      const message = { type: "key.press", keyId, edge };
+      socket.send(JSON.stringify(message));
+      log("T4-2", "OK", "send key.press", message);
+      if (edge === "down") {
+        setStatus(keyId + " を送信しました");
+      }
+    }
+
+    function connect() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      setStatus("接続中…");
+      socket = new WebSocket(
+        (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host +
+          "/ws?surface=ipad&token=" + encodeURIComponent(token)
+      );
+
+      socket.addEventListener("open", () => {
+        log("T4-1", "OK", "ws open (surface=ipad)");
+        setConnectionBadge(true);
+        setStatus("接続しました");
+      });
+
+      socket.addEventListener("message", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          log("ERR", "INTERNAL", "failed to parse server message: " + error, event.data);
+          return;
+        }
+        handleServerMessage(data);
+      });
+
+      socket.addEventListener("close", () => {
+        setConnectionBadge(false);
+        setKeysEnabled(false);
+        setStatus("切断中は操作できません。再接続中…");
+        log("ERR", "WS_CLOSE", "disconnected; retrying");
+        scheduleReconnect();
+      });
+
+      socket.addEventListener("error", () => {
+        // closeイベントが後続するため、ここではログのみ（二重の再接続予約はしない）。
+        log("ERR", "WS_ERROR", "websocket error event");
+      });
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, 2000);
+    }
+
+    function handleServerMessage(data) {
+      switch (data.type) {
+        case "surface.config":
+          surfaceConfig = data;
+          layerState = data.layer;
+          log("T4-1", "OK", "surface.config received", {
+            keymapId: data.activeKeymapId,
+            kind: data.keymap.kind,
+            layers: data.keymap.layers.length,
+          });
+          setKeysEnabled(true);
+          render();
+          break;
+        case "layer.state":
+          layerState = data;
+          log("T4-2", "OK", "layer.state", data);
+          render();
+          break;
+        case "error":
+          log("ERR", data.code, "cause: " + data.cause, data.context);
+          setStatus("エラー: " + data.code, true);
+          break;
+        default:
+          log("ERR", "INTERNAL", "unknown message type from server: " + data.type, data);
+      }
+    }
+
+    // D26: 状態ボタンをタップすると即時再接続を試みる（すでに接続中なら何もしない）。
+    statusBtnEl.addEventListener("click", () => {
+      if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
+        log("T4-1", "OK", "manual reconnect requested via status button");
+        connect();
+      }
+    });
+
+    // D25: QRボタン→中央モーダルに自ページのQR。閉じるで戻る（1画面1QR）。
+    document.getElementById("qrOpenBtn").addEventListener("click", () => {
+      document.getElementById("qrModal").classList.add("on");
+    });
+    document.getElementById("qrCloseBtn").addEventListener("click", () => {
+      document.getElementById("qrModal").classList.remove("on");
+    });
+
+    // ---- 例外の取りこぼし防止（T4-3） ----------------------------------
+    window.addEventListener("error", (event) => {
+      log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+    });
+
+    connect();
   </script>
 </body>
 </html>

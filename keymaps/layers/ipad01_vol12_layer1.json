@@ -1,0 +1,18 @@
+{
+  "layer": 1,
+  "description": "Fn(MO(1))のプレースホルダ最小構成。数字段にF1..F12を割当（テスト範囲は文字が打てるところまで。ユーザーが後で改造する土台）。ここで触れないキーはlayer0へフォールスルーする。",
+  "keys": {
+    "K102": { "label": "F1", "action": { "t": "key", "vk": "F1" } },
+    "K103": { "label": "F2", "action": { "t": "key", "vk": "F2" } },
+    "K104": { "label": "F3", "action": { "t": "key", "vk": "F3" } },
+    "K105": { "label": "F4", "action": { "t": "key", "vk": "F4" } },
+    "K106": { "label": "F5", "action": { "t": "key", "vk": "F5" } },
+    "K107": { "label": "F6", "action": { "t": "key", "vk": "F6" } },
+    "K108": { "label": "F7", "action": { "t": "key", "vk": "F7" } },
+    "K109": { "label": "F8", "action": { "t": "key", "vk": "F8" } },
+    "K110": { "label": "F9", "action": { "t": "key", "vk": "F9" } },
+    "K111": { "label": "F10", "action": { "t": "key", "vk": "F10" } },
+    "K112": { "label": "F11", "action": { "t": "key", "vk": "F11" } },
+    "K213": { "label": "F12", "action": { "t": "key", "vk": "F12" } }
+  }
+}

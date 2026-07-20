@@ -1,7 +1,72 @@
 {
   "keymapId": "ipad01_vol12",
   "kind": "single",
-  "description": "iPad Pro 12.9(第3世代)一枚キーボード。骨組み(T8でSonnetが完成させる)。配置の正=brief/ref_ipad_keyboard_parts_v1.md、見た目の正=brief/mockup/screen_mock_v0.3.html。boardは5行・幅係数w付き(モックのw15=1.5/w2=2/w3=3に一致させる)。keyIdはK+行+列2桁(例K101)。赤指定キーはlayers側でt:none。layerFilesの2ファイルをkeymaps/layers/に作成すること(layer0=文字入力、layer1=最小プレースホルダ(数字段F1..F12))。",
-  "board": { "rows": [] },
-  "layerFiles": ["layers/ipad01_vol12_layer0.json", "layers/ipad01_vol12_layer1.json"]
+  "description": "iPad Pro 12.9(第3世代)一枚キーボード Vol1.2（T8）。配置の正=brief/mockup/screen_mock_v0.4.html（①キーボード画面のgrid-column/grid-row指定）。D24: boardは13列グリッド式（row/col/colSpan/rowSpan、span省略時1）。keyIdはK+行+列2桁(例K101)。ヘッダ専用のCTRL+Z/CTRL+Y(取り消し/進む)はH01/H02としてboard外＝layerFilesのkeys側にのみ定義する。",
+  "board": {
+    "cols": 13,
+    "keys": [
+      { "id": "K101", "row": 1, "col": 1 },
+      { "id": "K102", "row": 1, "col": 2 },
+      { "id": "K103", "row": 1, "col": 3 },
+      { "id": "K104", "row": 1, "col": 4 },
+      { "id": "K105", "row": 1, "col": 5 },
+      { "id": "K106", "row": 1, "col": 6 },
+      { "id": "K107", "row": 1, "col": 7 },
+      { "id": "K108", "row": 1, "col": 8 },
+      { "id": "K109", "row": 1, "col": 9 },
+      { "id": "K110", "row": 1, "col": 10 },
+      { "id": "K111", "row": 1, "col": 11 },
+      { "id": "K112", "row": 1, "col": 12, "colSpan": 2 },
+
+      { "id": "K201", "row": 2, "col": 1, "colSpan": 2 },
+      { "id": "K203", "row": 2, "col": 3 },
+      { "id": "K204", "row": 2, "col": 4 },
+      { "id": "K205", "row": 2, "col": 5 },
+      { "id": "K206", "row": 2, "col": 6 },
+      { "id": "K207", "row": 2, "col": 7 },
+      { "id": "K208", "row": 2, "col": 8 },
+      { "id": "K209", "row": 2, "col": 9 },
+      { "id": "K210", "row": 2, "col": 10 },
+      { "id": "K211", "row": 2, "col": 11 },
+      { "id": "K212", "row": 2, "col": 12 },
+      { "id": "K213", "row": 2, "col": 13, "rowSpan": 2 },
+
+      { "id": "K301", "row": 3, "col": 1, "colSpan": 2 },
+      { "id": "K303", "row": 3, "col": 3 },
+      { "id": "K304", "row": 3, "col": 4 },
+      { "id": "K305", "row": 3, "col": 5 },
+      { "id": "K306", "row": 3, "col": 6 },
+      { "id": "K307", "row": 3, "col": 7 },
+      { "id": "K308", "row": 3, "col": 8 },
+      { "id": "K309", "row": 3, "col": 9 },
+      { "id": "K310", "row": 3, "col": 10 },
+      { "id": "K311", "row": 3, "col": 11 },
+      { "id": "K312", "row": 3, "col": 12 },
+
+      { "id": "K401", "row": 4, "col": 1, "colSpan": 2 },
+      { "id": "K403", "row": 4, "col": 3 },
+      { "id": "K404", "row": 4, "col": 4 },
+      { "id": "K405", "row": 4, "col": 5 },
+      { "id": "K406", "row": 4, "col": 6 },
+      { "id": "K407", "row": 4, "col": 7 },
+      { "id": "K408", "row": 4, "col": 8 },
+      { "id": "K409", "row": 4, "col": 9 },
+      { "id": "K410", "row": 4, "col": 10 },
+      { "id": "K411", "row": 4, "col": 11 },
+      { "id": "K412", "row": 4, "col": 12 },
+      { "id": "K413", "row": 4, "col": 13 },
+
+      { "id": "K501", "row": 5, "col": 1, "colSpan": 2 },
+      { "id": "K503", "row": 5, "col": 3 },
+      { "id": "K504", "row": 5, "col": 4, "colSpan": 6 },
+      { "id": "K510", "row": 5, "col": 10 },
+      { "id": "K511", "row": 5, "col": 11, "colSpan": 2 },
+      { "id": "K513", "row": 5, "col": 13 }
+    ]
+  },
+  "layerFiles": [
+    "layers/ipad01_vol12_layer0.json",
+    "layers/ipad01_vol12_layer1.json",
+    "layers/ipad01_vol12_layer2.json"
+  ]
 }

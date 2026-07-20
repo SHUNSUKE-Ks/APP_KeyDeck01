@@ -44,9 +44,9 @@
 ユーザー評価: v0.2は「かなりいい感じ・満点」。次はレイアウト修正フェーズ。
 
 - [x] T6.5 見た目モック＋骨組み（**FABLE** 2026-07-20）: `brief/mockup/screen_mock_v0.3.html`（ipad01キーボード＋設定/QRポップアップの2画面。CSS変数=デザイントークン。実装はこれを踏襲）。共有版 `C:\00_master\MockUp\APP_KeyDeck01\`。骨組み: `static/ipad.html`・`static/settings.html`（コメントのみ）・`schemas/layer.schema.json`・`keymaps/keymap_ipad01.json`（マニフェスト雛形）・`keymaps/layers/README.md`。Browser paneでキーボード画面（Layer0/1）をスクショ確認、設定/QRモーダルはDOM検証（4行一覧・320px単一QR・開閉動作OK）
-- [ ] T7 スキーマv2: レイヤー別JSON（マニフェスト＋layers/、既存2キーマップ移行）（Sonnet・v0.3のまま有効）
-- [ ] T8 **v0.4で再定義**: Vol1.2レイアウト＋記号レイヤー＋text Action（D20 UNICODE注入）＋`/ipad`（Sonnet）
-- [ ] T9 **v0.4で再定義**: VIAL型設定画面（表示のみ）＋QRポップアップ＋formats/export API（Sonnet）
+- [x] T7 スキーマv2（**Sonnet** 2026-07-20）: `crates/proto-keymap/src/lib.rs`にマニフェスト(`KeymapManifest`)＋レイヤーファイル(`LayerFile`)読込を実装。`load_keymap_from_path`はマニフェストを読み、`layerFiles`をマニフェストと同じディレクトリ基準で全読込→結合→従来の検証関数(Layer0必須/L0にtrans禁止/vk辞書/mo・tg参照先)を1回だけ実行。`Keymap`は`kind:"split"|"single"`＋`halves`(split用)/`board`(single用、D24グリッド式`{cols,keys:[{id,row,col,colSpan?,rowSpan?}]}`)に対応。`keymap_default.json`/`keymap_writing01.json`を新形式へ移行（`keymaps/layers/default_layer{0,1,2}.json`・`writing01_layer{0,1,2}.json`に分割。**キー内容は1文字も変えていない**、`diff`相当で確認済み＝labels/actions同一）。`schemas/keymap.schema.json`をv2に更新（`kind`/`board`/`text`action追加）。テスト8件追加（マニフェスト正常結合／レイヤーファイル欠損→LOAD_JSON_SYNTAX／結合後にのみ解決できるmo参照の検証／グリッドboard読込／kind不整合2種→LOAD_SCHEMA_INVALID）
+- [x] T8 Vol1.2実装（**Sonnet** 2026-07-20）: `keymaps/keymap_ipad01_vol12.json`をD24グリッド式board(13列・53キー)で新規作成、`keymaps/layers/ipad01_vol12_layer{0,1,2}.json`を作成（layer0=モック①の基盤どおり・layer1=F1-F12プレースホルダ・layer2=記号レイヤー全キーtextアクション）。`Action::Text{string}`をD4に追加（`crates/proto-keymap`）。`crates/proto-adapter-win`にKEYEVENTF_UNICODE送出を実装（`encode_utf16()`でサロゲートペア対応、down/up対）。`proto-hub`: `/ipad`ルート追加、WS接続に`surface=ipad`クエリを追加しSplit(分割/Deck共有state)とは独立の`ipad_layer_state`＋固定`keymapId=ipad01_vol12`で解決（`state::SurfaceKind`）。`static/ipad.html`実装（モックの:rootトークン・.kbgrid値を移植、board配列からgrid-column/grid-row/spanを動的生成、ヘッダにD25 QRボタン・D26状態ボタン・↺↻(H01/H02、board外keyId)）。`static/kb.html`にもD25 QRボタン・D26状態ボタンを追加（分割ヘッダも「kb/ipadヘッダの右隅」という設計に合わせた）。リポジトリ直下に`start_hub.cmd`を新設しREADMEに追記
+- [ ] T9 **v0.4で再定義**: VIAL型設定画面（表示のみ）＋QRポップアップ＋formats/export API（Sonnet・今回は着手しない）
 - [ ] T10 検証 フェーズA（**Opus**）
 - [ ] T11 フェーズB: 編集保存API＋割当実書込（G15）
 - [ ] T12 フェーズC: 独自辞書DB＋予測バー（G16）
@@ -80,6 +80,14 @@
   - 切断検知: Hubプロセス停止→ドット灰色化・全キーdisabled・「再接続中」表示。Hub再起動（新token発行）→古いtokenでの自動再接続はWS_TOKEN_INVALIDで拒否される仕様（D8: tokenはプロセス寿命）。新URLへ手動navigate後は正常に再接続・再描画
 - 2026-07-19 T5: README更新（起動はworkspace root必須の注記、token再生成の注記、手動smoke手順）。**G4実証**: `keymaps/keymap_writing01.json`の一部labelを編集し、**再ビルド無しで既存バイナリを再起動しただけ**でブラウザ表示に反映されることをget_page_textで確認。検証後は元の内容（D10のdefault/writing01同一という不変条件）に復元済み
 - 2026-07-19 最終: `cargo test --workspace` = **39 passed, 0 failed**（hub-core 7 + proto-keymap 20 + proto-adapter-win 7 + proto-hub 5）。リグレッション無し
+- 2026-07-20 T7/T8（**Sonnet**）: `cargo test --workspace` = **49 passed, 0 failed**（hub-core 7 + proto-keymap 28 + proto-adapter-win 8 + proto-hub 6）。既存39件は削除・弱体化せず、T7に8件・T8に2件（text action系）追加。
+  - `cargo run -p proto-hub`実起動＋Node.js組込WebSocketクライアントで手動プロトコル検証（実SendInput/実KEYEVENTF_UNICODE、Windows実機）:
+    - `GET /ipad`・`GET /api/qr?target=ipad`・`GET /` = 200、WS無token = 401（既存どおり）
+    - `/ws?surface=ipad`のsurface.config: `activeKeymapId="ipad01_vol12"`・`kind="single"`・`board.keys.length=53`・`board.cols=13`・`layers=[0,1,2]`
+    - ipad面: 未知keyId→`KEY_UNKNOWN_ID`、記号レイヤーTG(K513)でtoggled=[2]⇄[]、記号レイヤー中のK203(q)がtextアクション"("として無エラーで発火（実際にKEYEVENTF_UNICODEでSendInput成功）、Fn(K101,MO(1))down/upでmomentary=[1]⇄[]、ヘッダ専用keyId H01(board外、chord CTRL+Z)が正常発火
+    - **surface独立性の実証**: kb接続(Split)とipad接続を同時に張り、ipad側のK101(MO1)がkb側のlayer.stateに一切現れず、kb側のL41(MO1)もipad側に一切現れないことを確認（`ipad_layer_state`と`layer_state`が完全分離）
+    - **既存回帰（G2/G6）実証**: 分割2接続（left/right相当）でL41のMO(1) down/upが両方の接続へ同一の`layer.state`としてブロードキャストされること、Deckの`keymap.reset`(S09)がSplit接続へ`surface.config`(activeKeymapId="default")を再配信すること、`deck.press`の未知slotId→`DECK_UNKNOWN_SLOT`、を確認。検証後はactive_keymap_idをwriting01へ戻して終了（プロセスは検証後に停止）
+  - Browser paneで`/ipad?token=…`を表示し`get_page_text`/`read_page`でDOM構造を確認: ヘッダ(↺/↻/タイトル/Layerバッジ/接続中/QR)＋53枚の盤面ボタンが崩れず表示（空プレースホルダー5枚を含む）。screenshotツール自体がタイムアウトしたが、get_page_text/read_page/console(`[KD][T4-1][OK] surface.config received`)で正常表示・正常受信を確認済み（アプリ側の不具合ではなくスクリーンショット取得ツールの問題と判断）
 
 ## 差し戻し（SR）
 

@@ -143,7 +143,8 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
                     ),
                 ));
             }
-            Action::None | Action::KeymapSwitch { .. } | Action::KeymapReset => {}
+            // D20: textはDeckでも有効（vk辞書を経由しないため個別チェックは不要）。
+            Action::None | Action::KeymapSwitch { .. } | Action::KeymapReset | Action::Text { .. } => {}
         }
     }
 

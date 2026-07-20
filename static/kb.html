@@ -23,7 +23,7 @@
     }
     header {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
       align-items: center;
       padding: 10px 14px;
       gap: 10px;
@@ -35,6 +35,19 @@
       border-radius: 999px;
       background: #2d67d9;
     }
+    /* D26: 接続ドットを状態ボタンに昇格。色だけに頼らずラベル併記。タップで再接続試行 */
+    #statusBtn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #2d3550;
+      border-radius: 999px;
+      background: #1c2338;
+      color: #f4f7ff;
+      font: inherit;
+      font-size: 12px;
+      padding: 5px 12px 5px 8px;
+    }
     #dot {
       width: 10px;
       height: 10px;
@@ -42,7 +55,25 @@
       background: #586174;
       display: inline-block;
     }
-    #dot.connected { background: #35c47a; }
+    #statusBtn.connected #dot { background: #35c47a; }
+    #statusBtn.disconnected #dot { background: #e2555a; }
+    /* D25: ヘッダ右隅のQRボタン */
+    #qrOpenBtn {
+      min-width: 44px;
+      min-height: 36px;
+      border: 0;
+      border-radius: 8px;
+      background: #2d67d9;
+      color: #fff;
+      font: inherit;
+      font-size: 13px;
+      padding: 0 12px;
+    }
+    #qrModal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,14,.88); z-index: 10; }
+    #qrModal.on { display: flex; }
+    .qr-card { background: #1c2338; border-radius: 16px; padding: 24px; text-align: center; }
+    .qr-card img { width: 260px; height: 260px; background: #fff; border-radius: 10px; display: block; margin: 0 auto; }
+    .qr-close { margin-top: 16px; min-width: 120px; min-height: 44px; border: 0; border-radius: 10px; background: #2d67d9; color: #fff; font: inherit; }
     main {
       flex: 1;
       display: flex;
@@ -88,10 +119,21 @@
   <header>
     <h1 id="title">KeyDeck</h1>
     <span id="layerBadge">Layer 0</span>
-    <span id="dot" aria-hidden="true"></span>
+    <span style="flex:1"></span>
+    <button id="statusBtn" type="button"><span id="dot" aria-hidden="true"></span><span id="statusLabel">未接続</span></button>
+    <button id="qrOpenBtn" type="button">QR</button>
   </header>
   <main id="grid" aria-label="split keyboard"></main>
   <footer role="status" id="status">接続していません</footer>
+
+  <div id="qrModal">
+    <div class="qr-card">
+      <h2 id="qrTitle">kb</h2>
+      <img id="qrImg" src="" alt="QR">
+      <button class="qr-close" id="qrCloseBtn">閉じる</button>
+    </div>
+  </div>
+
   <script>
     // ---- 起動時の文脈 --------------------------------------------------
     const params = new URLSearchParams(location.search);
@@ -100,9 +142,21 @@
     document.getElementById("title").textContent = "KeyDeck — " + (half === "right" ? "Right" : "Left");
 
     const statusEl = document.getElementById("status");
-    const dotEl = document.getElementById("dot");
+    const statusBtnEl = document.getElementById("statusBtn");
+    const statusLabelEl = document.getElementById("statusLabel");
     const gridEl = document.getElementById("grid");
     const layerBadgeEl = document.getElementById("layerBadge");
+
+    // D25: ヘッダQRボタン→中央モーダルに自ページ(kb-left/kb-right)のQR（1画面1QR）。
+    const qrTarget = half === "right" ? "kb-right" : "kb-left";
+    document.getElementById("qrTitle").textContent = qrTarget;
+    document.getElementById("qrImg").src = "/api/qr?target=" + qrTarget;
+    document.getElementById("qrOpenBtn").addEventListener("click", () => {
+      document.getElementById("qrModal").classList.add("on");
+    });
+    document.getElementById("qrCloseBtn").addEventListener("click", () => {
+      document.getElementById("qrModal").classList.remove("on");
+    });
 
     let socket = null;
     let surfaceConfig = null; // 直近受信したsurface.config
@@ -205,7 +259,16 @@
       }
     }
 
+    function setConnectionBadge(connected) {
+      statusBtnEl.classList.toggle("connected", connected);
+      statusBtnEl.classList.toggle("disconnected", !connected);
+      statusLabelEl.textContent = connected ? "接続中" : "切断・タップで再接続";
+    }
+
     function connect() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
       setStatus("接続中…");
       socket = new WebSocket(
         (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws?token=" + encodeURIComponent(token)
@@ -213,7 +276,7 @@
 
       socket.addEventListener("open", () => {
         log("T4-1", "OK", "ws open");
-        dotEl.classList.add("connected");
+        setConnectionBadge(true);
         setStatus("接続しました");
       });
 
@@ -229,7 +292,7 @@
       });
 
       socket.addEventListener("close", () => {
-        dotEl.classList.remove("connected");
+        setConnectionBadge(false);
         setKeysEnabled(false);
         setStatus("切断中は操作できません。再接続中…");
         log("ERR", "WS_CLOSE", "disconnected; retrying");
@@ -241,6 +304,14 @@
         log("ERR", "WS_ERROR", "websocket error event");
       });
     }
+
+    // D26: 状態ボタンをタップすると即時再接続を試みる（すでに接続中なら何もしない）。
+    statusBtnEl.addEventListener("click", () => {
+      if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
+        log("T4-1", "OK", "manual reconnect requested via status button");
+        connect();
+      }
+    });
 
     function scheduleReconnect() {
       if (reconnectTimer) return;
