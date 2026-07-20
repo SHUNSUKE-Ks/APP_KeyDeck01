@@ -1,0 +1,47 @@
+{
+  "$purpose": "将来作るagent・スキル・資料の設計バックログ。名前と要点のみ(実体は未作成)。FABLE 2026-07-20。作る時はvision§4の手順(CLAUDE.md追記→guardian追記→正の三点)に従う",
+
+  "agent_candidates": [
+    {"name": "keydeck-surface-smith", "model": "sonnet", "desc": "Surface量産職人。既存keymap/layersを型紙に、提案書P-###から新フォーマットJSON一式(manifest+layers+モック差分)を機械的に生成する。発明禁止・スキーマ厳守", "when": "フォーマット追加依頼が月2回を超えたら"},
+    {"name": "keydeck-inspector-dev", "model": "opus", "desc": "Inspector面(アプリ状態の表示・双方向操作)の専任。hub-coreのInspectorStore/revision契約(vendored済・未配線)を初めてランタイムに繋ぐ役。中核契約のためopus", "when": "Inspector面の提案が採用されたら"},
+    {"name": "keydeck-macro-dev", "model": "sonnet", "desc": "Deckマクロ(action列の順次実行・待機・繰返し)の専任。許可リストとの整合(列の各要素が許可済みであること)が肝", "when": "T9完了後"},
+    {"name": "keydeck-dict-dev", "model": "sonnet", "desc": "独自辞書DB(SQLite)+予測変換バーの専任。フェーズC。追記型・前方一致・ユーザー承認で学習", "when": "フェーズC着手時"},
+    {"name": "keydeck-release", "model": "sonnet", "desc": "Vol凍結・タグ付け・リリースノート生成・GitHub Release作成の定型作業係", "when": "Vol凍結が3回目になったら(手順が安定してから自動化=playbook原則8)"}
+  ],
+
+  "skill_candidates": [
+    {"name": "keydeck-new-surface", "desc": "新Surface追加の定型手順スキル。提案書→CLAUDE.md/guardian追記→モック→manifest+layers生成→/route追加→検証、を1本のチェックリストで案内", "trigger": "「新しいキーボードを作って」「Surface追加」"},
+    {"name": "keydeck-vol-freeze", "desc": "Vol凍結スキル。現keymapを_volNN複製→gitタグ→DEVBOARD記録→次Vol作業ファイル準備", "trigger": "「Vol凍結して」"},
+    {"name": "keydeck-device-fit", "desc": "対象アプリ/画面を聞き取り、既存Surface部品から最適な入力面の組合せを提案(explorerの対話版)。出力は提案書P-###", "trigger": "「この画面に合う入力面は?」"},
+    {"name": "keydeck-troubleshoot", "desc": "繋がらない/打てない時の診断フロー。brain JSONのPF1-PF8を判定木化(Hub生死→token→FW→WebView幅→IME)", "trigger": "「繋がらない」「打てない」"}
+  ],
+
+  "doc_backlog": [
+    {"file": "brief/protocol_reference_v1.md",
+     "title": "WSプロトコル完全リファレンス",
+     "headings": ["メッセージ型一覧(client→hub/hub→client)", "Envelope形状とJSON実例", "エラーコード辞書(全コード+発生条件+クライアント側の期待挙動)", "surfaceクエリとstate分離", "互換性ポリシー(後方互換の壊し方=新typeは追加のみ)"],
+     "point": "新Surface実装者(AI)が proto-hub のソースを読まずに端末を書ける状態にする。正はws.rs/protocol.rsから機械抽出して作る"},
+    {"file": "brief/action_catalog_v1.md",
+     "title": "Actionカタログ",
+     "headings": ["9種の意味論と使い分け(key/chord/mo/tg/trans/none/text/keymap.switch/reset)", "vk辞書全表(名前→VK→注意)", "textのIME非依存性と限界", "マクロaction(将来)の予約設計"],
+     "point": "キーマップを書く人(AI/ユーザー)の辞書。schemas/とVK_DICTIONARYが正、これはその解説"},
+    {"file": "brief/proposals/P-000_template.md",
+     "title": "提案書テンプレ",
+     "headings": ["対象アプリ/画面", "課題(誰のどの操作が遅い/辛い)", "提案Surface(流用部品リスト)", "新規要素と実現可能性", "受け入れ基準案(G形式)", "昇格条件5項目の自己評価", "裁定:未"],
+     "point": "explorerの出力フォーマット。P-001以降はこれを複製"},
+    {"file": "brief/inspector_design_v0.1.md",
+     "title": "Inspector面 設計(未着工)",
+     "headings": ["ゴール=アプリ状態をタブレットで見て触る", "hub-core既存契約(InspectorStore/revision/constraint)の配線方針", "surface=inspectorのWS拡張", "対象アプリからHubへ状態を流す入口(将来: プラグインAPI/ファイル監視/HTTP push比較)", "G基準案"],
+     "point": "hub-coreに検証済み実装が眠っている(revision競合/スキーマ検証テスト済)。発明でなく配線案件であることを明記"},
+    {"file": "brief/multi_device_roles_v0.1.md",
+     "title": "複数端末・役割設計(未着工)",
+     "headings": ["deviceId/role/permission/visibilityモデル(旧ControlDeck v0.1構想の継承)", "同一Surfaceの複数接続時の表示分岐", "tokenと端末の対応付け", "TRPG/GM Hub等の非対称配信への拡張余地"],
+     "point": "分割キーボードの2台同期は実証済み。次は「端末ごとに違う面を出す」"},
+    {"file": "brief/app_context_switch_v0.1.md",
+     "title": "アプリ連動Surface自動切替(未着工)",
+     "headings": ["Windowsアクティブウィンドウ検知(GetForegroundWindow polling)", "アプリ名→keymapIdルール(JSON)", "切替の通知とユーザー上書き", "誤爆防止(手動ロック)"],
+     "point": "「特定のNOTEアプリの時だけ開く」という初期要望の正式版。State Rule構想(ControlDeck v0.1)の実装先"}
+  ],
+
+  "ordering_hint": "実機OK→Vol1.2凍結→T9(VIAL編集GUI)→protocol_reference+action_catalog(文書化は実装安定後が安い)→explorer初回実行でP-001→inspector or app_context_switchの裁定"
+}
