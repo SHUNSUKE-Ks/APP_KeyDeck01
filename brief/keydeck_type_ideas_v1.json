@@ -1,0 +1,46 @@
+{
+  "$purpose": "『型』のアイディア集(FABLE 2026-07-20)。実装約束ではなく着想の保存。採用時はexplorer提案P-###→FABLE裁定→D番号化の正規ループへ",
+
+  "surface_types": [
+    {"kind": "single/split/deck", "status": "実装済み"},
+    {"kind": "inspector", "status": "スキーマ草案済(inspector_schema_draft_v0.1.json)"},
+    {"kind": "dial", "idea": "回転ノブ面。ドラッグ円弧で音量/スクラブ/ズーム。1操作=連続値のためinspector.slider の派生型"},
+    {"kind": "pad2d", "idea": "XYパッド。トラックパッド代替/ゲーム視点/パラメータ2軸同時。送信は正規化座標のみ(位置ID原則の拡張裁定が必要)"},
+    {"kind": "chorded", "idea": "和音キーボード型。少ボタン同時押しで文字決定(片手デバイス向け)。resolve拡張が必要な重い型"},
+    {"kind": "strip", "idea": "細長1行バー型。画面端に常駐する5〜8キーのミニDeck(動画編集のJKL等)"},
+    {"kind": "prompt", "idea": "定型文タイル面。textアクションの長文特化+変数穴埋め({date}等)。AI開発の定型プロンプト送信に最適=自分たちで使う"},
+    {"kind": "status", "idea": "表示専用面(入力なし)。ビルド/テスト結果やHubログをタブレットに常時表示。inspector の read-only 縮退型"}
+  ],
+
+  "action_types": [
+    {"t": "key/chord/mo/tg/trans/none/text/keymap.switch/reset", "status": "実装済み"},
+    {"t": "macro", "idea": "action列の順次実行+待機ms。許可リストは列の各要素で検証(backlog採用済み構想)"},
+    {"t": "repeat", "idea": "押下保持中の連打(Bksp長押し等)。client側でなくHub側タイマーで(位置ID原則維持)"},
+    {"t": "osl", "idea": "one-shot layer。次の1キーだけ別レイヤー(QMK/VIALの定番。D3意味論の自然な拡張)"},
+    {"t": "tap_hold", "idea": "短押しと長押しで別action(Ctrl/Escの共有等)。閾値msはHub側判定"},
+    {"t": "app.launch", "idea": "アプリ起動/フォーカス。StreamDeck本家の主要機能。任意実行に近づくため許可リスト設計を最重層に(パス固定・登録制)"},
+    {"t": "hub.notify", "idea": "端末側に通知バナー/バイブ(navigator.vibrate)。将来ユーザーが振動を再解禁したらここ"},
+    {"t": "inspector.set", "idea": "Deckスロットからinspector値を直接セット(草案Q3。保留中)"}
+  ],
+
+  "field_types_inspector": [
+    {"type": "text/number/slider/toggle/select", "status": "hub-core実装済み"},
+    {"type": "button", "idea": "押すだけ(値なし)→Hubイベント。inspector面にDeck風の実行ボタンを混在させる"},
+    {"type": "color", "idea": "カラーピッカー。値は#RRGGBB文字列=textの制約付き縮退型"},
+    {"type": "log", "idea": "追記専用の読み取りリスト(status面の部品)"},
+    {"type": "xy", "idea": "2値ペア。pad2dと共通の座標型"}
+  ],
+
+  "layout_types": [
+    {"type": "board grid(D24)/halves rows", "status": "実装済み"},
+    {"type": "radial", "idea": "扇形配置(親指リーチ最適化。参考画像のCyanDuck WaterFowl風)。grid座標に角度は乗らないため新layout kind"},
+    {"type": "zones", "idea": "1画面を複数Surfaceの合成にする(上=strip、下=keyboard)。manifest合成の仕組み"},
+    {"type": "orientation", "idea": "縦持ち/横持ちで別boardを切替(mediaクエリでboard選択)"}
+  ],
+
+  "meta_patterns": [
+    {"name": "read-only縮退", "idea": "どの型も『表示専用版』を安価に持てる(status/logはこれ)。書込経路を持たない型は許可リスト不要で安全"},
+    {"name": "型のVol凍結", "idea": "型自体もschema versionで凍結し、古いJSONは永遠に読める(protocolVersionと同じ思想)"},
+    {"name": "型の市場", "idea": "遠い将来: inspectors/keymapsのJSONをそのまま配布・輸入できる(スキーマ検証が防疫線)"}
+  ]
+}
