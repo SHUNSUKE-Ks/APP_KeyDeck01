@@ -1,0 +1,61 @@
+{
+  "$purpose": "Inspector面のJSONスキーマ設計ドラフト(FABLE 2026-07-20)。実装前の思考の保存。最重要事実: hub-core(vendored)にInspectorStore/InspectorConstraint/revision競合検知が検証済みテスト付きで既に存在する。よってこれは発明ではなく『keymapsと同じファイル駆動パターンでhub-coreを配線する』案件",
+  "$hub_core_mapping": "field.type text→Constraint::Text{minLength,maxLength} / number→Number{min,max} / slider→Slider{min,max,step} / toggle→Toggle / select→Select{options}。値の検証・revision加算・競合時latest返却は全てhub-core実装済み(テスト7件)",
+
+  "file_layout": {
+    "inspectors/inspector_<id>.json": "マニフェスト(下記)。keymapsと同様にディレクトリスキャンで自動発見",
+    "url": "/inspector?panel=<id>&token=…",
+    "ws": "/ws?surface=inspector&panel=<id>&token=…"
+  },
+
+  "manifest_schema_example": {
+    "inspectorId": "demo_settings",
+    "title": "デモ設定",
+    "targets": [
+      {
+        "targetId": "app.settings",
+        "revision_note": "初期revisionはHubが1で発番。ファイルには書かない(実行時状態のため)",
+        "fields": [
+          {"path": "volume",   "type": "slider", "label": "音量",   "min": 0, "max": 100, "step": 1, "initial": 50},
+          {"path": "name",     "type": "text",   "label": "名前",   "minLength": 0, "maxLength": 32, "initial": ""},
+          {"path": "count",    "type": "number", "label": "回数",   "min": 0, "max": 999, "initial": 0},
+          {"path": "enabled",  "type": "toggle", "label": "有効",   "initial": true},
+          {"path": "mode",     "type": "select", "label": "モード", "options": ["idle", "editor", "game"], "initial": "idle"}
+        ]
+      }
+    ],
+    "layout": {"cols": 2, "order": "fields配列順。将来row/col指定を足すならkeymapsのboard grid方式(D24)を流用"}
+  },
+
+  "ws_messages": {
+    "hub_to_client": [
+      {"type": "inspector.config", "when": "接続直後/reload時", "payload": "manifest全体+各targetの現在値+revision"},
+      {"type": "inspector.confirmed", "when": "更新成功時に全接続へbroadcast", "payload": "{targetId, path, value, revision}"},
+      {"type": "error", "note": "既存D9書式。REVISION_CONFLICTはcontextにlatest{value,revision}を含める(hub-coreが返す)"}
+    ],
+    "client_to_hub": [
+      {"type": "inspector.update", "payload": "{targetId, path, value, expectedRevision}", "rule": "クライアントはrevisionを自己加算しない。confirmed受信でのみ更新(ControlDeck検証のF4教訓)"}
+    ]
+  },
+
+  "invariants_to_add_to_CLAUDE_md": [
+    "Inspectorの値確定はHub側検証(hub-core constraint)後のみ。クライアント楽観更新禁止",
+    "revisionの真実源はHub。クライアント自己加算はF4(ControlDeck)で実証済みのdesync原因",
+    "書込対象はHubメモリ状態のみ(v0.1)。ファイル/対象アプリへの反映は将来の別D裁定"
+  ],
+
+  "open_questions_for_FABLE": [
+    {"q": "Q1: 値の出口。v0.1はHubメモリ保持+表示のみか、対象アプリへ流すか", "推奨": "v0.1=メモリのみ(配線検証が目的)。出口はexplorer提案P-###で裁定"},
+    {"q": "Q2: 入口。アプリ状態をHubへ入れる経路", "候補": ["対象アプリがPOST /api/inspector/push(token必須)", "ファイル監視", "手動デモ値のみ(v0.1)"], "推奨": "v0.1=手動デモ値。pushはD22の書込規則に準じて次版"},
+    {"q": "Q3: keyboardとの同居。Deckのslotからinspector値を変えるactionを許すか", "推奨": "保留。許可リスト設計への影響が大きい"},
+    {"q": "Q4: エラーコード追加", "案": "INSPECTOR_UNKNOWN_TARGET / INSPECTOR_UNKNOWN_PATH / REVISION_CONFLICT(既存流用)。D9の12種に追記"}
+  ],
+
+  "acceptance_criteria_draft": [
+    "G-A: inspectors/にJSONを置く→/inspectorに5種フィールドが描画される(コード変更なし)",
+    "G-B: sliderを2端末で開き片方で動かす→もう片方へconfirmedが4ms級で同期(G2実証済み経路の流用)",
+    "G-C: 古いexpectedRevisionで更新→REVISION_CONFLICT+latestが返り、UI が最新値へ収束",
+    "G-D: 範囲外値(101等)→Hub拒否・revision不変(hub-core既存テストのランタイム再現)",
+    "G-E: cargo test全pass維持+guardian点検PASS"
+  ]
+}
