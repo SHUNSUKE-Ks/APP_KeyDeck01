@@ -44,6 +44,9 @@
   .predict .cand:active{background:var(--accent);}
   .predict .src{font-size:11px;color:var(--ink-dim);white-space:nowrap;}
   .krow{display:flex;gap:var(--key-gap);margin-bottom:var(--key-gap);}
+  /* メインキーボードは13列グリッド。Enterはgrid-rowで2行(row2/row3)をまたぎ、
+     本物のL字キー（右側だけ背が高い）を実現する。ミニプレビュー(.krow)は従来のflexのまま。 */
+  .kbgrid{display:grid;grid-template-columns:repeat(13, 1fr);grid-auto-rows:60px;gap:var(--key-gap);}
   /* Vol1.2: 記号列を撤去した分、min-heightを52→60pxに拡大（=マス目を大きく） */
   .key{flex:1 1 0;min-height:60px;border:0;border-radius:var(--key-radius);background:var(--panel);color:var(--ink);
        font:inherit;font-size:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -116,61 +119,71 @@
       <button class="cand">これは</button><button class="cand">コレ</button><button class="cand">これから</button>
       <span class="src">（独自辞書DBから前方一致・タップで確定）</span>
     </div>
-    <!-- Row1: Fn + 数字 + Bksp（=- ~^ |¥ を撤去） -->
-    <div class="krow">
-      <button class="key fn" id="fnkey">Fn</button>
-      <button class="key" data-sym="。" data-symz="1">1</button>
-      <button class="key" data-sym="、" data-symz="1">2</button>
-      <button class="key" data-sym="？" data-symz="1">3</button>
-      <button class="key" data-sym="！" data-symz="1">4</button>
-      <button class="key" data-sym="「" data-symz="1">5</button>
-      <button class="key" data-sym="」" data-symz="1">6</button>
-      <button class="key" data-sym="・" data-symz="1">7</button>
-      <button class="key" data-sym="ー" data-symz="1">8</button>
-      <button class="key" data-sym="：" data-symz="1">9</button>
-      <button class="key" data-sym="…" data-symz="1">0</button>
-      <button class="key w15">Bksp</button>
-    </div>
-    <!-- Row2: Tab + qwertyuiop（@` [{ を撤去→記号盤へ） -->
-    <div class="krow">
-      <button class="key w15">Tab</button>
-      <button class="key" data-sym="(">q</button><button class="key" data-sym=")">w</button>
-      <button class="key" data-sym="{">e</button><button class="key" data-sym="}">r</button>
-      <button class="key" data-sym="&lt;">t</button><button class="key" data-sym="&gt;">y</button>
-      <button class="key" data-sym="[">u</button><button class="key" data-sym="]">i</button>
-      <button class="key" data-sym="=">o</button><button class="key" data-sym="_">p</button>
-      <button class="key empty"></button>
-    </div>
-    <!-- Row3: asdfghjkl + Enter（;+ :* ]} を撤去→記号盤へ） -->
-    <div class="krow">
-      <button class="key empty w15"></button>
-      <button class="key" data-sym="/">a</button><button class="key" data-sym="*">s</button>
-      <button class="key" data-sym="+">d</button><button class="key" data-sym="-">f</button>
-      <button class="key" data-sym="#">g</button><button class="key" data-sym="&quot;">h</button>
-      <button class="key" data-sym="'">j</button><button class="key" data-sym="&amp;">k</button>
-      <button class="key" data-sym="%">l</button>
-      <button class="key empty"></button>
-      <button class="key w2">Enter</button>
-    </div>
-    <!-- Row4: zxcvbnm + , . ?（- を撤去。, . ? はIME全角時に 、。？） -->
-    <div class="krow">
-      <button class="key empty w2"></button>
-      <button class="key" data-sym="@">z</button><button class="key" data-sym="~">x</button>
-      <button class="key" data-sym="|">c</button><button class="key" data-sym="¥">v</button>
-      <button class="key" data-sym="^">b</button><button class="key" data-sym="$">n</button>
-      <button class="key" data-sym=";">m</button>
-      <button class="key" data-sym="：" data-symz="1"><small>、</small>,</button>
-      <button class="key" data-sym="；" data-symz="1"><small>。</small>.</button>
-      <button class="key" data-sym="〜" data-symz="1"><small>？</small>?</button>
-      <button class="key w2">Shift</button>
-    </div>
-    <!-- Row5: Ctrl / Space(幅短縮) / 英数⇄日本語 / 記号（右Shiftの真下） -->
-    <div class="krow">
-      <button class="key fn w15">Ctrl</button>
-      <button class="key empty"></button>
-      <button class="key w4">Space</button>
-      <button class="key fn w15">英数⇄日本語</button>
-      <button class="key fn w2" id="symkey">記号</button>
+    <!-- 13列グリッド。Enterはgrid-row:2/4で row2〜row3 を1本のキーとしてまたぐ
+         （＝右Shift/記号と同じ13列目の右端に、Tab/空白と同じ2列目左端に揃う） -->
+    <div class="kbgrid">
+      <!-- Row1: Fn + 数字 + Bksp（=- ~^ |¥ を撤去） -->
+      <button class="key fn" id="fnkey" style="grid-column:1;grid-row:1;">Fn</button>
+      <button class="key" data-sym="。" data-symz="1" style="grid-column:2;grid-row:1;">1</button>
+      <button class="key" data-sym="、" data-symz="1" style="grid-column:3;grid-row:1;">2</button>
+      <button class="key" data-sym="？" data-symz="1" style="grid-column:4;grid-row:1;">3</button>
+      <button class="key" data-sym="！" data-symz="1" style="grid-column:5;grid-row:1;">4</button>
+      <button class="key" data-sym="「" data-symz="1" style="grid-column:6;grid-row:1;">5</button>
+      <button class="key" data-sym="」" data-symz="1" style="grid-column:7;grid-row:1;">6</button>
+      <button class="key" data-sym="・" data-symz="1" style="grid-column:8;grid-row:1;">7</button>
+      <button class="key" data-sym="ー" data-symz="1" style="grid-column:9;grid-row:1;">8</button>
+      <button class="key" data-sym="：" data-symz="1" style="grid-column:10;grid-row:1;">9</button>
+      <button class="key" data-sym="…" data-symz="1" style="grid-column:11;grid-row:1;">0</button>
+      <button class="key" style="grid-column:12/14;grid-row:1;">Bksp</button>
+
+      <!-- Row2: Tab + qwertyuiop（@` [{ を撤去→記号盤へ）。13列目はEnterが覆うので何も置かない -->
+      <button class="key" style="grid-column:1/3;grid-row:2;">Tab</button>
+      <button class="key" data-sym="(" style="grid-column:3;grid-row:2;">q</button>
+      <button class="key" data-sym=")" style="grid-column:4;grid-row:2;">w</button>
+      <button class="key" data-sym="{" style="grid-column:5;grid-row:2;">e</button>
+      <button class="key" data-sym="}" style="grid-column:6;grid-row:2;">r</button>
+      <button class="key" data-sym="&lt;" style="grid-column:7;grid-row:2;">t</button>
+      <button class="key" data-sym="&gt;" style="grid-column:8;grid-row:2;">y</button>
+      <button class="key" data-sym="[" style="grid-column:9;grid-row:2;">u</button>
+      <button class="key" data-sym="]" style="grid-column:10;grid-row:2;">i</button>
+      <button class="key" data-sym="=" style="grid-column:11;grid-row:2;">o</button>
+      <button class="key" data-sym="_" style="grid-column:12;grid-row:2;">p</button>
+
+      <!-- Row3: asdfghjkl + 空白1マス + Enter（Enterはここでrow2にも食い込む本物のL字） -->
+      <button class="key empty" style="grid-column:1/3;grid-row:3;"></button>
+      <button class="key" data-sym="/" style="grid-column:3;grid-row:3;">a</button>
+      <button class="key" data-sym="*" style="grid-column:4;grid-row:3;">s</button>
+      <button class="key" data-sym="+" style="grid-column:5;grid-row:3;">d</button>
+      <button class="key" data-sym="-" style="grid-column:6;grid-row:3;">f</button>
+      <button class="key" data-sym="#" style="grid-column:7;grid-row:3;">g</button>
+      <button class="key" data-sym="&quot;" style="grid-column:8;grid-row:3;">h</button>
+      <button class="key" data-sym="'" style="grid-column:9;grid-row:3;">j</button>
+      <button class="key" data-sym="&amp;" style="grid-column:10;grid-row:3;">k</button>
+      <button class="key" data-sym="%" style="grid-column:11;grid-row:3;">l</button>
+      <button class="key empty" style="grid-column:12;grid-row:3;"></button>
+      <button class="key" style="grid-column:13;grid-row:2/4;">Enter</button>
+
+      <!-- Row4: zxcvbnm + , . ?（- を撤去。, . ? はIME全角時に 、。？）+ Shift(13列目=Enterの真下) -->
+      <button class="key empty" style="grid-column:1/3;grid-row:4;"></button>
+      <button class="key" data-sym="@" style="grid-column:3;grid-row:4;">z</button>
+      <button class="key" data-sym="~" style="grid-column:4;grid-row:4;">x</button>
+      <button class="key" data-sym="|" style="grid-column:5;grid-row:4;">c</button>
+      <button class="key" data-sym="¥" style="grid-column:6;grid-row:4;">v</button>
+      <button class="key" data-sym="^" style="grid-column:7;grid-row:4;">b</button>
+      <button class="key" data-sym="$" style="grid-column:8;grid-row:4;">n</button>
+      <button class="key" data-sym=";" style="grid-column:9;grid-row:4;">m</button>
+      <button class="key" data-sym="：" data-symz="1" style="grid-column:10;grid-row:4;"><small>、</small>,</button>
+      <button class="key" data-sym="；" data-symz="1" style="grid-column:11;grid-row:4;"><small>。</small>.</button>
+      <button class="key" data-sym="〜" data-symz="1" style="grid-column:12;grid-row:4;"><small>？</small>?</button>
+      <button class="key" style="grid-column:13;grid-row:4;">Shift</button>
+
+      <!-- Row5: Ctrl / Space(幅短縮) / 英数⇄日本語 / 記号（13列目=Shiftの真下） -->
+      <button class="key fn" style="grid-column:1/3;grid-row:5;">Ctrl</button>
+      <button class="key empty" style="grid-column:3;grid-row:5;"></button>
+      <button class="key" style="grid-column:4/10;grid-row:5;">Space</button>
+      <button class="key empty" style="grid-column:10;grid-row:5;"></button>
+      <button class="key fn" style="grid-column:11/13;grid-row:5;">英数⇄日本語</button>
+      <button class="key fn" id="symkey" style="grid-column:13;grid-row:5;">記号</button>
     </div>
   </div>
 </section>

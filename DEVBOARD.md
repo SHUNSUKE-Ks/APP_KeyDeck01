@@ -57,6 +57,8 @@
 - 決定: Vol複製管理(D18) / 記号は専用レイヤーへ・基盤は,.?のみ(D19) / text Action=KEYEVENTF_UNICODEでIME非依存の半角/全角入力(D20) / 辞書DB+予測はフェーズC(D21) / 設定=VIAL型・編集保存APIのみD11禁止を解除・マクロは場所のみ(D22) / 「キーボード+設定アプリを対で増やす」拡張パターン明文化(D23)
 - 骨組み改名: `keymaps/keymap_ipad01_vol12.json`（D18命名）
 - モック検証: キーボード基盤/記号盤切替をスクショ確認。設定画面(VIAL型)はDOM検証＋ファイル直開きで確認可（Browser paneのスクショ固着のため）
+- 2026-07-20 修正: ユーザーFB（Enterキー形状が反映されていない）を受け、メインキーボードをflex行→**13列CSS Grid**に全面書き換え。Enterは`grid-row:2/4`で実際にrow2〜row3を1本のキーとしてまたぐ本物のL字に（row2側はp直後の列、row3側はl+空白1マスの後）。Shift/記号キーはEnterと同じ13列目に縦一列で揃う設計に統一。スクショ・記号盤トグルで再確認済み
+- Git: `C:\00_master`から独立させ`git init`＋GitHub `https://github.com/SHUNSUKE-Ks/APP_KeyDeck01` へpush済み（mainブランチ）。以後この案件のコミットは当フォルダ内で独立管理
 
 追加裁定: D13（レイヤー別JSON/スキーマv2）・D14（ipad01配置とIME切替=ALT+GRAVE）・D15（設定画面・1画面1QR）・D16（クリップボードboardは保留=ユーザー明記）・D17（keyIdパターン拡張）
 
