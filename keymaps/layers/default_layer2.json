@@ -1,0 +1,9 @@
+{ "layer": 2, "keys": {
+  "R33": { "label": "消音", "action": { "t": "key", "vk": "MUTE" } },
+  "R35": { "label": "Vol-", "action": { "t": "key", "vk": "VOL_DOWN" } },
+  "R36": { "label": "Vol+", "action": { "t": "key", "vk": "VOL_UP" } },
+  "R43": { "label": "⏮", "action": { "t": "key", "vk": "MEDIA_PREV" } },
+  "R44": { "label": "⏯", "action": { "t": "key", "vk": "MEDIA_PLAY" } },
+  "R45": { "label": "⏭", "action": { "t": "key", "vk": "MEDIA_NEXT" } },
+  "R41": { "label": "Media⇄", "action": { "t": "tg", "layer": 2 } }
+} }

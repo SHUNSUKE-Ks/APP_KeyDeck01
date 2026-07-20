@@ -1,57 +1,63 @@
-//! proto-keymap — キーマップ型・JSONロード＆検証・レイヤー解決エンジン（T1）
+//! proto-keymap — キーマップ型・JSONロード＆検証・レイヤー解決エンジン（T1、T7でスキーマv2へ）
 //!
-//! 設計書: brief/keydeck_design_v0.2.md の D3/D4/D9/D10。このコメント群は実装指示の一部。
-//! チェックポイントID（T1-1..T1-4）は各実装箇所のコメントとテストモジュールに残す。
+//! 設計書: brief/keydeck_design_v0.3.md の D13（レイヤー別JSON/スキーマv2）、
+//! brief/keydeck_design_v0.4.md の D20（text Action）・D24（グリッドboard）。
+//! このコメント群は実装指示の一部。チェックポイントID（T1-1..T1-4、T7-*）は各実装箇所の
+//! コメントとテストモジュールに残す。
 //!
-//! ── 実装するもの（元の骨組みコメントをそのまま維持）─────────────
+//! ── T7: スキーマv2（マニフェスト＋レイヤー別JSON）─────────────────
 //!
-//! 1. アクション型（D4）
+//! ディスク上のフォーマットは2種類に分離される（正は1箇所ずつ）:
+//!   1. マニフェスト `keymap_<id>.json` = `KeymapManifest`
+//!      { keymapId, kind: "split"|"single", halves|board, layerFiles: [...] }
+//!   2. レイヤーファイル `layers/<id>_layer<N>.json` = `LayerFile`
+//!      { layer: n, keys: { keyId: {label, action} } }
+//!
+//! `load_keymap_from_path` はマニフェストを読み、layerFiles をマニフェストと同じ
+//! ディレクトリ基準の相対パスとして解決してすべて読み込み、結合してから
+//! 従来どおりの検証（Layer0必須・L0にtrans禁止・vk辞書・mo/tg参照先）を1回だけ行う。
+//! 検証はファイル単位ではなく「全ファイル読込後に結合して」実施する（D13）。
+//! 旧・単一JSONインライン形式（halves+layers埋め込み）の読込は廃止した。
+//!
+//! ── 元のT1実装（維持）─────────────────────────────────────────
+//!
+//! 1. アクション型（D4＋D20でtext追加）
 //!    enum Action { Key{vk}, Chord{keys}, Mo{layer}, Tg{layer}, Trans, None,
-//!                  KeymapSwitch{id}, KeymapReset }
+//!                  KeymapSwitch{id}, KeymapReset, Text{string} }
 //!    - vkはD4の固定辞書のみ。辞書は本crateに const で持つ（正は1箇所）。
 //!    - serdeのtag="t"でJSONの {"t":"key","vk":"A"} 形式に対応させる。
+//!    - Text{string}はvk辞書の対象外（adapter側がKEYEVENTF_UNICODEで直接注入するため）。
 //!
-//! 2. キーマップ構造
-//!    Keymap { keymap_id, halves{left,right: rows(Vec<Vec<KeyId>>)}, layers: Vec<Layer> }
+//! 2. キーマップ構造（v2）
+//!    Keymap { keymap_id, kind, halves: Option<Halves>, board: Option<Board>, layers: Vec<Layer> }
 //!    Layer { id: u8, keys: Map<KeyId, KeyDef{label, action}> }
+//!    Board（D24グリッド式） { cols, keys: Vec<BoardKey{id,row,col,colSpan?,rowSpan?}> }
 //!
-//! 3. ロード＆検証  load_keymap(path) -> Result<Keymap, KeymapError>
+//! 3. ロード＆検証  load_keymap_from_path(path) -> Result<Keymap, KeymapError>
 //!    検証順とエラーコード（D9。cause に「どのファイル・どのkeyId・何が悪いか」を必ず入れる）:
-//!    [T1-1] JSON構文       → KeymapError::JsonSyntax   (code=LOAD_JSON_SYNTAX)
-//!    [T1-2] スキーマ形状   → KeymapError::SchemaInvalid(code=LOAD_SCHEMA_INVALID)
+//!    [T1-1] JSON構文（マニフェスト＋各レイヤーファイル） → KeymapError::JsonSyntax (code=LOAD_JSON_SYNTAX)
+//!    [T1-2] スキーマ形状（マニフェスト＋各レイヤーファイル＋kind/board整合性）→ LOAD_SCHEMA_INVALID
 //!    [T1-3] vk辞書外       → KeymapError::VkUnknown    (code=LOAD_VK_UNKNOWN)
 //!           mo/tgの参照先レイヤー不在 → LayerRefInvalid(code=LOAD_LAYER_REF_INVALID)
 //!    ※ Layer0必須。Layer0に trans を置くのも SchemaInvalid（最下層に透過先が無いため）。
 //!
-//! 4. レイヤー状態＋解決エンジン（D3）
+//! 4. レイヤー状態＋解決エンジン（D3。変更なし）
 //!    LayerState { momentary: BTreeSet<u8>, toggled: BTreeSet<u8> }  // Hubが保持する
 //!    - key_down/key_up(keyId) を受けて状態遷移し、発火すべき Action を返す:
 //!      resolve(keymap, state, key_id, edge) -> Resolved
-//!      enum Resolved { Fire(Action),        // key/chord/keymap.* を down で発火
-//!                      LayerChanged,        // mo/tg による状態変化（Hubはlayer.stateを配信）
-//!                      Ignored,             // key/chord の up など
-//!                      UnknownKey }         // code=KEY_UNKNOWN_ID で呼び出し側がerror返却
-//!    - 有効レイヤー = {0} ∪ momentary ∪ toggled のうち番号最大を優先。
-//!      そのレイヤーで該当keyIdが未定義 or Trans なら次に大きい有効レイヤーへフォールスルー。
-//!      最後まで無ければ Resolved::Fire ではなく code=KEY_RESOLVE_NONE 相当（None扱い・無音でなくログ）。
-//!      → 実装注記: 4変数（Fire/LayerChanged/Ignored/UnknownKey）だけでは「解決先が最後まで無い」を
-//!        Ignored（正常な無処理）と区別できないため、5番目の変数 `NoResolution` を追加した。
-//!        呼び出し側（proto-hub T3）は NoResolution を code=KEY_RESOLVE_NONE として整形する。
-//!    - MOのdown/upは対で処理。upで該当レイヤーをmomentaryから除く（多重押しは重複無視でよい）。
+//!      enum Resolved { Fire(Action), LayerChanged, Ignored, UnknownKey, NoResolution }
+//!    - 有効レイヤー = {0} ∪ momentary ∪ toggled のうち番号最大優先・transフォールスルー。
 //!    - 決定性: 同じ入力列は常に同じ結果（G5）。乱数・時刻を混ぜない。
 //!
-//! ── 単体テスト（12件以上。T1-4）────────────────────────────
-//!  1. layer0の単キー解決 / 2. chord解決 / 3. MO down中はlayer1が勝つ
-//!  4. MO up で layer0 に戻る / 5. TG でトグルON→OFF / 6. trans フォールスルー
-//!  7. 有効レイヤー複数時は番号最大優先 / 8. 未知keyId → UnknownKey
-//!  9. 辞書外vk → LOAD_VK_UNKNOWN / 10. mo参照先レイヤー不在 → LOAD_LAYER_REF_INVALID
-//! 11. JSON構文エラー → LOAD_JSON_SYNTAX / 12. 同一入力列2回で結果一致（決定性）
-//! （keymap_default.json / keymap_writing01.json の実ファイルロード成功もテストに含める）
+//! ── 単体テスト ────────────────────────────────────────────
+//!  resolve()系（T1-4、12件以上）は変更なしで維持。
+//!  T7で追加: マニフェスト＋レイヤーファイルの正常結合読込／レイヤーファイル欠損→LOAD_JSON_SYNTAX／
+//!  結合後にのみ解決できる参照（=ファイル単位で検証していないことの証明）／グリッドboardの読込。
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // ============================================================================
 // D9 エラーコード（proto-keymapが生成する範囲。他はproto-hub側で定義）
@@ -120,7 +126,7 @@ pub fn is_known_vk(vk: &str) -> bool {
 }
 
 // ============================================================================
-// アクション型（D4）
+// アクション型（D4＋D20）
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,10 +148,14 @@ pub enum Action {
     KeymapSwitch { id: String },
     #[serde(rename = "keymap.reset")]
     KeymapReset,
+    /// D20: IME状態に依存しない直接文字入力。adapter側でKEYEVENTF_UNICODEにより
+    /// サロゲートペア対応のdown/up対で送出する。vk辞書の対象外（文字列そのものが許可対象）。
+    #[serde(rename = "text")]
+    Text { string: String },
 }
 
 // ============================================================================
-// キーマップ構造
+// キーマップ構造（v2: kind + halves(split) | board(single、D24グリッド式)）
 // ============================================================================
 
 pub type KeyId = String;
@@ -177,6 +187,43 @@ pub struct Halves {
     pub right: Half,
 }
 
+/// D24: kind="single"の盤面は13列CSS Gridに合わせたグリッド式。
+/// row/col/colSpan/rowSpanはそのままCSSの grid-row/grid-column に転記できる値
+/// （span省略時は1）。配置の正はmockのgrid-column/grid-row指定。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Board {
+    pub cols: u8,
+    pub keys: Vec<BoardKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoardKey {
+    pub id: KeyId,
+    pub row: u8,
+    pub col: u8,
+    #[serde(rename = "colSpan", default = "one_u8", skip_serializing_if = "is_one_u8")]
+    pub col_span: u8,
+    #[serde(rename = "rowSpan", default = "one_u8", skip_serializing_if = "is_one_u8")]
+    pub row_span: u8,
+}
+
+fn one_u8() -> u8 {
+    1
+}
+
+fn is_one_u8(value: &u8) -> bool {
+    *value == 1
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeymapKind {
+    Split,
+    Single,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Keymap {
@@ -184,7 +231,11 @@ pub struct Keymap {
     pub keymap_id: String,
     #[serde(default)]
     pub description: String,
-    pub halves: Halves,
+    pub kind: KeymapKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub halves: Option<Halves>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<Board>,
     pub layers: Vec<Layer>,
 }
 
@@ -195,33 +246,216 @@ impl Keymap {
 }
 
 // ============================================================================
+// ディスク上フォーマット（T7）: マニフェスト＋レイヤーファイル
+// ============================================================================
+
+/// マニフェスト `keymap_<id>.json` の形。halves/boardはkindに応じて片方だけ必須
+/// （検証は load_keymap_with 内で行う。ここではserdeレベルの形状のみ）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeymapManifest {
+    #[serde(rename = "keymapId")]
+    keymap_id: String,
+    #[serde(default)]
+    description: String,
+    kind: KeymapKind,
+    #[serde(default)]
+    halves: Option<Halves>,
+    #[serde(default)]
+    board: Option<Board>,
+    #[serde(rename = "layerFiles")]
+    layer_files: Vec<String>,
+}
+
+/// レイヤーファイル `layers/<id>_layer<N>.json` の形（schemas/layer.schema.json）。
+/// マニフェスト内埋め込みの `Layer`（フィールド名 "id"）とは異なり、
+/// ディスク上は D13 の指定どおりフィールド名 "layer" を使う。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LayerFile {
+    layer: u8,
+    #[serde(default)]
+    #[allow(dead_code)]
+    description: String,
+    keys: BTreeMap<KeyId, KeyDef>,
+}
+
+// ============================================================================
 // ロード＆検証
 // ============================================================================
 
-/// ファイルパスからロード。読み込み失敗もLOAD_JSON_SYNTAX扱い（呼び出し側は
-/// 「ファイルが読めない」も「JSONが壊れている」も同じ起動拒否経路で処理してよいため）。
+/// ファイルパスからロード。マニフェストを読み、layerFilesをマニフェストと同じ
+/// ディレクトリ基準の相対パスとして解決してすべて読み込み、結合してから検証する。
 pub fn load_keymap_from_path(path: impl AsRef<Path>) -> Result<Keymap, KeymapError> {
     let path = path.as_ref();
-    let text = std::fs::read_to_string(path).map_err(|error| {
+    let manifest_text = std::fs::read_to_string(path).map_err(|error| {
         KeymapError::new(
             LOAD_JSON_SYNTAX,
             format!("{}: failed to read file: {error}", path.display()),
         )
     })?;
-    load_keymap_str(&path.display().to_string(), &text)
+    let base_dir: PathBuf = path
+        .parent()
+        .map(|parent| parent.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let source = path.display().to_string();
+
+    load_keymap_with(&source, &manifest_text, |relative| {
+        let layer_path = base_dir.join(relative);
+        std::fs::read_to_string(&layer_path).map_err(|error| {
+            KeymapError::new(
+                LOAD_JSON_SYNTAX,
+                format!(
+                    "{source} -> {relative} ({}): failed to read layer file: {error}",
+                    layer_path.display()
+                ),
+            )
+        })
+    })
 }
 
-/// テスト・再ロード用に文字列から直接ロードする経路。`source` はcauseに載る識別子
-/// （通常はファイルパス）。
-pub fn load_keymap_str(source: &str, text: &str) -> Result<Keymap, KeymapError> {
-    // [T1-1] JSON構文検証
-    let value: serde_json::Value = serde_json::from_str(text)
+/// マニフェストのテキストと、相対パス→レイヤーファイルのテキストを返すローダー関数から
+/// キーマップを構築する。`load_keymap_from_path` はディスクI/Oでこの関数を呼び出し、
+/// 単体テストはメモリ上の文字列で同じ経路を検証できる（旧`load_keymap_str`の後継）。
+pub fn load_keymap_with(
+    source: &str,
+    manifest_text: &str,
+    mut layer_loader: impl FnMut(&str) -> Result<String, KeymapError>,
+) -> Result<Keymap, KeymapError> {
+    // [T1-1] マニフェストのJSON構文検証
+    let manifest_value: serde_json::Value = serde_json::from_str(manifest_text)
         .map_err(|error| KeymapError::new(LOAD_JSON_SYNTAX, format!("{source}: {error}")))?;
 
-    // [T1-2] スキーマ形状検証（serdeのdeny_unknown_fields + 必須フィールド + タグ付きenumで実施）
-    let keymap: Keymap = serde_json::from_value(value)
-        .map_err(|error| KeymapError::new(LOAD_SCHEMA_INVALID, format!("{source}: {error}")))?;
+    // [T1-2] マニフェストのスキーマ形状検証
+    let manifest: KeymapManifest = serde_json::from_value(manifest_value).map_err(|error| {
+        KeymapError::new(LOAD_SCHEMA_INVALID, format!("{source} (manifest): {error}"))
+    })?;
 
+    if manifest.layer_files.is_empty() {
+        return Err(KeymapError::new(
+            LOAD_SCHEMA_INVALID,
+            format!("{source}: layerFiles must not be empty"),
+        ));
+    }
+
+    // T7-1: kindごとにhalves/boardのどちらが必須かを検証する。
+    match manifest.kind {
+        KeymapKind::Split => {
+            if manifest.halves.is_none() {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: kind=\"split\" requires 'halves'"),
+                ));
+            }
+            if manifest.board.is_some() {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: kind=\"split\" must not have 'board'"),
+                ));
+            }
+        }
+        KeymapKind::Single => {
+            if manifest.board.is_none() {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: kind=\"single\" requires 'board'"),
+                ));
+            }
+            if manifest.halves.is_some() {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: kind=\"single\" must not have 'halves'"),
+                ));
+            }
+        }
+    }
+
+    // T7-2: グリッドboardの基本整合性（D24）。
+    if let Some(board) = &manifest.board {
+        if board.cols == 0 {
+            return Err(KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!("{source}: board.cols must be at least 1"),
+            ));
+        }
+        let mut seen_ids = BTreeSet::new();
+        for key in &board.keys {
+            if !seen_ids.insert(key.id.clone()) {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: board has duplicate key id '{}'", key.id),
+                ));
+            }
+            if key.row == 0 || key.col == 0 || key.row_span == 0 || key.col_span == 0 {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!(
+                        "{source}: board key '{}' has a zero row/col/rowSpan/colSpan",
+                        key.id
+                    ),
+                ));
+            }
+            if key.col as u16 + key.col_span as u16 - 1 > board.cols as u16 {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!(
+                        "{source}: board key '{}' (col={}, colSpan={}) exceeds cols={}",
+                        key.id, key.col, key.col_span, board.cols
+                    ),
+                ));
+            }
+        }
+    }
+
+    // レイヤーファイルの読込＋構文/形状検証。
+    let mut layers: Vec<Layer> = Vec::with_capacity(manifest.layer_files.len());
+    let mut seen_layer_ids = BTreeSet::new();
+    for relative in &manifest.layer_files {
+        let text = layer_loader(relative)?;
+
+        // [T1-1] レイヤーファイルのJSON構文検証
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| KeymapError::new(LOAD_JSON_SYNTAX, format!("{source} -> {relative}: {error}")))?;
+
+        // [T1-2] レイヤーファイルのスキーマ形状検証
+        let layer_file: LayerFile = serde_json::from_value(value).map_err(|error| {
+            KeymapError::new(LOAD_SCHEMA_INVALID, format!("{source} -> {relative}: {error}"))
+        })?;
+
+        if !seen_layer_ids.insert(layer_file.layer) {
+            return Err(KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!(
+                    "{source} -> {relative}: duplicate layer id {} (already provided by another layerFile)",
+                    layer_file.layer
+                ),
+            ));
+        }
+
+        layers.push(Layer {
+            id: layer_file.layer,
+            keys: layer_file.keys,
+        });
+    }
+
+    let keymap = Keymap {
+        keymap_id: manifest.keymap_id,
+        description: manifest.description,
+        kind: manifest.kind,
+        halves: manifest.halves,
+        board: manifest.board,
+        layers,
+    };
+
+    // 結合後の検証（D13: 全ファイル読込後に結合して従来どおり実施）。
+    validate_merged(source, &keymap)?;
+
+    Ok(keymap)
+}
+
+/// Layer0必須／L0にtrans禁止／vk辞書／mo・tg参照先。従来のload_keymap_str相当の検証を、
+/// マニフェスト＋複数レイヤーファイルを結合した後のKeymapに対して1回だけ行う。
+fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
     // Layer0必須
     if keymap.layer(0).is_none() {
         return Err(KeymapError::new(
@@ -284,12 +518,16 @@ pub fn load_keymap_str(source: &str, text: &str) -> Result<Keymap, KeymapError> 
                         ));
                     }
                 }
-                Action::Trans | Action::None | Action::KeymapSwitch { .. } | Action::KeymapReset => {}
+                Action::Trans
+                | Action::None
+                | Action::KeymapSwitch { .. }
+                | Action::KeymapReset
+                | Action::Text { .. } => {}
             }
         }
     }
 
-    Ok(keymap)
+    Ok(())
 }
 
 // ============================================================================
@@ -340,7 +578,7 @@ impl LayerState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolved {
-    /// key/chord/keymap.switch/keymap.reset をdownで発火。
+    /// key/chord/text/keymap.switch/keymap.reset をdownで発火。
     Fire(Action),
     /// mo/tgによる状態変化。呼び出し側はlayer.stateを全クライアントへ配信する。
     LayerChanged,
@@ -413,6 +651,7 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
         }
         Action::Key { .. }
         | Action::Chord { .. }
+        | Action::Text { .. }
         | Action::KeymapSwitch { .. }
         | Action::KeymapReset => match edge {
             Edge::Down => Resolved::Fire(action.clone()),
@@ -424,7 +663,7 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
 }
 
 // ============================================================================
-// 単体テスト（T1-4。12件以上）
+// 単体テスト
 // ============================================================================
 
 #[cfg(test)]
@@ -459,10 +698,12 @@ mod tests {
         Keymap {
             keymap_id: "fixture".into(),
             description: String::new(),
-            halves: Halves {
+            kind: KeymapKind::Split,
+            halves: Some(Halves {
                 left: half(&["K1", "K2", "K4"]),
                 right: half(&["K3"]),
-            },
+            }),
+            board: None,
             layers: vec![
                 layer_with(
                     0,
@@ -481,6 +722,53 @@ mod tests {
                 ),
                 layer_with(2, &[("K1", "trans", Action::Trans)]),
             ],
+        }
+    }
+
+    /// テスト用: マニフェストテキスト＋メモリ上のレイヤーファイル一覧からキーマップを組み立てる。
+    /// 旧`load_keymap_str`（単一インラインJSON）の後継で、ディスクI/O無しに
+    /// load_keymap_withの経路（結合＋検証）を検証できる。
+    fn load_test_keymap(manifest: &str, layer_files: &[(&str, &str)]) -> Result<Keymap, KeymapError> {
+        load_keymap_with("test", manifest, |relative| {
+            layer_files
+                .iter()
+                .find(|(name, _)| *name == relative)
+                .map(|(_, contents)| contents.to_string())
+                .ok_or_else(|| {
+                    KeymapError::new(
+                        LOAD_JSON_SYNTAX,
+                        format!("test: layer file not found in fixture: {relative}"),
+                    )
+                })
+        })
+    }
+
+    /// 一時ディレクトリにマニフェスト＋レイヤーファイルを書き出す（実ファイルI/Oが必要なテスト用）。
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static COUNTER: AtomicUsize = AtomicUsize::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+            let dir = std::env::temp_dir().join(format!(
+                "keydeck_keymap_test_{tag}_{}_{n}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("create temp dir for keymap test");
+            Self(dir)
+        }
+
+        fn write(&self, name: &str, contents: &str) -> PathBuf {
+            let path = self.0.join(name);
+            std::fs::write(&path, contents).expect("write temp fixture file");
+            path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
 
@@ -652,15 +940,35 @@ mod tests {
         assert_eq!(resolved, Resolved::NoResolution);
     }
 
+    // 8c. text Actionもkey/chordと同様にdownで発火・upは無視
+    #[test]
+    fn t1_4_text_action_resolves_to_fire_on_down_and_ignored_on_up() {
+        let mut keymap = fixture_keymap();
+        keymap.layers[0].keys.insert(
+            "K7".into(),
+            KeyDef {
+                label: "(".into(),
+                action: Action::Text { string: "(".into() },
+            },
+        );
+        let mut state = LayerState::new();
+        let down = resolve(&keymap, &mut state, "K7", Edge::Down);
+        assert_eq!(down, Resolved::Fire(Action::Text { string: "(".into() }));
+        let up = resolve(&keymap, &mut state, "K7", Edge::Up);
+        assert_eq!(up, Resolved::Ignored);
+    }
+
     // 9. 辞書外vk → LOAD_VK_UNKNOWN
     #[test]
     fn t1_4_unknown_vk_is_rejected_at_load() {
-        let text = r#"{
+        let manifest = r#"{
             "keymapId": "bad_vk",
+            "kind": "split",
             "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
-            "layers": [ { "id": 0, "keys": { "K1": { "label": "x", "action": { "t": "key", "vk": "NOT_A_KEY" } } } } ]
+            "layerFiles": ["layer0.json"]
         }"#;
-        let error = load_keymap_str("test", text).unwrap_err();
+        let layer0 = r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "key", "vk": "NOT_A_KEY" } } } }"#;
+        let error = load_test_keymap(manifest, &[("layer0.json", layer0)]).unwrap_err();
         assert_eq!(error.code, LOAD_VK_UNKNOWN);
         assert!(error.cause.contains("K1"));
         assert!(error.cause.contains("NOT_A_KEY"));
@@ -669,53 +977,58 @@ mod tests {
     // 10. mo参照先レイヤー不在 → LOAD_LAYER_REF_INVALID
     #[test]
     fn t1_4_mo_referencing_missing_layer_is_rejected_at_load() {
-        let text = r#"{
+        let manifest = r#"{
             "keymapId": "bad_ref",
+            "kind": "split",
             "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
-            "layers": [ { "id": 0, "keys": { "K1": { "label": "x", "action": { "t": "mo", "layer": 9 } } } } ]
+            "layerFiles": ["layer0.json"]
         }"#;
-        let error = load_keymap_str("test", text).unwrap_err();
+        let layer0 = r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "mo", "layer": 9 } } } }"#;
+        let error = load_test_keymap(manifest, &[("layer0.json", layer0)]).unwrap_err();
         assert_eq!(error.code, LOAD_LAYER_REF_INVALID);
         assert!(error.cause.contains("K1"));
         assert!(error.cause.contains('9'));
     }
 
-    // 11. JSON構文エラー → LOAD_JSON_SYNTAX
+    // 11. JSON構文エラー（マニフェスト側）→ LOAD_JSON_SYNTAX
     #[test]
     fn t1_4_json_syntax_error_is_rejected_at_load() {
-        let error = load_keymap_str("test", "{ this is not json").unwrap_err();
+        let error = load_test_keymap("{ this is not json", &[]).unwrap_err();
         assert_eq!(error.code, LOAD_JSON_SYNTAX);
     }
 
     // 11b. スキーマ形状違反（必須フィールド欠落）→ LOAD_SCHEMA_INVALID
     #[test]
     fn t1_4_missing_required_field_is_rejected_as_schema_invalid() {
-        let text = r#"{ "keymapId": "no_halves", "layers": [] }"#;
-        let error = load_keymap_str("test", text).unwrap_err();
+        let error = load_test_keymap(r#"{ "keymapId": "no_kind", "layerFiles": [] }"#, &[]).unwrap_err();
         assert_eq!(error.code, LOAD_SCHEMA_INVALID);
     }
 
     // 11c. layer0欠落 → LOAD_SCHEMA_INVALID
     #[test]
     fn t1_4_missing_layer0_is_rejected_as_schema_invalid() {
-        let text = r#"{
+        let manifest = r#"{
             "keymapId": "no_layer0",
+            "kind": "split",
             "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
-            "layers": [ { "id": 1, "keys": {} } ]
+            "layerFiles": ["layer1.json"]
         }"#;
-        let error = load_keymap_str("test", text).unwrap_err();
+        let layer1 = r#"{ "layer": 1, "keys": {} }"#;
+        let error = load_test_keymap(manifest, &[("layer1.json", layer1)]).unwrap_err();
         assert_eq!(error.code, LOAD_SCHEMA_INVALID);
     }
 
     // 11d. layer0にtrans → LOAD_SCHEMA_INVALID
     #[test]
     fn t1_4_trans_on_layer0_is_rejected_as_schema_invalid() {
-        let text = r#"{
+        let manifest = r#"{
             "keymapId": "trans_on_zero",
+            "kind": "split",
             "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
-            "layers": [ { "id": 0, "keys": { "K1": { "label": "x", "action": { "t": "trans" } } } } ]
+            "layerFiles": ["layer0.json"]
         }"#;
-        let error = load_keymap_str("test", text).unwrap_err();
+        let layer0 = r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "trans" } } } }"#;
+        let error = load_test_keymap(manifest, &[("layer0.json", layer0)]).unwrap_err();
         assert_eq!(error.code, LOAD_SCHEMA_INVALID);
     }
 
@@ -754,12 +1067,15 @@ mod tests {
         );
     }
 
-    // 実ファイルロード成功確認: keymap_default.json / keymap_writing01.json
+    // 実ファイルロード成功確認: keymap_default.json / keymap_writing01.json（T7: マニフェスト形式）
     #[test]
     fn real_keymap_default_json_loads_successfully() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../keymaps/keymap_default.json");
         let keymap = load_keymap_from_path(path).expect("keymap_default.json must load");
         assert_eq!(keymap.keymap_id, "default");
+        assert_eq!(keymap.kind, KeymapKind::Split);
+        assert!(keymap.halves.is_some());
+        assert!(keymap.board.is_none());
         assert!(keymap.layer(0).is_some());
     }
 
@@ -774,6 +1090,20 @@ mod tests {
         assert!(keymap.layer(0).is_some());
     }
 
+    #[test]
+    fn real_keymap_ipad01_vol12_json_loads_successfully() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../keymaps/keymap_ipad01_vol12.json"
+        );
+        let keymap = load_keymap_from_path(path).expect("keymap_ipad01_vol12.json must load");
+        assert_eq!(keymap.keymap_id, "ipad01_vol12");
+        assert_eq!(keymap.kind, KeymapKind::Single);
+        assert!(keymap.board.is_some());
+        assert!(keymap.halves.is_none());
+        assert!(keymap.layer(0).is_some());
+    }
+
     // vk辞書の網羅性チェック（T2のVKコード表と突き合わせる際の基準）
     #[test]
     fn vk_dictionary_has_no_duplicates() {
@@ -781,5 +1111,144 @@ mod tests {
         for vk in VK_DICTIONARY {
             assert!(seen.insert(*vk), "duplicate vk in dictionary: {vk}");
         }
+    }
+
+    // ── T7: マニフェスト＋レイヤーファイル読込のテスト ──────────────────
+
+    // マニフェスト読込: 複数レイヤーファイルが正しく結合される。
+    #[test]
+    fn t7_manifest_and_layer_files_load_and_merge_successfully() {
+        let dir = TempDir::new("manifest_ok");
+        dir.write(
+            "layer0.json",
+            r#"{ "layer": 0, "keys": { "K1": { "label": "A", "action": { "t": "key", "vk": "A" } } } }"#,
+        );
+        dir.write(
+            "layer1.json",
+            r#"{ "layer": 1, "keys": { "K1": { "label": "B", "action": { "t": "key", "vk": "B" } } } }"#,
+        );
+        let manifest_path = dir.write(
+            "keymap_test.json",
+            r#"{
+                "keymapId": "manifest_test",
+                "kind": "split",
+                "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+                "layerFiles": ["layer0.json", "layer1.json"]
+            }"#,
+        );
+
+        let keymap = load_keymap_from_path(&manifest_path).expect("manifest+layers must load");
+        assert_eq!(keymap.keymap_id, "manifest_test");
+        assert_eq!(keymap.layers.len(), 2);
+        assert!(keymap.layer(0).is_some());
+        assert!(keymap.layer(1).is_some());
+    }
+
+    // レイヤーファイル欠損 → LOAD_JSON_SYNTAX（実ファイルI/O経路）
+    #[test]
+    fn t7_missing_layer_file_is_load_json_syntax_error() {
+        let dir = TempDir::new("missing_layer");
+        let manifest_path = dir.write(
+            "keymap_test.json",
+            r#"{
+                "keymapId": "missing_layer",
+                "kind": "split",
+                "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+                "layerFiles": ["does_not_exist.json"]
+            }"#,
+        );
+
+        let error = load_keymap_from_path(&manifest_path).unwrap_err();
+        assert_eq!(error.code, LOAD_JSON_SYNTAX);
+        assert!(error.cause.contains("does_not_exist.json"));
+    }
+
+    // 結合後検証: K2(layer0)のmo(1)はlayer1ファイルが読み込まれて初めて解決できる。
+    // ファイル単位で検証していたら（layer0.json単体を見た時点では）layer1は未知に見えるはず。
+    #[test]
+    fn t7_validation_runs_after_merging_all_layer_files() {
+        let dir = TempDir::new("merge_validate");
+        dir.write(
+            "layer0.json",
+            r#"{ "layer": 0, "keys": {
+                "K1": { "label": "A", "action": { "t": "key", "vk": "A" } },
+                "K2": { "label": "MO(1)", "action": { "t": "mo", "layer": 1 } }
+            } }"#,
+        );
+        dir.write(
+            "layer1.json",
+            r#"{ "layer": 1, "keys": { "K1": { "label": "B", "action": { "t": "key", "vk": "B" } } } }"#,
+        );
+        let manifest_path = dir.write(
+            "keymap_test.json",
+            r#"{
+                "keymapId": "merge_validate",
+                "kind": "split",
+                "halves": { "left": { "rows": [["K1", "K2"]] }, "right": { "rows": [[]] } },
+                "layerFiles": ["layer0.json", "layer1.json"]
+            }"#,
+        );
+
+        let keymap = load_keymap_from_path(&manifest_path)
+            .expect("mo(1) must resolve once every layer file has been merged");
+        assert_eq!(keymap.layers.len(), 2);
+    }
+
+    // グリッドboard（D24）の読込: kind=singleのboardが正しくデシリアライズされ、
+    // colSpan/rowSpan省略時は1になる。
+    #[test]
+    fn t7_grid_board_single_kind_loads_successfully() {
+        let dir = TempDir::new("grid_board");
+        dir.write(
+            "layer0.json",
+            r#"{ "layer": 0, "keys": {
+                "K101": { "label": "1", "action": { "t": "key", "vk": "1" } },
+                "K113": { "label": "Enter", "action": { "t": "key", "vk": "ENTER" } }
+            } }"#,
+        );
+        let manifest_path = dir.write(
+            "keymap_test.json",
+            r#"{
+                "keymapId": "grid_test",
+                "kind": "single",
+                "board": { "cols": 13, "keys": [
+                    { "id": "K101", "row": 1, "col": 1 },
+                    { "id": "K113", "row": 2, "col": 13, "rowSpan": 2 }
+                ] },
+                "layerFiles": ["layer0.json"]
+            }"#,
+        );
+
+        let keymap = load_keymap_from_path(&manifest_path).expect("grid board keymap must load");
+        assert_eq!(keymap.kind, KeymapKind::Single);
+        let board = keymap.board.as_ref().expect("board must be present for kind=single");
+        assert_eq!(board.cols, 13);
+        let enter = board.keys.iter().find(|k| k.id == "K113").unwrap();
+        assert_eq!(enter.row_span, 2, "explicit rowSpan must be preserved");
+        assert_eq!(enter.col_span, 1, "colSpan defaults to 1 when omitted");
+        let one = board.keys.iter().find(|k| k.id == "K101").unwrap();
+        assert_eq!(one.row_span, 1, "rowSpan defaults to 1 when omitted");
+    }
+
+    // kind=singleでboard欠落 → LOAD_SCHEMA_INVALID
+    #[test]
+    fn t7_kind_single_without_board_is_schema_invalid() {
+        let manifest = r#"{ "keymapId": "x", "kind": "single", "layerFiles": ["layer0.json"] }"#;
+        let error = load_test_keymap(manifest, &[]).unwrap_err();
+        assert_eq!(error.code, LOAD_SCHEMA_INVALID);
+    }
+
+    // kind=splitでboardが混在 → LOAD_SCHEMA_INVALID
+    #[test]
+    fn t7_kind_split_with_board_is_schema_invalid() {
+        let manifest = r#"{
+            "keymapId": "x",
+            "kind": "split",
+            "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+            "board": { "cols": 2, "keys": [{ "id": "K1", "row": 1, "col": 1 }] },
+            "layerFiles": ["layer0.json"]
+        }"#;
+        let error = load_test_keymap(manifest, &[]).unwrap_err();
+        assert_eq!(error.code, LOAD_SCHEMA_INVALID);
     }
 }

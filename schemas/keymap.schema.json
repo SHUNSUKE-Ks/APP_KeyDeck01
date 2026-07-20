@@ -1,14 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "keydeck/keymap.schema.json",
-  "title": "KeyDeck Keymap",
-  "description": "分割レイヤーキーボードのキーマップ（設計書D3/D4/D10）。ロード時にHubが検証し、違反はLOAD_SCHEMA_INVALID＋causeで起動拒否。",
+  "title": "KeyDeck Keymap Manifest (v2 / T7)",
+  "description": "スキーマv2（D13）。キーマップ本体はマニフェスト化し、レイヤーは1レイヤー=1ファイル（schemas/layer.schema.jsonを参照）としてlayerFilesが指す。検証（Layer0必須/L0にtrans禁止/vk辞書/mo・tg参照先）は全レイヤーファイルを読み込み結合した後にHubが行い、違反はLOAD_SCHEMA_INVALID等＋causeで起動拒否。kind=\"split\"はhalvesが必須、kind=\"single\"はD24のグリッド式boardが必須（互いに排他）。",
   "type": "object",
-  "required": ["keymapId", "halves", "layers"],
+  "required": ["keymapId", "kind", "layerFiles"],
   "additionalProperties": false,
   "properties": {
     "keymapId": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
+    "kind": { "type": "string", "enum": ["split", "single"] },
     "halves": {
       "type": "object",
       "required": ["left", "right"],
@@ -18,21 +19,11 @@
         "right": { "$ref": "#/$defs/half" }
       }
     },
-    "layers": {
+    "board": { "$ref": "#/$defs/board" },
+    "layerFiles": {
       "type": "array",
       "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["id", "keys"],
-        "additionalProperties": false,
-        "properties": {
-          "id": { "type": "integer", "minimum": 0, "maximum": 15 },
-          "keys": {
-            "type": "object",
-            "additionalProperties": { "$ref": "#/$defs/keydef" }
-          }
-        }
-      }
+      "items": { "type": "string", "minLength": 1 }
     }
   },
   "$defs": {
@@ -43,8 +34,34 @@
       "properties": {
         "rows": {
           "type": "array", "minItems": 1,
-          "items": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[LR][0-9]{2}$" } }
+          "items": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Z][0-9]{2,3}$" } }
         }
+      }
+    },
+    "board": {
+      "description": "D24: kind=\"single\"の盤面。13列CSS Gridに合わせたグリッド式（row/col/colSpan/rowSpanはそのままgrid-row/grid-columnに転記できる）。配置の正はbrief/mockup/screen_mock_v0.4.htmlのgrid-column/grid-row指定。",
+      "type": "object",
+      "required": ["cols", "keys"],
+      "additionalProperties": false,
+      "properties": {
+        "cols": { "type": "integer", "minimum": 1 },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/boardKey" }
+        }
+      }
+    },
+    "boardKey": {
+      "type": "object",
+      "required": ["id", "row", "col"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z][0-9]{2,3}$" },
+        "row": { "type": "integer", "minimum": 1 },
+        "col": { "type": "integer", "minimum": 1 },
+        "colSpan": { "type": "integer", "minimum": 1 },
+        "rowSpan": { "type": "integer", "minimum": 1 }
       }
     },
     "keydef": {
@@ -57,16 +74,17 @@
       }
     },
     "action": {
-      "description": "D4のアクション型。vk名の辞書検証はスキーマではなくproto-keymap側で行う（LOAD_VK_UNKNOWN）。",
+      "description": "D4のアクション型＋D20のtext。vk名の辞書検証はスキーマではなくproto-keymap側で行う（LOAD_VK_UNKNOWN）。textはvk辞書の対象外（adapter側でKEYEVENTF_UNICODEにより直接注入）。",
       "oneOf": [
-        { "type": "object", "required": ["t", "vk"],    "additionalProperties": false, "properties": { "t": { "const": "key" },   "vk": { "type": "string" } } },
-        { "type": "object", "required": ["t", "keys"],  "additionalProperties": false, "properties": { "t": { "const": "chord" }, "keys": { "type": "array", "minItems": 2, "items": { "type": "string" } } } },
-        { "type": "object", "required": ["t", "layer"], "additionalProperties": false, "properties": { "t": { "const": "mo" },    "layer": { "type": "integer", "minimum": 1, "maximum": 15 } } },
-        { "type": "object", "required": ["t", "layer"], "additionalProperties": false, "properties": { "t": { "const": "tg" },    "layer": { "type": "integer", "minimum": 1, "maximum": 15 } } },
-        { "type": "object", "required": ["t"],          "additionalProperties": false, "properties": { "t": { "const": "trans" } } },
-        { "type": "object", "required": ["t"],          "additionalProperties": false, "properties": { "t": { "const": "none" } } },
-        { "type": "object", "required": ["t", "id"],    "additionalProperties": false, "properties": { "t": { "const": "keymap.switch" }, "id": { "type": "string", "minLength": 1 } } },
-        { "type": "object", "required": ["t"],          "additionalProperties": false, "properties": { "t": { "const": "keymap.reset" } } }
+        { "type": "object", "required": ["t", "vk"],     "additionalProperties": false, "properties": { "t": { "const": "key" },   "vk": { "type": "string" } } },
+        { "type": "object", "required": ["t", "keys"],   "additionalProperties": false, "properties": { "t": { "const": "chord" }, "keys": { "type": "array", "minItems": 2, "items": { "type": "string" } } } },
+        { "type": "object", "required": ["t", "layer"],  "additionalProperties": false, "properties": { "t": { "const": "mo" },    "layer": { "type": "integer", "minimum": 1, "maximum": 15 } } },
+        { "type": "object", "required": ["t", "layer"],  "additionalProperties": false, "properties": { "t": { "const": "tg" },    "layer": { "type": "integer", "minimum": 1, "maximum": 15 } } },
+        { "type": "object", "required": ["t"],           "additionalProperties": false, "properties": { "t": { "const": "trans" } } },
+        { "type": "object", "required": ["t"],           "additionalProperties": false, "properties": { "t": { "const": "none" } } },
+        { "type": "object", "required": ["t", "id"],     "additionalProperties": false, "properties": { "t": { "const": "keymap.switch" }, "id": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "required": ["t"],           "additionalProperties": false, "properties": { "t": { "const": "keymap.reset" } } },
+        { "type": "object", "required": ["t", "string"], "additionalProperties": false, "properties": { "t": { "const": "text" }, "string": { "type": "string", "minLength": 1 } } }
       ]
     }
   }

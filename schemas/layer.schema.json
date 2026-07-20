@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "keydeck/layer.schema.json",
-  "title": "KeyDeck Layer (v0.3 D13)",
-  "description": "1レイヤー=1ファイル。keymapマニフェスト(layerFiles)から参照され、Export=/api/keymap/{id}/layer/{n}/export、Import=keymaps/layers/へ配置＋再起動。keysの形はkeymap.schema.jsonの$defs/keydefと同一に保つこと。",
+  "title": "KeyDeck Layer (v2 / T7, D13)",
+  "description": "1レイヤー=1ファイル。keymapマニフェスト(layerFiles)から参照され、Export=/api/keymap/{id}/layer/{n}/export（T9予定）、Import=keymaps/layers/へ配置＋再起動。keysの形はkeymap.schema.jsonの$defs/keydefと同一に保つこと（D20のtextアクション含む）。",
   "type": "object",
   "required": ["layer", "keys"],
   "additionalProperties": false,
