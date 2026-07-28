@@ -89,6 +89,16 @@
     - **既存回帰（G2/G6）実証**: 分割2接続（left/right相当）でL41のMO(1) down/upが両方の接続へ同一の`layer.state`としてブロードキャストされること、Deckの`keymap.reset`(S09)がSplit接続へ`surface.config`(activeKeymapId="default")を再配信すること、`deck.press`の未知slotId→`DECK_UNKNOWN_SLOT`、を確認。検証後はactive_keymap_idをwriting01へ戻して終了（プロセスは検証後に停止）
   - Browser paneで`/ipad?token=…`を表示し`get_page_text`/`read_page`でDOM構造を確認: ヘッダ(↺/↻/タイトル/Layerバッジ/接続中/QR)＋53枚の盤面ボタンが崩れず表示（空プレースホルダー5枚を含む）。screenshotツール自体がタイムアウトしたが、get_page_text/read_page/console(`[KD][T4-1][OK] surface.config received`)で正常表示・正常受信を確認済み（アプリ側の不具合ではなくスクリーンショット取得ツールの問題と判断）
 
+## ipad02 新レイアウト候補（見た目モックのみ・2026-07-20）
+
+ユーザー添付の参考写真（4段コンパクト・数字重ね表示のスマホ風配列）を元に、既存Vol1.2(v0.4)とは**別系統・並存**の新レイアウト案を作成。planner-html-mockupスキル使用。
+- モック: `brief/mockup/screen_mock_ipad02_v0.1.html`（共有版 `MockUp/APP_KeyDeck01/`）。**v0.3/v0.4は無変更**
+- ユーザー指示3点を反映: ①矢印(⇦⇒)を1段上げてRow3(記号列)右端へ ②空いたRow4右端に「英数⇄日本語」ボタン ③レイヤー切替「記号」キーはRow3左端のまま継続
+- 構造差: v0.4は13列直列グリッド（全行が縦に整列）。本モックは**互い違い(スタッガード)配置**＝46サブ列grid（1キー=4サブ列）で行ごとにgrid-column開始位置をずらす技法（row1開始1／row2開始2／row3開始4／row4は全幅で1に戻る）。実物理キーボードのQWERTY標準スタッガーを近似
+- 検証: DOM構造で37キー・矢印がRow3・英数⇄日本語がRow4右端・記号キーがRow3左端であることを確認。座標ベースで行の左端がrow1<row2<row3と右へずれ、row4が全幅に戻ることを確認（stagger実証）。記号盤トグル・IME表示切替（A⇄あ）の状態変化を確認、console error無し
+  - 補足: `APP_KeyDeck01`は独立repo(親から見てuntracked)のためBrowser paneのfile://タブが静的スナップショット扱いになりwindow.innerWidth等の絶対値が信頼できなかった（新規の環境上の制約。PF2に近い事象として`keydeck_brain_v1.json`への追記候補）。相対座標比較で代替確認した
+- 次: ユーザーが正式採用を判断。採用なら `keymap_ipad02.json`（新規board、D24の46サブ列grid拡張）として実装フェーズへ。専用ref md（写真テキスト化）はその時点で起票
+
 ## 差し戻し（SR）
 
 `brief/spec_return_log.md` 参照。現在0件。
