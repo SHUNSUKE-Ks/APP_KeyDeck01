@@ -9,6 +9,7 @@ mod protocol;
 mod qr;
 mod startup;
 mod state;
+mod surface;
 mod ws;
 
 use std::net::SocketAddr;
@@ -21,6 +22,9 @@ use state::{AccessToken, HubState, PORT};
 /// 新フォーマットはここへファイルを置くだけで起動時に発見される。
 const KEYMAPS_DIR: &str = "keymaps";
 const DECK_PATH: &str = "decks/deck_default.json";
+/// T11（D28）: `surfaces/trackball.json`を置くディレクトリ。存在しなくても起動は成功する
+/// （startup::load_startup_dataのT11-4）。
+const SURFACES_DIR: &str = "surfaces";
 
 #[tokio::main]
 async fn main() {
@@ -34,7 +38,11 @@ async fn main() {
     // [T3-1] 起動時ロード。失敗はD9のエラーコード＋causeを全件printして終了（起動拒否）。
     // B2の`/api/reload`（ws.rs）もこの同じ`startup::load_startup_data`を通るため、
     // 起動時とreload時で検証経路が1本に保たれる。
-    let startup_data = match startup::load_startup_data(Path::new(KEYMAPS_DIR), Path::new(DECK_PATH)) {
+    let startup_data = match startup::load_startup_data(
+        Path::new(KEYMAPS_DIR),
+        Path::new(DECK_PATH),
+        Path::new(SURFACES_DIR),
+    ) {
         Ok(data) => data,
         Err(startup_errors) => {
             eprintln!("proto-hub: startup rejected due to {} error(s):", startup_errors.len());
@@ -48,12 +56,14 @@ async fn main() {
         keymaps,
         deck,
         command_registry,
+        surfaces,
     } = startup_data;
 
     tracing::info!(
         chk = "T3-1",
         keymaps = keymaps.len(),
         decks = 1,
+        surfaces = surfaces.len(),
         "startup data loaded successfully"
     );
     tracing::info!(
@@ -78,6 +88,7 @@ async fn main() {
         active_keymap_id,
         deck,
         command_registry,
+        surfaces,
         token.clone(),
         adapter_tx,
         lan_ip.clone(),
@@ -99,6 +110,7 @@ async fn main() {
     println!("  keyboard (right): http://{lan_ip}:{PORT}/kb?half=right&token={}", token.value());
     println!("  deck            : http://{lan_ip}:{PORT}/deck?token={}", token.value());
     println!("  ipad (Vol1.2)   : http://{lan_ip}:{PORT}/ipad?token={}", token.value());
+    println!("  trackball       : http://{lan_ip}:{PORT}/trackball?token={}", token.value());
     println!("  settings（再読込）: http://{lan_ip}:{PORT}/settings?token={}", token.value());
 
     if let Err(error) = axum::serve(listener, router).await {

@@ -159,3 +159,83 @@
   - `cargo build --workspace`で警告0件
 - README.mdの「フォーマットの変え方」節を段階A（JSON直編集＋Hub再起動）／段階B（ディレクトリスキャン＋`/api/reload`）の手順で更新。動作確認コマンドのテスト件数を54件に更新
 - 新規/変更ファイル: `crates/proto-hub/src/startup.rs`(新規)・`main.rs`・`ws.rs`・`error.rs`・`static/ipad.html`（F1差分修正）・`static/settings.html`（再読込ボタン）・`README.md`
+
+## トラックボール面 T10〜T13（**Sonnet** 2026-08-01。設計: `brief/keydeck_trackball_design_v0.6.md`／裁定: `brief/proposals/P-002_trackball_surface.md`）
+
+- T10 `proto-keymap`/`proto-adapter-win`: `Action::MouseMove{dx,dy}`追加（`{"t":"mouse.move",...}`）。`proto_adapter_win::send()`にSendInput+`INPUT_MOUSE`+`MOUSEEVENTF_MOVE`分岐を追加。自動テストは実SendInputを呼ばない（serde往復・vk網羅性等の純粋な部分のみ）。実移動確認は新規`crates/proto-adapter-win/examples/smoke_mouse.rs`（手動実行、cargo run -p proto-adapter-win --example smoke_mouse）
+- T11 `proto-hub`: `crates/proto-hub/src/surface.rs`新設。`surfaces/trackball.json`をロード・検証し`SurfaceRegistry`を構築。`binding.t`許可リストはコード内固定（現状`"mouse.move"`のみ）。`startup::load_startup_data`にsurfaces引数を追加し同一エラー集約経路に統合。`surfaces/`ディレクトリ・ファイル不在時は空レジストリで正常起動
+- T12 `proto-hub`: `SurfaceKind::Trackball`追加（`from_query`の既存`_ => Split`フォールバックは無変更）。`ClientMessage::SurfaceState`追加（`type:"surface.state"`。spin/activeは受信して読み捨て）。`ws.rs`に`handle_surface_state`を追加（surfaceId解決→有限性→clamp→丸め＋ゼロ移動スキップ→既存`adapter_tx`への発火、の順を固定）。`/trackball`ルート・起動時URL一覧・QRターゲット一覧に追加
+- T13 `static/trackball.html`: `（scratchpad）trackball_canvas2d.html`を移植。変更点3点のみ（WS接続を`/ws?token=…&surface=trackball`に統一・`?ws=`手動指定機構は削除／ヘッダにQR(D25)・接続状態(D26)ボタンをipad.html同一CSS値で追加／エラーは`[KD][ERR][コード]`書式でconsole.error）。Core/View層に"mouse"/"マウス"は不出現。ヘッダがflowを占める分、`#ball`/`#lower-half`等の絶対配置基準をvh→`#stage`比の%へ変更（構造上必要な最小限の追随。数値・見た目は不変）
+- **SR-002起票**（`brief/spec_return_log.md`）: T10の`Action`追加により`crates/proto-hub/src/deck.rs`のDeckスロット検証matchが非網羅コンパイルエラーになったが、同ファイルは設計書v0.6の「触ってよいファイル」表に未記載だった。1行追加（`MouseMove`をText/None同様の無検証受理枝へ）して継続、SRへ記録・報告
+- ブラウザ実機（Windows、Chromeエミュレーション）でのバグ検出＋修正: `trackball.html`初回実装でTDZ（temporal dead zone）例外により球が全く描画されない不具合を発見。`hubSink`のIIFE内`connect()`が自分自身（`hubSink`）を参照する`readoutSink.refresh()`を初期化未完了のまま同期呼び出ししていたのが原因。呼び出しを削除し修正・再検証済み
+- `cargo test --workspace` = **72 passed, 0 failed**（hub-core 7 + proto-keymap 29 + proto-adapter-win 8 + proto-hub 28。既存54件は削除・弱体化なし。内訳: proto-keymap +1（MouseMove serde往復）、proto-hub +17（surface.rs 10・startup.rs 2・ws.rs 5）
+- `cargo run -p proto-adapter-win --example smoke_mouse` 実行: 4回のMouseMove送出すべて成功（"OK"表示、実カーソルが小さく四辺を描いて動くことを確認）
+- `cargo run -p proto-hub`実起動＋Browser paneで実機検証（Windows）:
+  - 起動ログ`surfaces=1`（`surfaces/trackball.json`のtb01が読み込まれたことを確認）
+  - `/trackball?token=…`表示→ヘッダ「接続中」・QRボタンでモーダル正常表示（`/api/qr?target=trackball`）・パラメータパネル開閉・9項目スライダー正常動作
+  - ボールをドラッグ→state読み取り欄が更新・`送信N件`カウント増加・サーバログにエラー無し（=`SURFACE_UNKNOWN_ID`/`SURFACE_STATE_RANGE`/`ADAPTER_SENDINPUT_FAIL`いずれも出ず、Action::MouseMoveが正常にSendInputまで到達したことを確認）
+  - G-13d: 412px幅で新規ロード→`document.body.scrollWidth === window.innerWidth`が`true`（412===412）を確認。`window.dispatchEvent(new Event('resize'))`後も維持
+  - G-13c: Networkログで`/trackball`・`/api/qr?target=trackball`のみ（全て同一オリジン、外部リクエスト0件）
+  - G-13b: `static/trackball.html`のCoreブロック(行367-474)・Viewブロック(行475-605)に"mouse"/"マウス"の出現なし（grep確認）
+  - **既存面の回帰確認**: `/`（5カード表示）・`/kb?half=left`・`/deck`・`/ipad`をBrowser paneで表示、いずれも「接続中」・スクリーンショットで崩れなし・console error無し。サーバログでSplit/Ipad/Trackball全surfaceのWS接続・切断がエラー無く記録されたことを確認
+- G-13a（Android実機でカーソルが動く）は実機が無いため未検証。**実装完了・実機確認待ち**
+
+### 独立検証（**Opus** 2026-08-01。Sonnetの自己申告を信用せず再実行した結果）
+
+- `cargo test --workspace` 再実行 = **72 passed, 0 failed**（内訳 7+8+28+29）。申告と一致
+- 禁止ファイルの差分0を`git diff --stat`で確認: `crates/hub-core/`・`keymaps/`・`decks/`・`static/{kb,deck,ipad,settings}.html` すべて無変更
+- D28要件の実装確認: `ALLOWED_BINDING_TYPES: &[&str] = &["mouse.move"]` がコード内固定constであること、`handle_surface_state`の処理順が設計書①〜⑤どおりであることをソースで確認
+- D2確認: `static/trackball.html`の外部参照は`/api/qr?target=trackball`（自Hub）のみ。CDN・外部ライブラリ0件
+- G-13b再確認: Core/Viewセクション（9116文字）に`mouse`/`マウス`の出現0件
+- **実Hub起動＋WS経由のエラー経路検証**（PowerShellの`ClientWebSocket`から直接送信）:
+  - 未知surfaceId → `SURFACE_UNKNOWN_ID: unknown surfaceId 'NOPE'`
+  - clamp超過(+9999) → `SURFACE_STATE_RANGE: ... exceed clamp 200`
+  - clamp超過(-9999) → 同上（負方向も拒否）
+  - `dx=0,dy=0` → エラーもAdapterJob発行もなし（設計どおり黙って終了）
+  - いずれもHubは落ちず、後続メッセージを継続処理
+- **実カーソル移動の方向確認**（3方向すべて正しい）:
+  - `dx=+60 x5` → 実測 dx=+1014, dy=+1（X正方向・Y不動）
+  - `dx=-60,dy=-60 x5` → 実測 dx=-900, dy=-600（画面左上端でクランプ）
+  - Hubの`/api/qr?target=trackball` = HTTP 200・12730バイトのSVG（D25が新面でも機能）
+
+#### 測定上の注意（次に検証するAIへ）
+
+**ブラウザ操作ツール（Browser pane）の呼び出し自体がOSカーソルを動かす。**
+WS送信なしの no-op でカーソルが (300,300)→(989,662) へ移動することを確認済み。
+カーソル座標の前後比較でマウス移動を検証する場合、**ブラウザを一切介在させないこと**
+（PowerShellの`System.Net.WebSockets.ClientWebSocket`から直接送るのが正しい方法）。
+この罠により、当初「送信値と実測値が一致しない＝不具合」と誤判定しかけた。
+
+#### 実測: Windowsポインタ加速の影響（不具合ではない。仕様上の性質）
+
+`MOUSEEVENTF_MOVE`はWindows側の「ポインターの精度を高める」(`HKCU:\Control Panel\Mouse\MouseSpeed=1`)の
+影響を受け、**1イベントあたりの値が大きいほど加速が強くかかる**。実測値（10回送信の合計）:
+
+| 1回あたりdx | 送信計 | 実移動 | 倍率 |
+|---|---|---|---|
+| 1 | 10px | 10px | x1.00 |
+| 3 | 30px | 43px | x1.43 |
+| 5 | 50px | 82px | x1.64 |
+| 10 | 100px | 212px | x2.12 |
+| 20 | 200px | 644px | x3.22 |
+
+実機の指移動は1イベントあたり数十pxに達しうるため、**`感度`の既定値1.0では速すぎる可能性が高い**。
+面の`加速度`パラメータ既定値が1.0（加速なし）なのはこの二重加速を避ける意味で妥当。
+実機テスト時は画面右上⚙から`感度`を下げて調整すること（そのための調整UIである）。
+
+### T14 UI状態（settings ⇄ trackball）＋ Vol凍結（**Opus** 2026-08-01）
+
+- **実機テスト成功**（Android／ユーザー確認）。G-13a達成。これを区切りにVol凍結する
+- 追加仕様T14（実機テスト後のユーザー要望）: 面に2値のUI状態を持たせ、`settings`のとき
+  **パネル枠外タップで`trackball`へ戻る**。「閉じるためのタップ」がそのままカーソルを
+  動かすのは操作として不自然なため、captureフェーズで捕まえて閉じるだけで終わらせる
+  （`e.stopPropagation()`＋`preventDefault()`。パネル自身と⚙は「外」に含めない）
+- 検証（Browser paneで実測。console error 0件）:
+  - G-14a パネル内タップ → 閉じない ✓
+  - G-14b 枠外タップ → `trackball`へ戻る ✓
+  - G-14c その閉じるタップでカーソル発火なし（`stateOut`が不変であることで確認）✓
+  - G-14d 閉じた後の通常ドラッグは効く ✓
+  - G-14e ⚙で開き直せる ✓
+- **Vol凍結**: `static/trackball.html` を `brief/mockup/screen_mock_trackball_v0.6.html` へ
+  複製（`diff -q`で同一を確認）。以後この面の見た目・構造の正は凍結版を参照する
+- gitタグ `trackball-v0.6` を復元ポイントとして作成（`format-*`と同じ運用。削除・上書き禁止）

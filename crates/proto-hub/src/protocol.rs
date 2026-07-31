@@ -19,6 +19,35 @@ pub enum ClientMessage {
         #[serde(rename = "slotId")]
         slot_id: String,
     },
+    /// T12（D28）: トラックボール等、連続値を出す面の共通メッセージ（§3.2）。
+    /// `spin`/`active`は必須だがHubは使わない（読み捨てる。将来の3D面/パッド面のためのみ）。
+    #[serde(rename = "surface.state")]
+    SurfaceState {
+        #[serde(rename = "surfaceId")]
+        surface_id: String,
+        delta: DeltaWire,
+        #[allow(dead_code)]
+        spin: SpinWire,
+        #[allow(dead_code)]
+        active: bool,
+    },
+}
+
+/// §3.2: `delta.dx`/`dy`はf64で受け取り、Hub側（ws.rs）で丸め・クランプする。
+#[derive(Debug, Deserialize)]
+pub struct DeltaWire {
+    pub dx: f64,
+    pub dy: f64,
+}
+
+/// §3.2: 累積姿勢（クォータニオン）。今回Hubは読み捨てる（将来の3D面向け）。
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct SpinWire {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub w: f64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

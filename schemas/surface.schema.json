@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "keydeck/surface.schema.json",
+  "title": "KeyDeck Surface Registry (D28 / T11)",
+  "description": "連続値を出す面（トラックボール等）の出口宣言。正はbrief/keydeck_trackball_design_v0.6.md §3.1。binding.tの許可リストはproto-hub側のコード内固定リスト（crates/proto-hub/src/surface.rsのALLOWED_BINDING_TYPES）であり、このスキーマのenumはドキュメント用の反映（正はコード側）。クライアントはbindingを送れない・選べない（D28）。",
+  "type": "object",
+  "required": ["surfaces"],
+  "additionalProperties": false,
+  "properties": {
+    "surfaces": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/surface" }
+    }
+  },
+  "$defs": {
+    "surface": {
+      "type": "object",
+      "required": ["id", "type", "binding"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "クライアントが名乗るsurfaceId。未知のidはSURFACE_UNKNOWN_IDで拒否。" },
+        "type": { "type": "string", "enum": ["trackball"], "description": "現状\"trackball\"のみ許可。" },
+        "binding": { "$ref": "#/$defs/binding" },
+        "clamp": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "省略時200。dx/dyの1メッセージあたりの上下限。" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": ["t"],
+      "additionalProperties": false,
+      "properties": {
+        "t": { "type": "string", "enum": ["mouse.move"], "description": "許可リストは現状\"mouse.move\"の1種のみ。他の値はLOAD_SURFACE_BINDING_UNKNOWNでロード時に拒否。" }
+      }
+    }
+  }
+}

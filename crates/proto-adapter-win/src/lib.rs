@@ -118,12 +118,13 @@ pub fn vk_code(vk: &str) -> Option<u16> {
 // [T2-2] send(action)
 // ============================================================================
 
-/// D4のActionをOSへ送出する。Key/Chord/Text以外はUnsupported（防御。呼び出し側で弾かれる想定）。
+/// D4のActionをOSへ送出する。Key/Chord/Text/MouseMove以外はUnsupported（防御。呼び出し側で弾かれる想定）。
 pub fn send(action: &Action) -> Result<(), AdapterError> {
     match action {
         Action::Key { vk } => send_key(vk),
         Action::Chord { keys } => send_chord(keys),
         Action::Text { string } => send_text(string),
+        Action::MouseMove { dx, dy } => send_mouse_move(*dx, *dy),
         other => Err(AdapterError::Unsupported {
             cause: format!("action cannot be sent to the OS: {other:?}"),
         }),
@@ -190,6 +191,11 @@ fn send_text(string: &str) -> Result<(), AdapterError> {
     Ok(())
 }
 
+/// T10: D28トラックボール面の出口。相対マウス移動をSendInput+MOUSEEVENTF_MOVEで送出する。
+fn send_mouse_move(dx: i32, dy: i32) -> Result<(), AdapterError> {
+    mouse_move(dx, dy)
+}
+
 fn resolve_code(vk: &str) -> Result<u16, AdapterError> {
     if !is_known_vk(vk) {
         // proto-keymapのロード検証を通っていればここには来ないはずだが、防御的に扱う。
@@ -236,11 +242,18 @@ fn release_unicode(code_unit: u16) -> Result<(), AdapterError> {
         .map_err(|cause| AdapterError::SendFailed { cause: format!("text U+{code_unit:04X}: {cause}") })
 }
 
+/// T10: D28トラックボール面。SendInput+INPUT_MOUSE+MOUSEEVENTF_MOVEで相対移動を送出する。
+#[cfg(windows)]
+fn mouse_move(dx: i32, dy: i32) -> Result<(), AdapterError> {
+    win::send_mouse_move(dx, dy)
+        .map_err(|cause| AdapterError::SendFailed { cause: format!("mouse.move dx={dx} dy={dy}: {cause}") })
+}
+
 #[cfg(windows)]
 mod win {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-        KEYEVENTF_UNICODE, VIRTUAL_KEY,
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+        KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_MOVE, MOUSEINPUT, VIRTUAL_KEY,
     };
 
     pub fn send_vk(vk: u16, key_up: bool) -> Result<(), String> {
@@ -295,6 +308,29 @@ mod win {
         }
         Ok(())
     }
+
+    /// T10（D28）: INPUT_MOUSE+MOUSEEVENTF_MOVEで相対移動を1回送出する（絶対座標ではない）。
+    pub fn send_mouse_move(dx: i32, dy: i32) -> Result<(), String> {
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx,
+                    dy,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        if sent != 1 {
+            return Err(format!("SendInput returned {sent}, expected 1"));
+        }
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -327,6 +363,13 @@ fn press_unicode(code_unit: u16) -> Result<(), AdapterError> {
 #[cfg(not(windows))]
 fn release_unicode(code_unit: u16) -> Result<(), AdapterError> {
     let _ = code_unit;
+    dummy_log();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn mouse_move(dx: i32, dy: i32) -> Result<(), AdapterError> {
+    let _ = (dx, dy);
     dummy_log();
     Ok(())
 }
@@ -417,6 +460,7 @@ mod tests {
         assert!(matches!(error, AdapterError::Unsupported { .. }));
     }
 
+
     // 非Windows環境（CI等）ではKey/Chordの送出がダミーとして成功することを確認する。
     // Windows実機ではsend()が実際にSendInputを呼ぶため、このテストはここでは実行しない
     // （実機smokeは examples/smoke_notepad.rs を手動実行すること）。
@@ -439,5 +483,15 @@ mod tests {
         assert!(send(&Action::Text { string: "。、「」".into() }).is_ok());
         // 🎉 U+1F389 は非BMP文字でありUTF-16ではサロゲートペア(2コード単位)になる。
         assert!(send(&Action::Text { string: "🎉".into() }).is_ok());
+    }
+
+    // [T10] 非Windows環境ではMouseMoveの送出もダミーとして成功する（実SendInputは呼ばない）。
+    // 実機でのカーソル移動確認は examples/smoke_mouse.rs を手動実行して行う。
+    #[cfg(not(windows))]
+    #[test]
+    fn t10_dummy_backend_reports_success_for_mouse_move() {
+        assert!(send(&Action::MouseMove { dx: 12, dy: -3 }).is_ok());
+        assert!(send(&Action::MouseMove { dx: 0, dy: 0 }).is_ok());
+        assert!(send(&Action::MouseMove { dx: -200, dy: 200 }).is_ok());
     }
 }

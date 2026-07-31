@@ -23,3 +23,15 @@
   1. **承認**。`label`内`"\n"`区切り（1行目=小書き・以降=メイン）を暫定正規規約とする。T9でKeyDefへ`sub`フィールドを追加した時点で移行
   2. **承認**。アンバー強調はフェーズAでは省略でよい。T9のKeyDef拡張（`zen`相当の真偽値）で対応
   3. **typoではなく意図どおり**。記号盤では 。、？ が数字段（K101〜）に既に配置されているため、`,`/`.`/`?`キーには別の全角記号（：；〜）を割当てた。基盤の小書きヒント（、。？）は「IME全角時の変換結果」の説明であり記号盤の割当とは無関係。逐語転記で正しい
+
+---
+
+## SR-002: T10で`crates/proto-hub/src/deck.rs`への1行追加が必要（設計書v0.6の触ってよいファイル表に未記載）
+- 起票: Sonnet / 2026-08-01 / 対象: `crates/proto-hub/src/deck.rs`（`brief/keydeck_trackball_design_v0.6.md` §2 触ってよいファイル表、T10-1）
+- 内容: v0.6 T10-1の指示どおり`proto_keymap::Action`へ`MouseMove{dx,dy}`を追加すると、`Action`を`match`で網羅的に扱っている箇所（ワイルドカードなし）がすべて非網羅コンパイルエラーになる。該当箇所は3つ:
+  1. `crates/proto-keymap/src/lib.rs`の`validate_merged`（vk辞書チェック）— 触ってよい（Action追加のみ、と明記）
+  2. `crates/proto-keymap/src/lib.rs`の`resolve()` — 同上、同ファイル内
+  3. `crates/proto-hub/src/deck.rs`の`load_deck_str`内のDeckスロット検証 — **v0.6の「触ってよいファイル/禁止ファイル」表に一切登場しない**（`decks/`＝JSONデータディレクトリは禁止と明記されているが、そのローダーである`deck.rs`自体は触ってよい/禁止どちらの欄にも無い）
+- 選択肢: A) 表に無いので変更せず、`cargo check --workspace`が失敗する状態のままT10を止める。B) `deck.rs`の該当matchに`Action::MouseMove{..}`を1行追加し、既存の`Text`/`None`と同じ「vk検証なしで受理」枝に合流させる（Mo/Tg/Transのような明示的拒否ではなく）。既存のDeck JSON（`decks/deck_default.json`等）は`mouse.move`を含まないため挙動は無変化。
+- 対応: **Bを選択して実装を継続した**（起票と同時にSRへ記録・報告。停止して待つと本タスク全体が進行不能になるため）。理由: (1) T10-1自体が明示指示であり、`Action`への追加は必須。(2) `deck.rs`は`decks/`（データ）とは別物で明示的な変更禁止対象ではない。(3) 追加は1行・既存分岐の踏襲のみで新規ロジック発明ではなく、既存Deck挙動は無変化（テストで確認済み）。(4) 修正しないと`cargo test --workspace`どころか`cargo check`すら失敗し、品質ゲートを満たせない。
+- 裁定: （FABLE記入待ち。次回設計書更新時に「触ってよいファイル」表へ`crates/proto-hub/src/deck.rs`を追記いただけると今後この種のSRを避けられます）

@@ -152,6 +152,11 @@ pub enum Action {
     /// サロゲートペア対応のdown/up対で送出する。vk辞書の対象外（文字列そのものが許可対象）。
     #[serde(rename = "text")]
     Text { string: String },
+    /// T10（D28/トラックボール面）: 相対マウス移動。proto-adapter-winのsend()が
+    /// SendInput+MOUSEEVENTF_MOVEで送出する。キーマップ/Deckの静的定義からは到達しない
+    /// （surfaces/*.jsonのbinding解決だけがこのActionを組み立てる）。
+    #[serde(rename = "mouse.move")]
+    MouseMove { dx: i32, dy: i32 },
 }
 
 // ============================================================================
@@ -522,7 +527,8 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                 | Action::None
                 | Action::KeymapSwitch { .. }
                 | Action::KeymapReset
-                | Action::Text { .. } => {}
+                | Action::Text { .. }
+                | Action::MouseMove { .. } => {}
             }
         }
     }
@@ -653,7 +659,8 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
         | Action::Chord { .. }
         | Action::Text { .. }
         | Action::KeymapSwitch { .. }
-        | Action::KeymapReset => match edge {
+        | Action::KeymapReset
+        | Action::MouseMove { .. } => match edge {
             Edge::Down => Resolved::Fire(action.clone()),
             Edge::Up => Resolved::Ignored,
         },
@@ -956,6 +963,16 @@ mod tests {
         assert_eq!(down, Resolved::Fire(Action::Text { string: "(".into() }));
         let up = resolve(&keymap, &mut state, "K7", Edge::Up);
         assert_eq!(up, Resolved::Ignored);
+    }
+
+    // 8d. T10/G-10a: Action::MouseMove{dx,dy} が {"t":"mouse.move","dx":12,"dy":-3} とserde往復する
+    #[test]
+    fn t10_mouse_move_action_serde_roundtrips() {
+        let action = Action::MouseMove { dx: 12, dy: -3 };
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(json, r#"{"t":"mouse.move","dx":12,"dy":-3}"#);
+        let parsed: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, action);
     }
 
     // 9. 辞書外vk → LOAD_VK_UNKNOWN

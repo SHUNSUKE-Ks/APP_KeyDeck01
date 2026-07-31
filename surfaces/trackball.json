@@ -1,0 +1,10 @@
+{
+  "surfaces": [
+    {
+      "id": "tb01",
+      "type": "trackball",
+      "binding": { "t": "mouse.move" },
+      "clamp": 200
+    }
+  ]
+}

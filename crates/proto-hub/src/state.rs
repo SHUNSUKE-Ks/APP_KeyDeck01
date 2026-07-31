@@ -21,17 +21,20 @@ pub const PORT: u16 = 8770;
 pub const IPAD_KEYMAP_ID: &str = "ipad01_vol12";
 
 /// WS接続がどの面かを表す。Split=分割キーボード/Deck（従来どおり共有state.active_keymap_id・
-/// layer_stateを使う）、Ipad=iPad一枚キーボード（IPAD_KEYMAP_ID固定・独立したlayer_state）。
+/// layer_stateを使う）、Ipad=iPad一枚キーボード（IPAD_KEYMAP_ID固定・独立したlayer_state）、
+/// Trackball=T12トラックボール面（D28。keymap/layerを持たず、surface.stateのみを扱う）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceKind {
     Split,
     Ipad,
+    Trackball,
 }
 
 impl SurfaceKind {
     pub fn from_query(value: Option<&str>) -> Self {
         match value {
             Some("ipad") => SurfaceKind::Ipad,
+            Some("trackball") => SurfaceKind::Trackball,
             _ => SurfaceKind::Split,
         }
     }
@@ -101,6 +104,9 @@ pub struct HubState {
     /// CommandService全体は今回の押下プロトコル（D6）にrequestIdが無いため使わず、
     /// 「許可リストに入っているか」だけを問うAPI(is_allowed)を借りる。
     pub command_registry: hub_core::CommandRegistry,
+    /// T11（D28）: `surfaces/trackball.json`から構築したレジストリ。T12でsurface.state
+    /// 受信時にsurfaceIdを引くために使う。
+    pub surfaces: crate::surface::SurfaceRegistry,
     clients: HashMap<ClientId, ClientEntry>,
     pub next_client_id: ClientId,
     pub token: AccessToken,
@@ -118,6 +124,7 @@ impl HubState {
         active_keymap_id: String,
         deck: DeckSetlist,
         command_registry: hub_core::CommandRegistry,
+        surfaces: crate::surface::SurfaceRegistry,
         token: AccessToken,
         adapter_tx: mpsc::UnboundedSender<AdapterJob>,
         lan_ip: String,
@@ -129,6 +136,7 @@ impl HubState {
             ipad_layer_state: LayerState::new(),
             deck,
             command_registry,
+            surfaces,
             clients: HashMap::new(),
             next_client_id: 0,
             token,
@@ -137,14 +145,15 @@ impl HubState {
         }
     }
 
-    /// D12/D25: `target`（kb-left/kb-right/deck/ipad）から接続URLを組み立てる。tokenは
-    /// Hub内で完結させ、クライアント側HTML/JSには一切埋め込まない。
+    /// D12/D25: `target`（kb-left/kb-right/deck/ipad/trackball）から接続URLを組み立てる。
+    /// tokenはHub内で完結させ、クライアント側HTML/JSには一切埋め込まない。
     pub fn connection_url(&self, target: &str) -> Option<String> {
         let path = match target {
             "kb-left" => "/kb?half=left",
             "kb-right" => "/kb?half=right",
             "deck" => "/deck",
             "ipad" => "/ipad",
+            "trackball" => "/trackball",
             _ => return None,
         };
         let separator = if path.contains('?') { '&' } else { '?' };

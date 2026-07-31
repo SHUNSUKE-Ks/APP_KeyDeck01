@@ -16,6 +16,7 @@ use crate::protocol::{ClientMessage, LayerStateWire, ServerMessage, SurfaceConfi
 use crate::state::{
     canonical_command_id, AdapterJob, ClientId, HubState, SharedState, SurfaceKind, IPAD_KEYMAP_ID,
 };
+use crate::surface::{SURFACE_STATE_RANGE, SURFACE_UNKNOWN_ID};
 use proto_keymap::{resolve, Action, Edge, Keymap, LayerState, Resolved};
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +42,7 @@ pub fn router(state: SharedState) -> Router {
         .route_service("/kb", ServeFile::new("static/kb.html"))
         .route_service("/deck", ServeFile::new("static/deck.html"))
         .route_service("/ipad", ServeFile::new("static/ipad.html"))
+        .route_service("/trackball", ServeFile::new("static/trackball.html"))
         .route_service("/settings", ServeFile::new("static/settings.html"))
         .with_state(state)
 }
@@ -53,6 +55,7 @@ async fn index_page(State(state): State<SharedState>) -> Response {
         ("kb-right", "分割キーボード（右手）"),
         ("deck", "Stream Deck"),
         ("ipad", "iPad一枚キーボード（Vol1.2）"),
+        ("trackball", "トラックボール"),
     ];
     let mut cards = String::new();
     for (target, label) in targets {
@@ -185,8 +188,9 @@ async fn reload_handler(State(state): State<SharedState>, Query(query): Query<To
 
     let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
     let deck_path = std::path::Path::new(crate::DECK_PATH);
+    let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
 
-    let loaded = match crate::startup::load_startup_data(keymaps_dir, deck_path) {
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, deck_path, surfaces_dir) {
         Ok(data) => data,
         Err(errors) => {
             let cause = errors.join("; ");
@@ -223,6 +227,7 @@ async fn reload_handler(State(state): State<SharedState>, Query(query): Query<To
         s.keymaps = loaded.keymaps;
         s.deck = loaded.deck;
         s.command_registry = loaded.command_registry;
+        s.surfaces = loaded.surfaces;
         // keymap.switch同様、差替え後は消えたレイヤー参照が残らないよう両面ともリセットする。
         s.layer_state.reset();
         s.ipad_layer_state.reset();
@@ -302,6 +307,10 @@ async fn handle_client_text(state: &SharedState, client_id: ClientId, surface: S
             handle_key_press(state, client_id, surface, &key_id, edge.into()).await
         }
         ClientMessage::DeckPress { slot_id } => handle_deck_press(state, client_id, &slot_id).await,
+        // T12（D28）: spin/activeはHubが読み捨てる（プロトコルだけ先に確保。§3.2）。
+        ClientMessage::SurfaceState { surface_id, delta, .. } => {
+            handle_surface_state(state, client_id, &surface_id, delta.dx, delta.dy).await
+        }
     }
 }
 
@@ -326,6 +335,10 @@ fn resolve_for_surface(s: &mut HubState, surface: SurfaceKind, key_id: &str, edg
                 .clone();
             resolve(&keymap, &mut s.layer_state, key_id, edge)
         }
+        // T12: トラックボール面はkeymapを持たない（本Volはマウス出口のみ、D28）。
+        // static/trackball.htmlはkey.pressを送らない設計だが、防御としてUnknownKeyを返す
+        // （このsurfaceにその名のkeyは存在しない、という表現として妥当。panicはしない＝D9）。
+        SurfaceKind::Trackball => Resolved::UnknownKey,
     }
 }
 
@@ -365,6 +378,9 @@ async fn handle_key_press(
                 match surface {
                     SurfaceKind::Ipad => LayerStateWire::from(&s.ipad_layer_state),
                     SurfaceKind::Split => LayerStateWire::from(&s.layer_state),
+                    // resolve_for_surface()はTrackballに対して常にUnknownKeyを返すため、
+                    // このアームには実際には到達しない（網羅性のためのみ。panicは避けD9どおり空値を返す）。
+                    SurfaceKind::Trackball => LayerStateWire { momentary: vec![], toggled: vec![] },
                 }
             };
             tracing::info!(chk = "T3-3", ?surface, ?wire, "layer state changed; broadcasting");
@@ -391,6 +407,117 @@ async fn handle_deck_press(state: &SharedState, client_id: ClientId, slot_id: &s
         ),
         Some(Action::None) => {}
         Some(action) => fire_action(state, client_id, action).await,
+    }
+}
+
+/// T12（D28）: `surface.state`受信 → binding解決 → 既存adapter_txへ発火。処理順は設計書
+/// T12-3の①〜⑤どおり固定する（surfaceId解決 → 有限性 → clamp → 丸め＋ゼロ移動スキップ →
+/// binding解決＋発火）。新しい発火経路は作らず、既存のadapter_tx（D7の直列ワーカー）を使う。
+async fn handle_surface_state(state: &SharedState, client_id: ClientId, surface_id: &str, dx: f64, dy: f64) {
+    // ① surfaceIdをレジストリで引く。無ければSURFACE_UNKNOWN_IDを返して終了。
+    let def = {
+        let s = state.lock().unwrap();
+        s.surfaces.get(surface_id).cloned()
+    };
+    let Some(def) = def else {
+        emit_error(
+            state,
+            client_id,
+            "T12",
+            SURFACE_UNKNOWN_ID,
+            format!("unknown surfaceId '{surface_id}'"),
+            json!({ "surfaceId": surface_id }),
+        );
+        return;
+    };
+
+    // ② dx/dyの有限性を確認。NaN/InfならSURFACE_STATE_RANGE。
+    if !dx.is_finite() || !dy.is_finite() {
+        emit_error(
+            state,
+            client_id,
+            "T12",
+            SURFACE_STATE_RANGE,
+            format!("surface '{surface_id}': dx/dy must be finite (dx={dx}, dy={dy})"),
+            json!({ "surfaceId": surface_id, "dx": dx, "dy": dy }),
+        );
+        return;
+    }
+
+    // ③ clamp超過ならSURFACE_STATE_RANGE（握りつぶさずクライアントへerrorを返す）。
+    let clamp = def.clamp as f64;
+    if dx.abs() > clamp || dy.abs() > clamp {
+        emit_error(
+            state,
+            client_id,
+            "T12",
+            SURFACE_STATE_RANGE,
+            format!("surface '{surface_id}': dx/dy exceed clamp {} (dx={dx}, dy={dy})", def.clamp),
+            json!({ "surfaceId": surface_id, "dx": dx, "dy": dy, "clamp": def.clamp }),
+        );
+        return;
+    }
+
+    // ④ 丸めてi32にする。dx==0 && dy==0なら何も発火せず終了（無駄なSendInputを打たない）。
+    let dx = dx.round() as i32;
+    let dy = dy.round() as i32;
+    if dx == 0 && dy == 0 {
+        return;
+    }
+
+    // ⑤ bindingを解決してAction::MouseMoveを作り、既存のadapter_txへ流す。
+    let action = match def.binding_t.as_str() {
+        "mouse.move" => Action::MouseMove { dx, dy },
+        other => {
+            // surface.rsのロード時点でALLOWED_BINDING_TYPESにより弾かれているため到達しない想定
+            // だが、防御としてINTERNALで報告する（D9: panic禁止）。
+            emit_error(
+                state,
+                client_id,
+                "T12",
+                INTERNAL,
+                format!("surface '{surface_id}' has an unresolvable binding.t '{other}'"),
+                json!({ "surfaceId": surface_id }),
+            );
+            return;
+        }
+    };
+
+    let adapter_tx = {
+        let s = state.lock().unwrap();
+        s.adapter_tx.clone()
+    };
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    if adapter_tx.send(AdapterJob { action, reply: reply_tx }).is_err() {
+        emit_error(
+            state,
+            client_id,
+            "T12",
+            INTERNAL,
+            "adapter worker channel is closed".to_string(),
+            json!({ "surfaceId": surface_id }),
+        );
+        return;
+    }
+
+    match reply_rx.await {
+        Ok(Ok(())) => {}
+        Ok(Err(adapter_error)) => emit_error(
+            state,
+            client_id,
+            "T12",
+            ADAPTER_SENDINPUT_FAIL,
+            adapter_error.to_string(),
+            json!({ "surfaceId": surface_id }),
+        ),
+        Err(_) => emit_error(
+            state,
+            client_id,
+            "T12",
+            INTERNAL,
+            "adapter worker did not reply".to_string(),
+            json!({ "surfaceId": surface_id }),
+        ),
     }
 }
 
@@ -504,6 +631,8 @@ async fn switch_keymap(state: &SharedState, client_id: ClientId, target_id: Stri
 
 /// surfaceに応じたsurface.config JSON文字列を組み立てる。IpadはIPAD_KEYMAP_ID固定・
 /// ipad_layer_state、Splitは従来どおりactive_keymap_id・layer_state。
+/// T12: トラックボール面はkeymapを持たない（本Volはマウス出口のみ）ため、surface.configの
+/// 送信対象外＝常にNone（呼び出し側は既存どおりNoneなら何もしないため無挙動）。
 fn surface_config_json_for(state: &SharedState, surface: SurfaceKind) -> Option<String> {
     let s = state.lock().unwrap();
     let (keymap_id, keymap, layer): (&str, &Keymap, LayerState) = match surface {
@@ -517,6 +646,7 @@ fn surface_config_json_for(state: &SharedState, surface: SurfaceKind) -> Option<
             s.keymaps.get(&s.active_keymap_id)?,
             s.layer_state.clone(),
         ),
+        SurfaceKind::Trackball => return None,
     };
     let message = ServerMessage::SurfaceConfig(SurfaceConfig {
         active_keymap_id: keymap_id,
@@ -587,4 +717,99 @@ fn emit_error(
     };
     let s = state.lock().unwrap();
     s.send_to(client_id, Message::Text(text.into()));
+}
+
+// ============================================================================
+// T12単体テスト（handle_surface_state）
+// ============================================================================
+//
+// 注意: proto_adapter_win::send()を実際に呼ぶ`state::spawn_adapter_worker()`は
+// ここでは絶対に使わない（Windows実機でSendInputが本当にカーソルを動かしてしまうため。
+// CLAUDE.md「SendInputを自動テストから絶対に呼ばないこと」）。代わりにテスト側で生の
+// mpscチャネルを直接HubState.adapter_txに差し込み、AdapterJobを横取りしてダミー応答を
+// 返すことで、実SendInputに触れずHub側のルーティングロジックだけを検証する。
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AccessToken;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
+
+    const TB01_JSON: &str = r#"{
+        "surfaces": [
+            { "id": "tb01", "type": "trackball", "binding": { "t": "mouse.move" }, "clamp": 200 }
+        ]
+    }"#;
+
+    fn test_state(surfaces_json: &str) -> (SharedState, mpsc::UnboundedReceiver<AdapterJob>) {
+        let surfaces = crate::surface::load_surface_registry_str("test", surfaces_json)
+            .expect("test surfaces json must be valid");
+        let deck = crate::deck::load_deck_str(
+            "test",
+            r#"{ "deckId": "t", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
+        )
+        .expect("empty deck must load");
+        let (tx, rx) = mpsc::unbounded_channel::<AdapterJob>();
+        let hub_state = HubState::new(
+            std::collections::BTreeMap::new(),
+            "none".to_string(),
+            deck,
+            hub_core::CommandRegistry::new(Vec::<String>::new()),
+            surfaces,
+            AccessToken::generate(),
+            tx,
+            "127.0.0.1".to_string(),
+        );
+        (Arc::new(Mutex::new(hub_state)), rx)
+    }
+
+    // G-12a: 未知のsurfaceIdではAdapterJobが発行されない（Hubは落ちず、errorフレームのみ）。
+    #[tokio::test]
+    async fn g12a_unknown_surface_id_enqueues_no_job() {
+        let (state, mut rx) = test_state(TB01_JSON);
+        handle_surface_state(&state, 1, "does-not-exist", 10.0, 10.0).await;
+        assert!(rx.try_recv().is_err(), "unknown surfaceId must not enqueue an AdapterJob");
+    }
+
+    // G-12b: NaNのdxではAdapterJobが発行されない。
+    #[tokio::test]
+    async fn g12b_non_finite_dx_enqueues_no_job() {
+        let (state, mut rx) = test_state(TB01_JSON);
+        handle_surface_state(&state, 1, "tb01", f64::NAN, 0.0).await;
+        assert!(rx.try_recv().is_err(), "non-finite dx must not enqueue an AdapterJob");
+    }
+
+    // G-12b: clamp(200)超過ではAdapterJobが発行されない。
+    #[tokio::test]
+    async fn g12b_clamp_exceeded_enqueues_no_job() {
+        let (state, mut rx) = test_state(TB01_JSON);
+        handle_surface_state(&state, 1, "tb01", 500.0, 0.0).await;
+        assert!(rx.try_recv().is_err(), "dx exceeding clamp must not enqueue an AdapterJob");
+    }
+
+    // G-12c: dx=0,dy=0では何も発火せず終了する（無駄なSendInputを打たない）。
+    #[tokio::test]
+    async fn g12c_zero_delta_enqueues_no_job() {
+        let (state, mut rx) = test_state(TB01_JSON);
+        handle_surface_state(&state, 1, "tb01", 0.0, 0.0).await;
+        assert!(rx.try_recv().is_err(), "dx=0/dy=0 must not enqueue an AdapterJob");
+    }
+
+    // G-12d: 正常値でAction::MouseMoveが既存adapter_txに載る（丸め処理込み）。
+    // 実SendInputは呼ばない: AdapterJobを横取りしてダミー応答を返すのみ。
+    #[tokio::test]
+    async fn g12d_valid_delta_enqueues_mouse_move_with_rounded_values() {
+        let (state, mut rx) = test_state(TB01_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_state(&state, 1, "tb01", 12.4, -3.6).await;
+            }
+        });
+        let job = rx.recv().await.expect("a valid delta must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseMove { dx: 12, dy: -4 });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
 }

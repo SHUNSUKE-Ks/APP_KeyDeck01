@@ -19,6 +19,8 @@ pub struct StartupData {
     pub keymaps: BTreeMap<String, Keymap>,
     pub deck: DeckSetlist,
     pub command_registry: hub_core::CommandRegistry,
+    /// T11（D28）: `surfaces/trackball.json`から構築したレジストリ。
+    pub surfaces: crate::surface::SurfaceRegistry,
 }
 
 /// `dir`直下（サブディレクトリは対象外＝`layers/`はここに含まれない）の
@@ -47,9 +49,14 @@ pub fn discover_keymap_paths(dir: &Path) -> Vec<PathBuf> {
 
 /// 起動時（main.rs）／再読込時（ws.rsの`/api/reload`）で共有する検証手順。
 /// 順序: ①ディレクトリスキャンで発見した全keymapファイルのロード ②ipad面固定keymapId
-/// の存在確認 ③deckのロード ④deck内`keymap.switch`参照先の存在確認。
+/// の存在確認 ③deckのロード ④deck内`keymap.switch`参照先の存在確認 ⑤surfaces/trackball.json
+/// のロード（T11。無ければ空レジストリ）。
 /// 1件でもエラーがあれば集約して`Err(Vec<String>)`を返す（部分適用はしない）。
-pub fn load_startup_data(keymaps_dir: &Path, deck_path: &Path) -> Result<StartupData, Vec<String>> {
+pub fn load_startup_data(
+    keymaps_dir: &Path,
+    deck_path: &Path,
+    surfaces_dir: &Path,
+) -> Result<StartupData, Vec<String>> {
     let mut errors: Vec<String> = Vec::new();
     let mut keymaps: BTreeMap<String, Keymap> = BTreeMap::new();
 
@@ -101,11 +108,22 @@ pub fn load_startup_data(keymaps_dir: &Path, deck_path: &Path) -> Result<Startup
         }
     }
 
+    // T11（D28）: surfaces/trackball.json のロード＆検証。同じエラー集約経路に乗せる
+    // （1件でも失敗すれば他が正常でも起動拒否。無ければ空レジストリで正常起動＝T11-4）。
+    let surfaces = match crate::surface::load_surface_registry(surfaces_dir) {
+        Ok(registry) => Some(registry),
+        Err(error) => {
+            errors.push(error.to_string());
+            None
+        }
+    };
+
     if !errors.is_empty() {
         return Err(errors);
     }
 
     let deck = deck.expect("deck load succeeded because errors is empty");
+    let surfaces = surfaces.expect("surfaces load succeeded because errors is empty");
     let command_ids: Vec<String> = all_actions(&keymaps, &deck)
         .filter_map(canonical_command_id)
         .collect();
@@ -115,6 +133,7 @@ pub fn load_startup_data(keymaps_dir: &Path, deck_path: &Path) -> Result<Startup
         keymaps,
         deck,
         command_registry,
+        surfaces,
     })
 }
 
@@ -157,6 +176,11 @@ mod tests {
 
         fn deck_path(&self) -> PathBuf {
             self.0.join("decks/deck_default.json")
+        }
+
+        /// T11: 意図的に作成しない（未作成のまま渡すことで空レジストリ経路も一緒に確認する）。
+        fn surfaces_dir(&self) -> PathBuf {
+            self.0.join("surfaces")
         }
 
         fn write(&self, relative: &str, contents: &str) {
@@ -205,7 +229,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "brand_new_format_added_by_dropping_a_file");
         write_empty_deck(&dir);
 
-        let data = load_startup_data(&dir.keymaps_dir(), &dir.deck_path())
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir())
             .expect("both keymaps + empty deck must load");
         assert_eq!(data.keymaps.len(), 2);
         assert!(data.keymaps.contains_key("ipad01_vol12"));
@@ -229,7 +253,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "some_other_format");
         write_empty_deck(&dir);
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
         assert!(errors.iter().any(|e| e.contains(IPAD_KEYMAP_ID)));
     }
 
@@ -241,7 +265,7 @@ mod tests {
         dir.write("keymaps/keymap_broken.json", "{ this is not json");
         write_empty_deck(&dir);
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
         assert!(!errors.is_empty());
     }
 
@@ -250,7 +274,36 @@ mod tests {
     fn empty_keymaps_dir_is_rejected() {
         let dir = TempDir::new("empty_dir");
         write_empty_deck(&dir);
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
         assert!(!errors.is_empty());
+    }
+
+    // T11: surfaces/ ディレクトリが無い場合は空レジストリで正常起動する（既存機能に無影響）。
+    #[test]
+    fn missing_surfaces_dir_does_not_block_startup() {
+        let dir = TempDir::new("missing_surfaces");
+        write_minimal_single_keymap(&dir, "ipad01_vol12");
+        write_empty_deck(&dir);
+
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir())
+            .expect("missing surfaces dir must not block startup");
+        assert!(data.surfaces.is_empty());
+    }
+
+    // T11-2: surfaces/trackball.jsonの検証失敗は、他が正常でも起動全体を同じ経路で拒否する
+    // （keymap/deckの検証と同じエラー集約経路に乗っていることの確認）。
+    #[test]
+    fn invalid_surfaces_file_rejects_the_whole_startup() {
+        let dir = TempDir::new("invalid_surfaces");
+        write_minimal_single_keymap(&dir, "ipad01_vol12");
+        write_empty_deck(&dir);
+        std::fs::create_dir_all(dir.surfaces_dir()).expect("create surfaces dir");
+        dir.write(
+            "surfaces/trackball.json",
+            r#"{ "surfaces": [ { "id": "tb01", "type": "trackball", "binding": { "t": "not.allowed" } } ] }"#,
+        );
+
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("LOAD_SURFACE_BINDING_UNKNOWN")));
     }
 }
