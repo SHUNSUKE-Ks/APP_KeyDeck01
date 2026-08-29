@@ -129,6 +129,16 @@ pub fn is_known_vk(vk: &str) -> bool {
 // アクション型（D4＋D20）
 // ============================================================================
 
+/// T15（D28/トラックボール面Ver1ジェスチャー拡張）: マウスボタン識別。
+/// `surfaces/trackball.json`の`gestures`マップ（`GestureAction`、proto-hub側）が
+/// edge情報と組み合わせてこの型からActionを組み立てる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MouseButtonKind {
+    Left,
+    Right,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", deny_unknown_fields)]
 pub enum Action {
@@ -157,6 +167,21 @@ pub enum Action {
     /// （surfaces/*.jsonのbinding解決だけがこのActionを組み立てる）。
     #[serde(rename = "mouse.move")]
     MouseMove { dx: i32, dy: i32 },
+    /// T15（brief/keydeck_trackball_gestures_v0.7.md §4）: discreteジェスチャー（タップ・
+    /// ダブルタップ）の出口。`handle_surface_gesture`が`surfaces/trackball.json`の
+    /// `gestures`マップから組み立てる。
+    #[serde(rename = "mouse.click")]
+    MouseClick { button: MouseButtonKind },
+    #[serde(rename = "mouse.dblclick")]
+    MouseDoubleClick { button: MouseButtonKind },
+    /// T15: 長押し（hold1）の出口。`edge`から`down`を決定する（`handle_surface_gesture`が
+    /// 組み立てる。`resolve()`は経由しない＝到達しない想定だがexhaustive matchの対象）。
+    #[serde(rename = "mouse.button")]
+    MouseButton { button: MouseButtonKind, down: bool },
+    /// T15: continuousスクロール（`tb01-scroll`のbinding.t="mouse.scroll"）の出口。
+    /// `handle_surface_state`がclamp済み`dy`から組み立てる。
+    #[serde(rename = "mouse.scroll")]
+    MouseScroll { dy: i32 },
 }
 
 // ============================================================================
@@ -528,7 +553,11 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                 | Action::KeymapSwitch { .. }
                 | Action::KeymapReset
                 | Action::Text { .. }
-                | Action::MouseMove { .. } => {}
+                | Action::MouseMove { .. }
+                | Action::MouseClick { .. }
+                | Action::MouseDoubleClick { .. }
+                | Action::MouseButton { .. }
+                | Action::MouseScroll { .. } => {}
             }
         }
     }
@@ -660,7 +689,13 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
         | Action::Text { .. }
         | Action::KeymapSwitch { .. }
         | Action::KeymapReset
-        | Action::MouseMove { .. } => match edge {
+        | Action::MouseMove { .. }
+        | Action::MouseClick { .. }
+        | Action::MouseDoubleClick { .. }
+        // T15: MouseButton{..}はresolve()を経由しない想定（handle_surface_gestureが
+        // edgeから直接組み立てる）。exhaustive matchのためのみここに入れる（実害なし）。
+        | Action::MouseButton { .. }
+        | Action::MouseScroll { .. } => match edge {
             Edge::Down => Resolved::Fire(action.clone()),
             Edge::Up => Resolved::Ignored,
         },
@@ -971,6 +1006,43 @@ mod tests {
         let action = Action::MouseMove { dx: 12, dy: -3 };
         let json = serde_json::to_string(&action).unwrap();
         assert_eq!(json, r#"{"t":"mouse.move","dx":12,"dy":-3}"#);
+        let parsed: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, action);
+    }
+
+    // G-15b: T15の4新variantがserde往復する（T10のMouseMoveテストと同型）。
+    #[test]
+    fn g15b_mouse_click_action_serde_roundtrips() {
+        let action = Action::MouseClick { button: MouseButtonKind::Left };
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(json, r#"{"t":"mouse.click","button":"left"}"#);
+        let parsed: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, action);
+    }
+
+    #[test]
+    fn g15b_mouse_double_click_action_serde_roundtrips() {
+        let action = Action::MouseDoubleClick { button: MouseButtonKind::Right };
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(json, r#"{"t":"mouse.dblclick","button":"right"}"#);
+        let parsed: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, action);
+    }
+
+    #[test]
+    fn g15b_mouse_button_action_serde_roundtrips() {
+        let action = Action::MouseButton { button: MouseButtonKind::Left, down: true };
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(json, r#"{"t":"mouse.button","button":"left","down":true}"#);
+        let parsed: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, action);
+    }
+
+    #[test]
+    fn g15b_mouse_scroll_action_serde_roundtrips() {
+        let action = Action::MouseScroll { dy: -5 };
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(json, r#"{"t":"mouse.scroll","dy":-5}"#);
         let parsed: Action = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, action);
     }

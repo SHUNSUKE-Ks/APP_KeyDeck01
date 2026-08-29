@@ -261,3 +261,92 @@ WS送信なしの no-op でカーソルが (300,300)→(989,662) へ移動する
 - 外部AI調査の信頼性メモ（報告書§7）: 2調査に食い違いが実在（Loupedeckの販売終了有無など）。
   **ChatGPTにMemory汚染の証拠**（プロンプトに無い「TRPG」「マスターの」が出現）があり、
   購買層の分析が願望に寄った疑い。次回の調査プロンプト改善方針を報告書§7.3に記録
+
+## トラックボール面 Ver1ジェスチャー拡張 T15〜T19（**Sonnet** 2026-08-02。設計: `brief/keydeck_trackball_gestures_v0.7.md`）
+
+D28の精神（クライアントは「何に繋がるか」を指定できない／出口はHub側JSONだけが決める）を踏襲し、
+discrete（タップ・ダブルタップ・長押し・Esc）は新WS `surface.gesture`、continuous（2本上下スクロール）
+は既存`surface.state`を`surfaceId`だけ変えて再利用する2経路構成で実装。
+
+- **T15** `crates/proto-keymap/src/lib.rs`: `Action`に`MouseClick{button}`/`MouseDoubleClick{button}`/
+  `MouseButton{button,down}`/`MouseScroll{dy}`の4variantと`MouseButtonKind{Left,Right}`を追加。
+  exhaustive matchを3箇所とも最初から更新（`validate_merged()`・`resolve()`・
+  **`crates/proto-hub/src/deck.rs`**——前回T10でここが漏れてSR-002になった箇所を、設計書の事前警告どおり
+  最初から直したため今回SR無し）。serde往復テスト4件追加（G-15b）
+- **T16** `crates/proto-adapter-win/src/lib.rs`: `send()`に4アーム追加。
+  `send_mouse_click`(down→up1組)・`send_mouse_double_click`(click相当を2回)・
+  `send_mouse_button`(down/up単発、対を作らない)・`send_mouse_scroll`(`MOUSEEVENTF_WHEEL`、
+  `mouseData=-(dy*SCROLL_UNIT)`、`SCROLL_UNIT=8`は仮置き)。Win32側は
+  `MOUSEEVENTF_LEFTDOWN/LEFTUP/RIGHTDOWN/RIGHTUP/WHEEL`を追加インポート。非Windowsダミー4関数＋
+  自動テスト4件（G-16a、`#[cfg(not(windows))]`）。手動smoke `examples/smoke_mouse_click.rs`を新規追加
+  （自動テストからは実SendInputを呼ばない既存方針を継続）
+- **T17** `crates/proto-hub/src/surface.rs`: `ClickButton{Left,Right}`・`GestureAction{Click,DoubleClick,
+  ButtonHold,Key}`型と`SurfaceDef.gestures: BTreeMap<String,GestureAction>`を追加。新規エラーコード
+  `SURFACE_GESTURE_UNKNOWN_ID`・`SURFACE_GESTURE_EDGE_REQUIRED`・`LOAD_SURFACE_GESTURE_INVALID`。
+  `ALLOWED_BINDING_TYPES`に`"mouse.scroll"`を追加（`["mouse.move"]`→`["mouse.move","mouse.scroll"]`）。
+  テスト11件追加（G-17a: 未知t/未知button/vk欠落・不正・重複gestureId、G-17b: mouse.scroll許可）
+- **T18** `crates/proto-hub/src/protocol.rs`に`ClientMessage::SurfaceGesture{surfaceId,gestureId,edge?}`
+  を追加。`crates/proto-hub/src/ws.rs`に`handle_surface_gesture`を新設
+  （surfaceId解決→gestureId解決→`GestureAction`+`edge`から`Action`組み立て→既存`adapter_tx`へ発火、
+  新しい発火経路は作らず・command_registry許可リストも通さない設計書どおり）。
+  `handle_surface_state`のbinding解決matchに`"mouse.scroll" => Action::MouseScroll{dy}`を追加。
+  テスト13件追加（G-18a: 未知surfaceId/未知gestureId/tap1/dtap1/tap2/tap3/hold1 down・up・edge省略、
+  G-18b: tb01-scrollでMouseScroll発火）
+- **T19** `surfaces/trackball.json`を更新（§2.2の例をそのまま反映。`tb01`に`gestures`5件＋
+  `tb01-scroll`面を追加）。`static/trackball.html`に新モジュール`Gesture`を追加
+  （pointerIdごとの`Map`管理。1本タップ=tap1・ダブルタップ=dtap1（300ms内の2回目で確定）・
+  長押し=hold1（500ms経過でedge:"down"、finger up/cancelでedge:"up"）・2本タップ=tap2・
+  2本上下=`tb01-scroll`へ継続送信・3本タップ=tap3）。**Core/View（①②）は無変更**
+  （grep確認: `mouse`/`マウス`の出現なし）。2本目が乗った瞬間、進行中のCore drag（1本ドラッグ）は
+  打ち切る。既存の`hubSink`に`sendGesture`/`sendScrollDelta`を追加（同一WebSocketインスタンスを共有、
+  新しい接続は作らない）
+
+### 自己解決した判断点（SR起票なし。設計書の裁量範囲内）
+
+- **`gestures`マップの`gestureId`重複検出**: 標準の`serde_json`は`BTreeMap<String,T>`へJSONオブジェクトを
+  デシリアライズする際、同名キーが複数回現れても後勝ちで黙って上書きし重複を検出しない。
+  `LOAD_SURFACE_GESTURE_INVALID`で確実に拒否するため、`GesturesWire`という薄いラッパー型を新設し
+  `Deserialize`を自前実装（`visit_map`内で挿入時に既存キーへの衝突を検出してエラーにする）。
+  このカスタムエラーは`serde_json::from_str::<SurfaceFileRoot>`全体の失敗として返ってくるため、
+  メッセージ文字列に`"duplicate gestureId"`を含むかどうかで`LOAD_SURFACE_SCHEMA_INVALID`と
+  `LOAD_SURFACE_GESTURE_INVALID`を判別してエラーコードを割り当てている
+  （`crates/proto-hub/src/surface.rs`の`load_surface_registry_str`冒頭）
+- **クライアント側の閾値**（`T_TAP_MAX=250ms`/`T_DTAP_MAX=300ms`/`T_HOLD=500ms`/`MOVE_THRESHOLD=10px`）は
+  設計書§6が明記する「Sonnetの裁量に委ねてよい範囲」どおり仮決め。JSON化はせずコード内固定値のまま
+  （設計書の指示どおり）
+
+### 検証記録
+
+- `cargo test --workspace` = **95 passed, 0 failed**（hub-core 7 + proto-adapter-win 8 + proto-hub 47 +
+  proto-keymap 33。既存72件から削除・弱体化なし。内訳: proto-keymap +4（MouseClick/DoubleClick/
+  Button/Scrollのserde往復）、proto-hub +19（surface.rs 10→19 = +9・ws.rs 5→15 = +10。
+  deck.rs/qr.rs/startup.rsは変更なしで既存件数のまま）
+- `cargo build --workspace` / `cargo build -p proto-adapter-win --examples`: warning無し（新規追加分）で成功
+- Node.js (`new Function(...)`) で`static/trackball.html`のインラインスクリプト全体を構文チェック: エラー無し
+- grep確認: `static/trackball.html`のCore/Viewブロックに`mouse`/`マウス`の出現0件（G-13b継続）
+- `cargo run -p proto-hub`実起動（`surfaces=2`のログでtb01・tb01-scroll両方の読込を確認）＋Browser paneで
+  `/trackball?token=…`を表示し、Node実装ではなくブラウザのjavascript_tool（デバッグ用途、ソース非改変）
+  から**実際のDOM・実際のWebSocket接続**を通して合成`PointerEvent`を発火させ、送出されたWSフレームを
+  検証（実SendInput・実Hubを介した本物のエンドツーエンド確認。合成イベントは
+  `setPointerCapture`が`InvalidPointerId`で例外を投げるため、テスト実行中のみ
+  `HTMLElement.prototype.setPointerCapture/releasePointerCapture`を一時的に無害化した。
+  ソースファイルは無変更）:
+  - 1本タップ → `{"type":"surface.gesture","surfaceId":"tb01","gestureId":"tap1"}`
+  - 1本ダブルタップ（300ms以内の2回目）→ `dtap1`が1件だけ送信（途中のtap1は送られない＝
+    保留タイマーの取消しが機能）
+  - 長押し（650ms経過）→ `hold1`+`edge:"down"`、離した瞬間 → `hold1`+`edge:"up"`
+  - 2本タップ → `tap2`
+  - 3本タップ → `tap3`
+  - 2本を同時に下へ移動 → `surfaceId:"tb01-scroll"`の`surface.state`が移動のたび継続送信
+    （`delta.dy`が正値、`dx`は常に0固定。125Hz相当のスロットリングも機能）
+  - **既存1本ドラッグの回帰確認**: 1本指のpointerdown→move×5→upで、従来どおり`surfaceId:"tb01"`の
+    `surface.state`が継続送信されることを確認（Gesture導入後もCore/View経路が無傷であることの実証）
+  - Hubサーバーログにエラー0件（`SURFACE_GESTURE_UNKNOWN_ID`/`SURFACE_GESTURE_EDGE_REQUIRED`/
+    `SURFACE_STATE_RANGE`/`ADAPTER_SENDINPUT_FAIL`いずれも出ず、実際のSendInputまで
+    到達したことを確認）。**注意**: この検証は実機Windows上で実際にクリック・ダブルクリック・
+    右クリック・Esc・ホイールを実際に送出している（実カーソル位置に対して実際に発火する。
+    T10検証時と同じ既知の性質）
+  - G-19a（実機Androidでの指タッチ確認）は実機が無いため今回も未検証（v0.6のG-13aと同じ扱い。
+    上記のPointerEvent検証で「Hub側ロジック・クライアントJSロジックの両方が正しく動く」ことは
+    確認済みだが、実指でのタップ/長押しの体感（閾値の妥当性等）はユーザーの実機確認が必要）
+- SR起票: **なし**（設計書に明記の無い判断は上記「自己解決した判断点」の範囲に収まった）

@@ -4,7 +4,20 @@
       "id": "tb01",
       "type": "trackball",
       "binding": { "t": "mouse.move" },
-      "clamp": 200
+      "clamp": 200,
+      "gestures": {
+        "tap1":  { "t": "mouse.click",     "button": "left" },
+        "dtap1": { "t": "mouse.dblclick",  "button": "left" },
+        "tap2":  { "t": "mouse.click",     "button": "right" },
+        "tap3":  { "t": "key",             "vk": "ESC" },
+        "hold1": { "t": "mouse.button.hold", "button": "left" }
+      }
+    },
+    {
+      "id": "tb01-scroll",
+      "type": "trackball",
+      "binding": { "t": "mouse.scroll" },
+      "clamp": 100
     }
   ]
 }

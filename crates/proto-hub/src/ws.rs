@@ -16,8 +16,11 @@ use crate::protocol::{ClientMessage, LayerStateWire, ServerMessage, SurfaceConfi
 use crate::state::{
     canonical_command_id, AdapterJob, ClientId, HubState, SharedState, SurfaceKind, IPAD_KEYMAP_ID,
 };
-use crate::surface::{SURFACE_STATE_RANGE, SURFACE_UNKNOWN_ID};
-use proto_keymap::{resolve, Action, Edge, Keymap, LayerState, Resolved};
+use crate::surface::{
+    ClickButton, GestureAction, SURFACE_GESTURE_EDGE_REQUIRED, SURFACE_GESTURE_UNKNOWN_ID,
+    SURFACE_STATE_RANGE, SURFACE_UNKNOWN_ID,
+};
+use proto_keymap::{resolve, Action, Edge, Keymap, LayerState, MouseButtonKind, Resolved};
 
 #[derive(Debug, Deserialize)]
 pub struct TokenQuery {
@@ -311,6 +314,10 @@ async fn handle_client_text(state: &SharedState, client_id: ClientId, surface: S
         ClientMessage::SurfaceState { surface_id, delta, .. } => {
             handle_surface_state(state, client_id, &surface_id, delta.dx, delta.dy).await
         }
+        // T18（brief/keydeck_trackball_gestures_v0.7.md §2.3）: discreteジェスチャー。
+        ClientMessage::SurfaceGesture { surface_id, gesture_id, edge } => {
+            handle_surface_gesture(state, client_id, &surface_id, &gesture_id, edge.map(Edge::from)).await
+        }
     }
 }
 
@@ -465,9 +472,12 @@ async fn handle_surface_state(state: &SharedState, client_id: ClientId, surface_
         return;
     }
 
-    // ⑤ bindingを解決してAction::MouseMoveを作り、既存のadapter_txへ流す。
+    // ⑤ bindingを解決してActionを作り、既存のadapter_txへ流す。
+    // T15/T18（§3）: continuousスクロール用に"mouse.scroll"を追加。dxは無視してよい
+    // （横スクロールはVer1対象外。クライアント側は常にdx:0を送るため実害なし）。
     let action = match def.binding_t.as_str() {
         "mouse.move" => Action::MouseMove { dx, dy },
+        "mouse.scroll" => Action::MouseScroll { dy },
         other => {
             // surface.rsのロード時点でALLOWED_BINDING_TYPESにより弾かれているため到達しない想定
             // だが、防御としてINTERNALで報告する（D9: panic禁止）。
@@ -517,6 +527,121 @@ async fn handle_surface_state(state: &SharedState, client_id: ClientId, surface_
             INTERNAL,
             "adapter worker did not reply".to_string(),
             json!({ "surfaceId": surface_id }),
+        ),
+    }
+}
+
+/// T15↔T17のブリッジ: `surface.rs::ClickButton`（宣言＝どのボタンか、のみ）を
+/// `proto_keymap::MouseButtonKind`（Action組み立て用）へ変換する。
+fn to_mouse_button_kind(button: ClickButton) -> MouseButtonKind {
+    match button {
+        ClickButton::Left => MouseButtonKind::Left,
+        ClickButton::Right => MouseButtonKind::Right,
+    }
+}
+
+/// T18（brief/keydeck_trackball_gestures_v0.7.md §2.3）: `surface.gesture`受信 →
+/// gestureId解決 → `GestureAction`＋`edge`から`proto_keymap::Action`を組み立て →
+/// 既存adapter_tx（D7直列ワーカー）へ発火。新しい発火経路は作らない（T12の
+/// handle_surface_stateと同じ既存adapter_txを使う。command_registry許可リストは通さない
+/// ——button/vkは起動時ロードのgesturesマップで既に固定されており、自由記述を受け付ける
+/// 経路ではないため許可リストの対象外でよい、と設計書に明記されている）。
+async fn handle_surface_gesture(
+    state: &SharedState,
+    client_id: ClientId,
+    surface_id: &str,
+    gesture_id: &str,
+    edge: Option<Edge>,
+) {
+    // ① surfaceId解決。無ければ既存のSURFACE_UNKNOWN_ID（surface.stateと同じ意味なので使い回す）。
+    let def = {
+        let s = state.lock().unwrap();
+        s.surfaces.get(surface_id).cloned()
+    };
+    let Some(def) = def else {
+        emit_error(
+            state,
+            client_id,
+            "T18",
+            SURFACE_UNKNOWN_ID,
+            format!("unknown surfaceId '{surface_id}'"),
+            json!({ "surfaceId": surface_id }),
+        );
+        return;
+    };
+
+    // ② gestureId解決。無ければ新規SURFACE_GESTURE_UNKNOWN_ID。
+    let Some(gesture) = def.gestures.get(gesture_id).cloned() else {
+        emit_error(
+            state,
+            client_id,
+            "T18",
+            SURFACE_GESTURE_UNKNOWN_ID,
+            format!("surface '{surface_id}': unknown gestureId '{gesture_id}'"),
+            json!({ "surfaceId": surface_id, "gestureId": gesture_id }),
+        );
+        return;
+    };
+
+    // ③ GestureAction + edge から proto_keymap::Action を組み立てる。
+    let action = match gesture {
+        GestureAction::Click { button } => Action::MouseClick { button: to_mouse_button_kind(button) },
+        GestureAction::DoubleClick { button } => {
+            Action::MouseDoubleClick { button: to_mouse_button_kind(button) }
+        }
+        GestureAction::Key { vk } => Action::Key { vk },
+        GestureAction::ButtonHold { button } => match edge {
+            Some(Edge::Down) => Action::MouseButton { button: to_mouse_button_kind(button), down: true },
+            Some(Edge::Up) => Action::MouseButton { button: to_mouse_button_kind(button), down: false },
+            None => {
+                emit_error(
+                    state,
+                    client_id,
+                    "T18",
+                    SURFACE_GESTURE_EDGE_REQUIRED,
+                    format!("surface '{surface_id}': gesture '{gesture_id}' requires edge"),
+                    json!({ "surfaceId": surface_id, "gestureId": gesture_id }),
+                );
+                return;
+            }
+        },
+    };
+
+    // ④ 既存のadapter_tx（D7直列ワーカー）へAdapterJobとして送る。新しい発火経路は作らない。
+    let adapter_tx = {
+        let s = state.lock().unwrap();
+        s.adapter_tx.clone()
+    };
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    if adapter_tx.send(AdapterJob { action, reply: reply_tx }).is_err() {
+        emit_error(
+            state,
+            client_id,
+            "T18",
+            INTERNAL,
+            "adapter worker channel is closed".to_string(),
+            json!({ "surfaceId": surface_id, "gestureId": gesture_id }),
+        );
+        return;
+    }
+
+    match reply_rx.await {
+        Ok(Ok(())) => {}
+        Ok(Err(adapter_error)) => emit_error(
+            state,
+            client_id,
+            "T18",
+            ADAPTER_SENDINPUT_FAIL,
+            adapter_error.to_string(),
+            json!({ "surfaceId": surface_id, "gestureId": gesture_id }),
+        ),
+        Err(_) => emit_error(
+            state,
+            client_id,
+            "T18",
+            INTERNAL,
+            "adapter worker did not reply".to_string(),
+            json!({ "surfaceId": surface_id, "gestureId": gesture_id }),
         ),
     }
 }
@@ -809,6 +934,169 @@ mod tests {
         });
         let job = rx.recv().await.expect("a valid delta must enqueue an AdapterJob");
         assert_eq!(job.action, Action::MouseMove { dx: 12, dy: -4 });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // ============================================================================
+    // T18単体テスト（handle_surface_gesture・handle_surface_state追加分）
+    // ============================================================================
+
+    const TB01_GESTURES_JSON: &str = r#"{
+        "surfaces": [
+            {
+                "id": "tb01", "type": "trackball", "binding": { "t": "mouse.move" }, "clamp": 200,
+                "gestures": {
+                    "tap1":  { "t": "mouse.click",     "button": "left" },
+                    "dtap1": { "t": "mouse.dblclick",  "button": "left" },
+                    "tap2":  { "t": "mouse.click",     "button": "right" },
+                    "tap3":  { "t": "key",             "vk": "ESC" },
+                    "hold1": { "t": "mouse.button.hold", "button": "left" }
+                }
+            },
+            {
+                "id": "tb01-scroll", "type": "trackball", "binding": { "t": "mouse.scroll" }, "clamp": 100
+            }
+        ]
+    }"#;
+
+    fn edge_wire(edge: Edge) -> Option<Edge> {
+        Some(edge)
+    }
+
+    // G-18a: 未知surfaceId → ジョブなし。
+    #[tokio::test]
+    async fn g18a_unknown_surface_id_enqueues_no_gesture_job() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        handle_surface_gesture(&state, 1, "does-not-exist", "tap1", None).await;
+        assert!(rx.try_recv().is_err(), "unknown surfaceId must not enqueue an AdapterJob");
+    }
+
+    // G-18a: 未知gestureId → ジョブなし（SURFACE_GESTURE_UNKNOWN_ID）。
+    #[tokio::test]
+    async fn g18a_unknown_gesture_id_enqueues_no_job() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        handle_surface_gesture(&state, 1, "tb01", "does-not-exist", None).await;
+        assert!(rx.try_recv().is_err(), "unknown gestureId must not enqueue an AdapterJob");
+    }
+
+    // G-18a: tap1 → Action::MouseClick{button:Left}のジョブ。
+    #[tokio::test]
+    async fn g18a_tap1_enqueues_mouse_click_left() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_gesture(&state, 1, "tb01", "tap1", None).await;
+            }
+        });
+        let job = rx.recv().await.expect("tap1 must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseClick { button: MouseButtonKind::Left });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // G-18a: dtap1 → Action::MouseDoubleClick{button:Left}のジョブ。
+    #[tokio::test]
+    async fn g18a_dtap1_enqueues_mouse_double_click_left() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_gesture(&state, 1, "tb01", "dtap1", None).await;
+            }
+        });
+        let job = rx.recv().await.expect("dtap1 must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseDoubleClick { button: MouseButtonKind::Left });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // G-18a: tap2 → Action::MouseClick{button:Right}のジョブ（右クリック）。
+    #[tokio::test]
+    async fn g18a_tap2_enqueues_mouse_click_right() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_gesture(&state, 1, "tb01", "tap2", None).await;
+            }
+        });
+        let job = rx.recv().await.expect("tap2 must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseClick { button: MouseButtonKind::Right });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // tap3 → Action::Key{vk:"ESC"}のジョブ（3本タップ=Esc）。
+    #[tokio::test]
+    async fn tap3_enqueues_key_esc() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_gesture(&state, 1, "tb01", "tap3", None).await;
+            }
+        });
+        let job = rx.recv().await.expect("tap3 must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::Key { vk: "ESC".to_string() });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // G-18a: hold1+edge:down → Action::MouseButton{button:Left,down:true}。
+    #[tokio::test]
+    async fn g18a_hold1_down_enqueues_mouse_button_down() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_gesture(&state, 1, "tb01", "hold1", edge_wire(Edge::Down)).await;
+            }
+        });
+        let job = rx.recv().await.expect("hold1+down must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseButton { button: MouseButtonKind::Left, down: true });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // G-18a: hold1+edge:up → Action::MouseButton{button:Left,down:false}。
+    #[tokio::test]
+    async fn g18a_hold1_up_enqueues_mouse_button_up() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_gesture(&state, 1, "tb01", "hold1", edge_wire(Edge::Up)).await;
+            }
+        });
+        let job = rx.recv().await.expect("hold1+up must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseButton { button: MouseButtonKind::Left, down: false });
+        let _ = job.reply.send(Ok(()));
+        handle.await.unwrap();
+    }
+
+    // G-18a: hold1+edge省略 → ジョブなし（SURFACE_GESTURE_EDGE_REQUIRED）。
+    #[tokio::test]
+    async fn g18a_hold1_without_edge_enqueues_no_job() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        handle_surface_gesture(&state, 1, "tb01", "hold1", None).await;
+        assert!(rx.try_recv().is_err(), "hold1 without edge must not enqueue an AdapterJob");
+    }
+
+    // G-18b: surfaceId:"tb01-scroll", binding.t:"mouse.scroll"のときAction::MouseScroll{dy}
+    // のジョブが載る。
+    #[tokio::test]
+    async fn g18b_tb01_scroll_enqueues_mouse_scroll() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let handle = tokio::spawn({
+            let state = state.clone();
+            async move {
+                handle_surface_state(&state, 1, "tb01-scroll", 0.0, 15.4).await;
+            }
+        });
+        let job = rx.recv().await.expect("tb01-scroll must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseScroll { dy: 15 });
         let _ = job.reply.send(Ok(()));
         handle.await.unwrap();
     }

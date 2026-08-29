@@ -31,6 +31,18 @@ pub enum ClientMessage {
         #[allow(dead_code)]
         active: bool,
     },
+    /// T18（brief/keydeck_trackball_gestures_v0.7.md §2.1）: discreteジェスチャー
+    /// （タップ・ダブルタップ・長押し・Esc）。`edge`はhold系(hold1)のみ必須、
+    /// one-shot系(tap1/dtap1/tap2/tap3)は省略する。
+    #[serde(rename = "surface.gesture")]
+    SurfaceGesture {
+        #[serde(rename = "surfaceId")]
+        surface_id: String,
+        #[serde(rename = "gestureId")]
+        gesture_id: String,
+        #[serde(default)]
+        edge: Option<EdgeWire>,
+    },
 }
 
 /// §3.2: `delta.dx`/`dy`はf64で受け取り、Hub側（ws.rs）で丸め・クランプする。

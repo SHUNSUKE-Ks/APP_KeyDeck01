@@ -146,11 +146,18 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
             // D20: textはDeckでも有効（vk辞書を経由しないため個別チェックは不要）。
             // T10（SR-002）: proto_keymap::ActionへMouseMove追加に伴う網羅性維持のみの1行。
             // vk辞書を経由しない点はTextと同じ扱い。既存Deck JSONはmouse.moveを含まないため無挙動変化。
+            // T15（brief/keydeck_trackball_gestures_v0.7.md §4の事前警告どおり、今回は
+            // 最初からここを直す）: MouseClick/MouseDoubleClick/MouseButton/MouseScrollも
+            // 同じ扱い（vk辞書を経由しない・既存Deck JSONには出現しないため無挙動変化）。
             Action::None
             | Action::KeymapSwitch { .. }
             | Action::KeymapReset
             | Action::Text { .. }
-            | Action::MouseMove { .. } => {}
+            | Action::MouseMove { .. }
+            | Action::MouseClick { .. }
+            | Action::MouseDoubleClick { .. }
+            | Action::MouseButton { .. }
+            | Action::MouseScroll { .. } => {}
         }
     }
 

@@ -34,7 +34,7 @@
 //! 数秒のカウントダウン中にメモ帳へフォーカスを移すと、"A" の入力と Ctrl+S 相当の
 //! chord送出（保存ダイアログが出るはず）が実行される。
 
-use proto_keymap::{is_known_vk, Action};
+use proto_keymap::{is_known_vk, Action, MouseButtonKind};
 
 /// send()が返す失敗理由。呼び出し側（proto-hub）がD9のエラーコードへ整形する。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +125,11 @@ pub fn send(action: &Action) -> Result<(), AdapterError> {
         Action::Chord { keys } => send_chord(keys),
         Action::Text { string } => send_text(string),
         Action::MouseMove { dx, dy } => send_mouse_move(*dx, *dy),
+        // T16（brief/keydeck_trackball_gestures_v0.7.md §5）: discrete/continuousジェスチャーの出口。
+        Action::MouseClick { button } => send_mouse_click(*button),
+        Action::MouseDoubleClick { button } => send_mouse_double_click(*button),
+        Action::MouseButton { button, down } => send_mouse_button(*button, *down),
+        Action::MouseScroll { dy } => send_mouse_scroll(*dy),
         other => Err(AdapterError::Unsupported {
             cause: format!("action cannot be sent to the OS: {other:?}"),
         }),
@@ -196,6 +201,39 @@ fn send_mouse_move(dx: i32, dy: i32) -> Result<(), AdapterError> {
     mouse_move(dx, dy)
 }
 
+/// T16（brief/keydeck_trackball_gestures_v0.7.md §5）: クリック=down→upを1組。
+/// `send_key`と全く同じ形。
+fn send_mouse_click(button: MouseButtonKind) -> Result<(), AdapterError> {
+    mouse_button_down(button)?;
+    mouse_button_up(button)?;
+    Ok(())
+}
+
+/// T16: ダブルクリック=クリック相当を2回連続で送るだけ（間隔調整は不要。§5参照）。
+fn send_mouse_double_click(button: MouseButtonKind) -> Result<(), AdapterError> {
+    send_mouse_click(button)?;
+    send_mouse_click(button)?;
+    Ok(())
+}
+
+/// T16: 長押し（hold1）の出口。down/upが別々のAdapterJobとして別タイミングで届く前提
+/// のため、ここでは対を作らずどちらか一方だけを送出する。
+fn send_mouse_button(button: MouseButtonKind, down: bool) -> Result<(), AdapterError> {
+    if down {
+        mouse_button_down(button)
+    } else {
+        mouse_button_up(button)
+    }
+}
+
+/// T16: continuousスクロールの出口。MOUSEEVENTF_WHEEL。`dy`は「指が下に動いた量」なので
+/// 符号反転する（§5）。SCROLL_UNITは実機テストで体感を見てから調整する仮置き値。
+const SCROLL_UNIT: i32 = 8;
+
+fn send_mouse_scroll(dy: i32) -> Result<(), AdapterError> {
+    mouse_scroll(-(dy * SCROLL_UNIT))
+}
+
 fn resolve_code(vk: &str) -> Result<u16, AdapterError> {
     if !is_known_vk(vk) {
         // proto-keymapのロード検証を通っていればここには来ないはずだが、防御的に扱う。
@@ -249,11 +287,35 @@ fn mouse_move(dx: i32, dy: i32) -> Result<(), AdapterError> {
         .map_err(|cause| AdapterError::SendFailed { cause: format!("mouse.move dx={dx} dy={dy}: {cause}") })
 }
 
+/// T16: SendInput+INPUT_MOUSE+MOUSEEVENTF_LEFTDOWN/RIGHTDOWNでボタン押下を送出する。
+#[cfg(windows)]
+fn mouse_button_down(button: MouseButtonKind) -> Result<(), AdapterError> {
+    win::send_mouse_button(button, false)
+        .map_err(|cause| AdapterError::SendFailed { cause: format!("mouse.button {button:?} down: {cause}") })
+}
+
+/// T16: SendInput+INPUT_MOUSE+MOUSEEVENTF_LEFTUP/RIGHTUPでボタン解放を送出する。
+#[cfg(windows)]
+fn mouse_button_up(button: MouseButtonKind) -> Result<(), AdapterError> {
+    win::send_mouse_button(button, true)
+        .map_err(|cause| AdapterError::SendFailed { cause: format!("mouse.button {button:?} up: {cause}") })
+}
+
+/// T16: SendInput+INPUT_MOUSE+MOUSEEVENTF_WHEELでホイールスクロールを送出する。
+#[cfg(windows)]
+fn mouse_scroll(wheel_delta: i32) -> Result<(), AdapterError> {
+    win::send_mouse_wheel(wheel_delta)
+        .map_err(|cause| AdapterError::SendFailed { cause: format!("mouse.scroll wheelDelta={wheel_delta}: {cause}") })
+}
+
 #[cfg(windows)]
 mod win {
+    use proto_keymap::MouseButtonKind;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-        KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_MOVE, MOUSEINPUT, VIRTUAL_KEY,
+        KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+        MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL,
+        MOUSEINPUT, VIRTUAL_KEY,
     };
 
     pub fn send_vk(vk: u16, key_up: bool) -> Result<(), String> {
@@ -331,6 +393,61 @@ mod win {
         }
         Ok(())
     }
+
+    /// T16（brief/keydeck_trackball_gestures_v0.7.md §5）: INPUT_MOUSE+
+    /// MOUSEEVENTF_LEFTDOWN/LEFTUP/RIGHTDOWN/RIGHTUPでボタンの押下/解放を1回送出する。
+    pub fn send_mouse_button(button: MouseButtonKind, up: bool) -> Result<(), String> {
+        let flags = match (button, up) {
+            (MouseButtonKind::Left, false) => MOUSEEVENTF_LEFTDOWN,
+            (MouseButtonKind::Left, true) => MOUSEEVENTF_LEFTUP,
+            (MouseButtonKind::Right, false) => MOUSEEVENTF_RIGHTDOWN,
+            (MouseButtonKind::Right, true) => MOUSEEVENTF_RIGHTUP,
+        };
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        if sent != 1 {
+            return Err(format!("SendInput returned {sent}, expected 1"));
+        }
+        Ok(())
+    }
+
+    /// T16: INPUT_MOUSE+MOUSEEVENTF_WHEELでホイールスクロールを1回送出する。
+    /// `wheel_delta`はWHEEL_DELTA(120)単位のmouseDataとしてそのまま渡す
+    /// （符号反転・SCROLL_UNIT換算は呼び出し側`send_mouse_scroll`が担う）。
+    pub fn send_mouse_wheel(wheel_delta: i32) -> Result<(), String> {
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: wheel_delta as u32,
+                    dwFlags: MOUSEEVENTF_WHEEL,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        if sent != 1 {
+            return Err(format!("SendInput returned {sent}, expected 1"));
+        }
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -370,6 +487,27 @@ fn release_unicode(code_unit: u16) -> Result<(), AdapterError> {
 #[cfg(not(windows))]
 fn mouse_move(dx: i32, dy: i32) -> Result<(), AdapterError> {
     let _ = (dx, dy);
+    dummy_log();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn mouse_button_down(button: MouseButtonKind) -> Result<(), AdapterError> {
+    let _ = button;
+    dummy_log();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn mouse_button_up(button: MouseButtonKind) -> Result<(), AdapterError> {
+    let _ = button;
+    dummy_log();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn mouse_scroll(wheel_delta: i32) -> Result<(), AdapterError> {
+    let _ = wheel_delta;
     dummy_log();
     Ok(())
 }
@@ -493,5 +631,39 @@ mod tests {
         assert!(send(&Action::MouseMove { dx: 12, dy: -3 }).is_ok());
         assert!(send(&Action::MouseMove { dx: 0, dy: 0 }).is_ok());
         assert!(send(&Action::MouseMove { dx: -200, dy: 200 }).is_ok());
+    }
+
+    // G-16a（brief/keydeck_trackball_gestures_v0.7.md §8）: 非Windowsダミーで
+    // T16の4関数（click/dblclick/button/scroll）とも成功を返すこと。実SendInputは呼ばない
+    // （実機確認は examples/smoke_mouse_click.rs を手動実行して行う）。
+    #[cfg(not(windows))]
+    #[test]
+    fn g16a_dummy_backend_reports_success_for_mouse_click() {
+        assert!(send(&Action::MouseClick { button: MouseButtonKind::Left }).is_ok());
+        assert!(send(&Action::MouseClick { button: MouseButtonKind::Right }).is_ok());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn g16a_dummy_backend_reports_success_for_mouse_double_click() {
+        assert!(send(&Action::MouseDoubleClick { button: MouseButtonKind::Left }).is_ok());
+        assert!(send(&Action::MouseDoubleClick { button: MouseButtonKind::Right }).is_ok());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn g16a_dummy_backend_reports_success_for_mouse_button_down_and_up() {
+        assert!(send(&Action::MouseButton { button: MouseButtonKind::Left, down: true }).is_ok());
+        assert!(send(&Action::MouseButton { button: MouseButtonKind::Left, down: false }).is_ok());
+        assert!(send(&Action::MouseButton { button: MouseButtonKind::Right, down: true }).is_ok());
+        assert!(send(&Action::MouseButton { button: MouseButtonKind::Right, down: false }).is_ok());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn g16a_dummy_backend_reports_success_for_mouse_scroll() {
+        assert!(send(&Action::MouseScroll { dy: 5 }).is_ok());
+        assert!(send(&Action::MouseScroll { dy: -5 }).is_ok());
+        assert!(send(&Action::MouseScroll { dy: 0 }).is_ok());
     }
 }

@@ -269,6 +269,9 @@
     const token = params.get("token") || "";
     // D28: surfaces/trackball.jsonに登録済みの自分の識別子。出口(binding)はここには無い。
     const SURFACE_ID = "tb01";
+    // T19（brief/keydeck_trackball_gestures_v0.7.md §3）: 2本上下スクロール専用の面id。
+    // binding.tはHub側JSON(surfaces/trackball.json)だけが知る。このHTMLはbindingを知らない。
+    const SCROLL_SURFACE_ID = "tb01-scroll";
 
     // D9: 全面共通のログ書式。[KD][ERR][コード] cause=… の1行（ipad.htmlのlog()を流用）。
     function log(kind, code, message, context) {
@@ -735,6 +738,12 @@
 
       function clamp(v) { return Math.max(-CLAMP, Math.min(CLAMP, Math.round(v))); }
 
+      // T19（brief/keydeck_trackball_gestures_v0.7.md §3）: tb01-scroll用の先読みクランプ。
+      // surfaces/trackball.jsonのtb01-scrollエントリのclamp(100)と同じ既定値。
+      const CLAMP_SCROLL = 100;
+      let lastScrollSendAt = 0;
+      function clampScroll(v) { return Math.max(-CLAMP_SCROLL, Math.min(CLAMP_SCROLL, Math.round(v))); }
+
       // D26: 状態ボタンをタップすると即時再接続を試みる（すでに接続中なら何もしない）。
       document.getElementById("statusBtn").addEventListener("click", () => {
         if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
@@ -768,6 +777,31 @@
           }));
           sent++;
         },
+        // T19（brief/keydeck_trackball_gestures_v0.7.md §2.1）: discreteジェスチャー送信。
+        // gestureIdが何をするか（ボタン・キー）はこのHTMLに一切書かない
+        // （surfaces/trackball.jsonのgesturesマップだけが意味を持つ。D5と同じ形）。
+        sendGesture: function (gestureId, edge) {
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          const msg = { type: "surface.gesture", surfaceId: SURFACE_ID, gestureId: gestureId };
+          if (edge) msg.edge = edge;
+          socket.send(JSON.stringify(msg));
+          log("T19", "OK", "surface.gesture sent", msg);
+        },
+        // T19（§3）: 2本上下スクロール。既存surface.stateをsurfaceIdだけ変えて再利用する
+        // （新しいWSメッセージ型は不要。同じsocketインスタンスを共有する）。
+        sendScrollDelta: function (dy) {
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          const now = performance.now();
+          if (now - lastScrollSendAt < MIN_INTERVAL) return;
+          lastScrollSendAt = now;
+          socket.send(JSON.stringify({
+            type: "surface.state",
+            surfaceId: SCROLL_SURFACE_ID,
+            delta: { dx: 0, dy: clampScroll(dy) },
+            spin: { x: 0, y: 0, z: 0, w: 1 },  // Hubは読み捨てる（tb01と同じダミー値）
+            active: true
+          }));
+        },
         statusHtml: function () {
           return '<span class="sink ' + cls + '">sink: ' + status +
                  ' / 送信 ' + sent + ' 件・間引き ' + dropped + ' 件</span>';
@@ -780,35 +814,185 @@
     Core.onState(hubSink.sink);
 
     // ================================================================
-    // 4. 入力 — 生のポインタ事象をCoreへ渡すだけ
+    // 4. Gesture — 生のポインタ事象を解釈し、Core（1本ドラッグ）とhubSink
+    //    （discrete/continuousジェスチャー送信）へ振り分ける（T19。
+    //    brief/keydeck_trackball_gestures_v0.7.md §6）。
+    //    Core/Viewはこのモジュールの存在を知らない（①②は無変更のまま）。
+    //    既存の1本ドラッグ（ボールの見た目・慣性）はpointerが1本だけの間のみ有効にする。
+    //    2本目が触れた瞬間、進行中のCore dragは打ち切る（1本ドラッグと2本操作の混線防止）。
     // ================================================================
-    let prev = { x: 0, y: 0 };
-    let dragging = false;
+    const Gesture = (function () {
+      // 閾値は仮決め（実機テストで調整する前提。P同様のJSONパラメータ化はしない＝§6）。
+      const T_TAP_MAX = 250;      // ms: down→upがこれ以内ならタップ候補
+      const T_DTAP_MAX = 300;     // ms: 直前のタップ完了からこれ以内の2回目でダブルタップ
+      const T_HOLD = 500;         // ms: down継続がこれを超えたら長押し候補
+      const MOVE_THRESHOLD = 10;  // px: これを超えたら「タップ未遂」（通常drag扱いに委ねる）
 
-    View.canvas.addEventListener("pointerdown", e => {
-      dragging = true;
-      prev = { x: e.clientX, y: e.clientY };
-      View.canvas.setPointerCapture(e.pointerId);
-      Core.begin();
-    });
+      // pointerId -> { startX, startY, downAt, lastX, lastY, lastDy, moved }
+      const pointers = new Map();
 
-    View.canvas.addEventListener("pointermove", e => {
-      if (!dragging) return;
-      const rawX = e.clientX - prev.x;
-      const rawY = e.clientY - prev.y;
-      prev = { x: e.clientX, y: e.clientY };
-      readoutSink.setRaw(rawX, rawY);
-      Core.move(rawX, rawY);
-    });
+      let dragging = false;
+      let primaryPointerId = null;
+      let prev = { x: 0, y: 0 };
 
-    function endDrag(e) {
-      if (!dragging) return;
-      dragging = false;
-      try { View.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 既に解放済み */ }
-      Core.end();
-    }
-    View.canvas.addEventListener("pointerup", endDrag);
-    View.canvas.addEventListener("pointercancel", endDrag);
+      let holdTimer = null;
+      let holdActivePointerId = null;
+
+      // このタッチセッション（全指が離れるまでの一続き）の集計。
+      let sessionMaxCount = 0;
+      let sessionTapEligible = true;
+      let sessionHoldFired = false;
+
+      let pendingTapTimer = null;
+      let awaitingSecondTap = false;
+
+      function dist(record, x, y) {
+        return Math.hypot(x - record.startX, y - record.startY);
+      }
+
+      function beginDrag(e) {
+        dragging = true;
+        primaryPointerId = e.pointerId;
+        prev = { x: e.clientX, y: e.clientY };
+        Core.begin();
+      }
+
+      function endDrag() {
+        if (!dragging) return;
+        dragging = false;
+        primaryPointerId = null;
+        Core.end();
+      }
+
+      function clearHoldTimer() {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      }
+
+      // 長押し（hold1）: down→edge:"down"、finger up/cancel→edge:"up"。
+      function fireHoldDown(pointerId) {
+        holdActivePointerId = pointerId;
+        sessionHoldFired = true;
+        hubSink.sendGesture("hold1", "down");
+      }
+
+      function fireHoldUp() {
+        if (holdActivePointerId === null) return;
+        holdActivePointerId = null;
+        hubSink.sendGesture("hold1", "up");
+      }
+
+      // 1本タップ/ダブルタップ: タップ完了をT_DTAP_MAX待ってから確定する
+      // （2回目のタップが間に合えばdtap1、間に合わなければtap1）。
+      function completeSingleTap() {
+        if (awaitingSecondTap) {
+          awaitingSecondTap = false;
+          if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
+          hubSink.sendGesture("dtap1");
+          return;
+        }
+        awaitingSecondTap = true;
+        pendingTapTimer = setTimeout(() => {
+          pendingTapTimer = null;
+          awaitingSecondTap = false;
+          hubSink.sendGesture("tap1");
+        }, T_DTAP_MAX);
+      }
+
+      // 全指が離れた時点でセッションを評価する（2本タップ=tap2、3本タップ=tap3、
+      // 1本のみ＝タップ/ダブルタップ判定）。長押しが発火済みの場合はタップを重複発火しない。
+      function finalizeSessionIfEmpty() {
+        if (pointers.size > 0) return;
+        if (!sessionHoldFired) {
+          if (sessionMaxCount === 1 && sessionTapEligible) completeSingleTap();
+          else if (sessionMaxCount === 2 && sessionTapEligible) hubSink.sendGesture("tap2");
+          else if (sessionMaxCount === 3 && sessionTapEligible) hubSink.sendGesture("tap3");
+        }
+        sessionMaxCount = 0;
+        sessionTapEligible = true;
+        sessionHoldFired = false;
+      }
+
+      function onPointerDown(e) {
+        View.canvas.setPointerCapture(e.pointerId);
+        pointers.set(e.pointerId, {
+          startX: e.clientX, startY: e.clientY, downAt: performance.now(),
+          lastX: e.clientX, lastY: e.clientY, lastDy: 0, moved: false
+        });
+        sessionMaxCount = Math.max(sessionMaxCount, pointers.size);
+
+        if (pointers.size === 1) {
+          beginDrag(e);
+          holdTimer = setTimeout(() => {
+            holdTimer = null;
+            const record = pointers.get(e.pointerId);
+            if (record && !record.moved && pointers.size === 1) fireHoldDown(e.pointerId);
+          }, T_HOLD);
+        } else if (pointers.size === 2) {
+          // 2本目が乗った瞬間、1本ドラッグ用のCoreは打ち切る（§6）。
+          clearHoldTimer();
+          fireHoldUp();
+          endDrag();
+        }
+        // 3本目以降は追加のCore操作なし（tapのみ対象。§0のVer1範囲）。
+      }
+
+      function onPointerMove(e) {
+        const record = pointers.get(e.pointerId);
+        if (!record) return;
+
+        if (!record.moved && dist(record, e.clientX, e.clientY) >= MOVE_THRESHOLD) {
+          record.moved = true;
+          sessionTapEligible = false;
+          if (e.pointerId === primaryPointerId) clearHoldTimer();
+        }
+
+        if (pointers.size === 1 && e.pointerId === primaryPointerId && dragging) {
+          // 既存の1本ドラッグ（ボールの見た目・慣性）は無変更のまま。
+          const rawX = e.clientX - prev.x;
+          const rawY = e.clientY - prev.y;
+          prev = { x: e.clientX, y: e.clientY };
+          readoutSink.setRaw(rawX, rawY);
+          Core.move(rawX, rawY);
+        } else if (pointers.size === 2) {
+          // 2本上下スクロール: 2本のdyの平均をtb01-scrollへ送る（§3）。
+          const thisDy = e.clientY - record.lastY;
+          record.lastX = e.clientX; record.lastY = e.clientY;
+          let otherDy = 0;
+          for (const [id, other] of pointers) {
+            if (id !== e.pointerId) { otherDy = other.lastDy; break; }
+          }
+          record.lastDy = thisDy;
+          hubSink.sendScrollDelta((thisDy + otherDy) / 2);
+        } else {
+          record.lastX = e.clientX; record.lastY = e.clientY;
+        }
+      }
+
+      function onPointerUp(e) {
+        const record = pointers.get(e.pointerId);
+        if (!record) return;
+
+        const now = performance.now();
+        if (now - record.downAt > T_TAP_MAX) sessionTapEligible = false;
+
+        if (e.pointerId === holdActivePointerId) fireHoldUp();
+        if (e.pointerId === primaryPointerId) {
+          endDrag();
+          clearHoldTimer();
+        }
+        try { View.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 既に解放済み */ }
+
+        pointers.delete(e.pointerId);
+        finalizeSessionIfEmpty();
+      }
+
+      return { onPointerDown, onPointerMove, onPointerUp };
+    })();
+
+    View.canvas.addEventListener("pointerdown", e => Gesture.onPointerDown(e));
+    View.canvas.addEventListener("pointermove", e => Gesture.onPointerMove(e));
+    View.canvas.addEventListener("pointerup", e => Gesture.onPointerUp(e));
+    View.canvas.addEventListener("pointercancel", e => Gesture.onPointerUp(e));
 
     function frame() {
       requestAnimationFrame(frame);
