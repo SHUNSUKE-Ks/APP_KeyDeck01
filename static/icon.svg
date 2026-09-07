@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="KeyDeck">
+  <!-- ============================================================
+    KeyDeck のアイコン。
+    形の意味: 手前の大きな面（タブレット＝入力する側）と、
+    その奥へ伸びる格子（PCへ渡るキー）。KeyDeckは「板を叩くと、
+    奥のPCへ届く」道具なので、その関係だけを描いている。
+    色は brief/ref_component_visual_rules_v1.md の3色を使う。
+      青 = key.press / 紫 = deck.press / 緑 = surface.state
+    小さく表示しても潰れないよう、要素は数個に絞ってある。
+  ============================================================ -->
+  <defs>
+    <linearGradient id="kd-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2440"/>
+      <stop offset="1" stop-color="#0d1220"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="56" fill="url(#kd-bg)"/>
+  <rect x="4" y="4" width="248" height="248" rx="54" fill="none"
+        stroke="#2d3550" stroke-width="4"/>
+
+  <!-- 奥へ渡っていくキー。上の段ほど小さく・薄くして距離を出す -->
+  <g opacity="0.42">
+    <rect x="92"  y="46" width="30" height="22" rx="6" fill="#2b4a7a"/>
+    <rect x="130" y="46" width="30" height="22" rx="6" fill="#2b4a7a"/>
+  </g>
+  <g opacity="0.68">
+    <rect x="74"  y="80" width="34" height="26" rx="7" fill="#2b4a7a"/>
+    <rect x="116" y="80" width="34" height="26" rx="7" fill="#4a2f66"/>
+    <rect x="158" y="80" width="34" height="26" rx="7" fill="#2b4a7a"/>
+  </g>
+
+  <!-- 手前の面（タブレット）。ここを叩く -->
+  <rect x="42" y="124" width="172" height="96" rx="16" fill="#151d33"
+        stroke="#46527d" stroke-width="4"/>
+
+  <!-- キーの並び。左下だけ緑にして、連続値を出す面（トラックボール）を示す -->
+  <g>
+    <rect x="58"  y="140" width="36" height="28" rx="7" fill="#2b4a7a"/>
+    <rect x="102" y="140" width="36" height="28" rx="7" fill="#2b4a7a"/>
+    <rect x="146" y="140" width="52" height="28" rx="7" fill="#4a2f66"/>
+
+    <circle cx="76" cy="192" r="14" fill="#1c4d47" stroke="#6fd3c0" stroke-width="3"/>
+    <rect x="102" y="178" width="96" height="28" rx="7" fill="#2b4a7a"/>
+  </g>
+</svg>
