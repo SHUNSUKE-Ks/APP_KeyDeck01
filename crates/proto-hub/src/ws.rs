@@ -96,14 +96,34 @@ pub fn router(state: SharedState) -> Router {
 /// （レイアウト3種がターミナルに一切出ない状態が残っていた）。同じ表を複数箇所に
 /// 書かないこと。
 pub fn connection_targets(state: &HubState) -> Vec<(String, String, &'static str)> {
-    let mut targets: Vec<(String, String, &'static str)> = vec![
-        ("kb-left".to_string(), "分割キーボード（左手）".to_string(), "keyboard"),
-        ("kb-right".to_string(), "分割キーボード（右手）".to_string(), "keyboard"),
-        ("deck".to_string(), "Stream Deck".to_string(), "deck"),
-        ("ipad".to_string(), "iPad一枚キーボード（Vol1.2）".to_string(), "keyboard"),
-        ("trackball".to_string(), "トラックボール".to_string(), "trackball"),
-        ("panel".to_string(), "分割（Deck＋キーボード）".to_string(), "panel"),
-    ];
+    // **裏付けとなるデータが無い面は一覧に出さない。**
+    // 単体Boardだけを積んだ構成では、トラックボール面を載せてもJSONが無く、
+    // 開いても動かない。「開けるが壊れている」リンクを配布物に出さないための判定。
+    let has_split = state
+        .keymaps
+        .values()
+        .any(|k| k.kind == proto_keymap::KeymapKind::Split);
+    let has_ipad = state.keymaps.contains_key(IPAD_KEYMAP_ID);
+    let has_deck = state.decks.contains_key(DEFAULT_DECK_ID);
+    let has_surface = !state.surfaces.is_empty();
+
+    let mut targets: Vec<(String, String, &'static str)> = Vec::new();
+    if has_split {
+        targets.push(("kb-left".to_string(), "分割キーボード（左手）".to_string(), "keyboard"));
+        targets.push(("kb-right".to_string(), "分割キーボード（右手）".to_string(), "keyboard"));
+    }
+    if has_deck {
+        targets.push(("deck".to_string(), "Stream Deck".to_string(), "deck"));
+    }
+    if has_ipad {
+        targets.push(("ipad".to_string(), "iPad一枚キーボード（Vol1.2）".to_string(), "keyboard"));
+    }
+    if has_surface {
+        targets.push(("trackball".to_string(), "トラックボール".to_string(), "trackball"));
+    }
+    if has_ipad && has_deck {
+        targets.push(("panel".to_string(), "分割（Deck＋キーボード）".to_string(), "panel"));
+    }
     // 読み込まれているレイアウトは自動で並ぶ。レイアウトを足してもここは触らない。
     for id in state.layouts.keys() {
         targets.push((format!("layout:{id}"), format!("レイアウト: {id}"), "layout"));
@@ -1725,5 +1745,34 @@ mod tests {
             );
         }
         assert!(checked > 0, "説明文を持つレイアウトが1件も無い（テストの前提が崩れている）");
+    }
+
+    /// **裏付けの無い面を接続先に出さないこと。**
+    ///
+    /// 単体Boardだけを積んだ配布構成（surfaces が0件）で、トラックボール面を
+    /// 一覧に出すと「開けるが動かない」リンクを配ることになる。実際に
+    /// 点盤屋向けの ipad_main 単体パッケージでそうなっていた。
+    #[test]
+    fn does_not_advertise_a_trackball_when_no_surface_is_loaded() {
+        // surfaces を空にした状態
+        let (state, _rx) = test_state(r#"{ "surfaces": [] }"#);
+        let s = state.lock().unwrap();
+        let targets = connection_targets(&s);
+        let ids: Vec<&str> = targets.iter().map(|(t, _, _)| t.as_str()).collect();
+        assert!(
+            !ids.contains(&"trackball"),
+            "surfaceが無いのにトラックボールを宣伝している: {ids:?}"
+        );
+        // Deckは存在するので出る（全部消えてしまうと今度は使えない）
+        assert!(ids.contains(&"deck"), "既定Deckは存在するので出るべき: {ids:?}");
+    }
+
+    /// surface があるときはちゃんと出ること（消しすぎていないことの確認）。
+    #[test]
+    fn advertises_a_trackball_when_a_surface_is_loaded() {
+        let (state, _rx) = test_state(TB01_JSON);
+        let s = state.lock().unwrap();
+        let ids: Vec<String> = connection_targets(&s).into_iter().map(|(t, _, _)| t).collect();
+        assert!(ids.iter().any(|t| t == "trackball"), "surfaceがあるのに出ていない: {ids:?}");
     }
 }

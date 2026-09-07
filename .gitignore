@@ -2,3 +2,6 @@
 /data
 *.db
 *.bak
+# ビルド成果物。Zipは中身が再生成できるのでGitには入れない。
+# 作り方は reports/report_2026-09-07_layout_editor.md と docs/ を参照。
+dist/
