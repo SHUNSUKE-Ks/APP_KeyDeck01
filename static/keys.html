@@ -835,20 +835,44 @@
     // ================================================================
     // 選択（キーボード / レイヤー）
     // ================================================================
+
+    /// "ipad01_vol13" → { base: "ipad01", ver: 13 }。版が付いていなければ 0。
+    function versionOf(id) {
+      const m = /^(.*?)_vol(\d+)$/.exec(id);
+      return m ? { base: m[1], ver: Number(m[2]) } : { base: id, ver: 0 };
+    }
+
+    /// URLで指定が無いときに最初に出すキーボード。
+    /// 1. 前にこの画面で選んだものが今もあれば、それ
+    /// 2. 無ければ**版が一番新しいもの**（vol13 > vol12 > 版なし）
+    /// 古い版が既定だと、直したつもりが実機に出ない事故になる。
+    function defaultKeymapId(ids) {
+      const last = localStorage.getItem("keydeck.lastKeymap");
+      if (last && ids.includes(last)) return last;
+      return ids.reduce((best, id) =>
+        versionOf(id).ver > versionOf(best).ver ? id : best, ids[0]);
+    }
     function fillSelectors() {
       const keymapSel = document.getElementById("keymapSel");
       const layerSel = document.getElementById("layerSel");
 
       keymapSel.textContent = "";
-      for (const [id, km] of Object.entries(CONFIG.keymaps || {})) {
-        if (!km.board) continue;    // 分割キーボードはこの画面では扱わない
+      // **新しい版を上に並べる。** vol12 と vol13 が並んでいるとき、
+      // 触りたいのはほぼ必ず新しい方なので、それを先頭に置く。
+      const ids = Object.keys(CONFIG.keymaps || {})
+        .filter((id) => CONFIG.keymaps[id].board)   // 分割キーボードはこの画面では扱わない
+        .sort((a, b) => {
+          const va = versionOf(a), vb = versionOf(b);
+          return va.base === vb.base ? vb.ver - va.ver : va.base.localeCompare(vb.base);
+        });
+      for (const id of ids) {
         const o = document.createElement("option");
         o.value = id; o.textContent = id;
         if (id === keymapId) o.selected = true;
         keymapSel.appendChild(o);
       }
-      if (!keymapId && keymapSel.options.length) {
-        keymapId = keymapSel.options[0].value;
+      if (!keymapId && ids.length) {
+        keymapId = defaultKeymapId(ids);
         keymapSel.value = keymapId;
       }
 
@@ -882,6 +906,7 @@
 
     document.getElementById("keymapSel").addEventListener("change", (e) => {
       keymapId = e.target.value; picked = null;
+      localStorage.setItem("keydeck.lastKeymap", keymapId);
       fillSelectors(); loadDraft(); loadBoardDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
     document.getElementById("layerSel").addEventListener("change", (e) => {

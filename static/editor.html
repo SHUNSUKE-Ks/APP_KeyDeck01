@@ -156,20 +156,30 @@
   /* 見出しとrefは読めないと困る。プレビューの上に重なるので、
      影だけでは足りず（実際にキーに埋もれた）、不透明の座布団を敷く。 */
   .sec .sid, .sec .sref {
-    position: relative; z-index: 2; align-self: flex-start;
     background: rgba(8,11,20,.82); border-radius: 5px; padding: 1px 6px;
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .sec .sref { position: relative; z-index: 2; align-self: flex-start; }
+  /* 見出し行。**部品名は左上、「編集」は右上**。同じ行に置くことで、
+     どの部品を編集するのかが目で結びつく。 */
+  .sec .sechead {
+    position: relative; z-index: 2; display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 6px; width: 100%;
+  }
+  .sec .sechead .sid { flex: 0 1 auto; }
   .sec .sref { font-size: 9px; display: flex; align-items: center; gap: 6px; }
   /* 区画idは添え物。部品名より小さく、目立たせない */
   .secid { font-size: 9px; font-weight: 400; color: rgba(255,255,255,.55); margin-left: 2px; }
   /* 部品名の右の「編集」。プレビューは pointer-events を殺してあるので、
      ここだけ戻して押せるようにする。 */
   .seclink {
-    pointer-events: auto; color: #9fd0ff; text-decoration: underline;
-    white-space: nowrap; padding: 0 2px;
+    pointer-events: auto; flex: 0 0 auto;
+    color: #9fd0ff; text-decoration: none; white-space: nowrap;
+    font-size: 10px; line-height: 1.6; padding: 0 7px;
+    background: rgba(8,11,20,.82); border: 1px solid rgba(159,208,255,.45);
+    border-radius: 5px;
   }
-  .seclink:hover { color: #cfe6ff; }
+  .seclink:hover { color: #cfe6ff; border-color: rgba(159,208,255,.85); }
 
   .field { margin-bottom: 8px; }
   .field label { display: block; font-size: 10px; color: var(--ink-dim); letter-spacing: .05em; }
@@ -699,10 +709,13 @@ function render() {
     sref.className = "sref";
     sref.appendChild(document.createTextNode(sec.component.kind));
 
-    // 部品名の右に編集画面への入口を出す。
+    // 部品名と同じ行の**右上**に、編集画面への入口を出す。
     // **編集画面があるのはキーボードだけ**。Deckとトラックボールは
     // まだ画面が無く、JSONを手で書くしかない。無いものにリンクを出すと
     // 「押しても何も起きない」ことになるので、有るものにだけ出す。
+    const head = document.createElement("div");
+    head.className = "sechead";
+    head.appendChild(sid);
     if (sec.component.kind === "keyboard") {
       const edit = document.createElement("a");
       edit.className = "seclink";
@@ -711,9 +724,9 @@ function render() {
         + "&layer=0&token=" + encodeURIComponent(token);
       // 区画のドラッグに巻き込まれないよう、押下はここで止める
       edit.addEventListener("pointerdown", (event) => event.stopPropagation());
-      sref.appendChild(edit);
+      head.appendChild(edit);
     }
-    box.appendChild(sid); box.appendChild(sref);
+    box.appendChild(head); box.appendChild(sref);
 
     const handle = document.createElement("div");
     handle.className = "handle";
