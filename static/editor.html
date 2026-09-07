@@ -160,7 +160,14 @@
     background: rgba(8,11,20,.82); border-radius: 5px; padding: 1px 6px;
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .sec .sref { font-size: 9px; }
+  .sec .sref { font-size: 9px; display: flex; align-items: center; gap: 6px; }
+  /* 部品名の右の「編集」。プレビューは pointer-events を殺してあるので、
+     ここだけ戻して押せるようにする。 */
+  .seclink {
+    pointer-events: auto; color: #9fd0ff; text-decoration: underline;
+    white-space: nowrap; padding: 0 2px;
+  }
+  .seclink:hover { color: #cfe6ff; }
 
   .field { margin-bottom: 8px; }
   .field label { display: block; font-size: 10px; color: var(--ink-dim); letter-spacing: .05em; }
@@ -676,7 +683,23 @@ function render() {
     sid.appendChild(iconFor(sec.component.kind));
     sid.appendChild(document.createTextNode(sec.id));
     const sref = document.createElement("div");
-    sref.className = "sref"; sref.textContent = sec.component.kind + " · " + sec.component.ref;
+    sref.className = "sref";
+    sref.appendChild(document.createTextNode(sec.component.kind + " · " + sec.component.ref));
+
+    // 部品名の右に編集画面への入口を出す。
+    // **編集画面があるのはキーボードだけ**。Deckとトラックボールは
+    // まだ画面が無く、JSONを手で書くしかない。無いものにリンクを出すと
+    // 「押しても何も起きない」ことになるので、有るものにだけ出す。
+    if (sec.component.kind === "keyboard") {
+      const edit = document.createElement("a");
+      edit.className = "seclink";
+      edit.textContent = "編集";
+      edit.href = "/keys?keymap=" + encodeURIComponent(sec.component.ref)
+        + "&layer=0&token=" + encodeURIComponent(token);
+      // 区画のドラッグに巻き込まれないよう、押下はここで止める
+      edit.addEventListener("pointerdown", (event) => event.stopPropagation());
+      sref.appendChild(edit);
+    }
     box.appendChild(sid); box.appendChild(sref);
 
     const handle = document.createElement("div");

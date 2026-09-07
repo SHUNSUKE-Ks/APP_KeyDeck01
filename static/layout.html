@@ -85,7 +85,9 @@
        layouts/*.json の grid.cols / grid.rows をそのままCSS Gridへ転記する。
        行トラックは必ず minmax(0,…)（1frは内容の最小サイズを下回れず、狭い画面で
        下段がはみ出す。STATE.mdの落とし穴の縦版）。 */
-    #stage { flex: 1; min-height: 0; display: grid; gap: 6px; padding: 6px; }
+    /* 下と左右の余白を無くし、盤面を画面の隅まで届かせる。
+       区画どうしの隙間（gap）は残す。上だけヘッダーとの間を空ける。 */
+    #stage { flex: 1; min-height: 0; display: grid; gap: 6px; padding: 6px 0 0; }
     .section {
       min-width: 0; min-height: 0;
       border: 1px solid var(--line); border-radius: 12px;
@@ -149,8 +151,19 @@
     /* ===== トラックボール部品（既存の検証済みページを埋め込む） ===== */
     .tbframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
 
-    footer[role="status"] { padding: 3px 10px 6px; font-size: 12px; color: var(--ink-muted); min-height: 14px; flex-shrink: 0; }
-    footer.error { color: #ff8a8a; }
+    /* 接続状態はヘッダーの丸印が既に出している。ここは詳しい文言用。
+       常時1行ぶんの高さを取ると、その分だけ盤面が上へ押し上げられて
+       画面の下隅に届かなくなるので、**重ねて表示し高さを食わせない**。 */
+    footer[role="status"] {
+      position: absolute; left: 6px; bottom: 4px; z-index: 20;
+      padding: 3px 10px; font-size: 12px; color: var(--ink-muted);
+      background: rgba(8,11,20,.82); border-radius: 8px;
+      pointer-events: none; max-width: calc(100% - 12px);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    footer[role="status"]:empty { display: none; }
+    footer.error { color: #ff8a8a; background: rgba(60,12,16,.92); }
+    body { position: relative; }
 
     #qrModal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,14,.88); z-index: 10; }
     #qrModal.on { display: flex; }
@@ -258,7 +271,21 @@
     // これが無いと、2秒ごとの再接続が「接続中…」→「切断中…」で警告を上書きし続け、
     // ユーザーは原因を知らされないまま待つことになる（実際にそうなっていた）。
     let stickyStatus = false;
+    let statusTimer = null;
+    /// 何でもない知らせは数秒で消す。エラーだけ残す。
+    /// フッターは盤面に重なるので、押すたびの文言が出っぱなしだと邪魔になる。
     function setStatus(text, isError) {
+      clearTimeout(statusTimer);
+      if (!isError && text) {
+        statusTimer = setTimeout(() => {
+          statusEl.textContent = "";
+          statusEl.classList.remove("error");
+        }, 2500);
+      }
+      return setStatusInner(text, isError);
+    }
+
+    function setStatusInner(text, isError) {
       if (stickyStatus && !isError) return;
       statusEl.textContent = text;
       statusEl.classList.toggle("error", !!isError);
