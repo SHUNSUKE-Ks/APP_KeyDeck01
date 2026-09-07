@@ -884,9 +884,13 @@ function renderProps() {
       refresh();
       notifyReverted(event.target.value + " は最小 " + lim.cols + "×" + lim.rows
         + " が要るため、この場所では入れ替えられません");
+      render();
       return;
     }
-    refresh();
+    // **描き直す。** refresh() は位置と大きさしか直さないので、
+    // 中身を替えたのに古い部品の絵・名前・「編集」の行き先が残ってしまう。
+    // 名前が古いままだと、差し替えたつもりで別のキーボードを編集する事故になる。
+    render();
   });
   swapWrap.appendChild(swapSel);
   host.appendChild(swapWrap);
