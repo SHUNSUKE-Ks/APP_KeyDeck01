@@ -1,0 +1,54 @@
+{
+  "keymapId": "ipad01_vol13",
+  "kind": "single",
+  "description": "iPad一枚キーボード Vol1.3。配置の正は 2026-09-05 にユーザーが提示したスクリーンショット（Android Gboardの日本語配列）。ipad01_vol12（Vol1.2）は凍結し、こちらを複製元として新設した（CLAUDE.md『Vol凍結版キーマップは複製して新Volを作ること』）。\n\n■ Vol1.2との違い（意図的）\n- 数字段が無い。数字はQ〜Pの右肩ヒントとして表示し、実際に打つときは『記号』(layer2)へ切り替える\n- Tab / Ctrl / Shift / Fn が無い。日本語入力に振り切った盤面。これらが要るときは Vol1.2 に切り替える\n- Enterの代わりに『確定』（送るのは同じENTER）。IMEの変換確定という意味づけ\n- 左端に『記号』と『日本語⇄英数』、右下に矢印キー\n\n■ グリッドが22列である理由\nスクショのA段は半キーぶん右にずれている（スタガード配列）。1キー=2列にすると、この半キーずれを『1列ぶんずらす』だけで正確に表現できる。row/col/colSpanはそのままCSS Gridへ転記される（D24）。\n\n■ keyIdの読み方\nK+行+列2桁で、そのキーの左上位置と一致する（例 K103 = row1 col3 = W）。\n\n■ 実装していないもの\n- フリック入力（右肩の数字を上フリックで出す等）… クライアントは位置IDしか送らない設計のため未対応。数字は記号レイヤーから打つ\n- 予測変換バー（スクショ上部の『こんばんわ / 言葉を / …』）… あれはPC側IMEが出すもので、KeyDeck側で再現すると嘘になる。PCの画面に出るものをそのまま使う",
+  "board": {
+    "cols": 22,
+    "keys": [
+      { "id": "K101", "row": 1, "col": 1,  "colSpan": 2 },
+      { "id": "K103", "row": 1, "col": 3,  "colSpan": 2 },
+      { "id": "K105", "row": 1, "col": 5,  "colSpan": 2 },
+      { "id": "K107", "row": 1, "col": 7,  "colSpan": 2 },
+      { "id": "K109", "row": 1, "col": 9,  "colSpan": 2 },
+      { "id": "K111", "row": 1, "col": 11, "colSpan": 2 },
+      { "id": "K113", "row": 1, "col": 13, "colSpan": 2 },
+      { "id": "K115", "row": 1, "col": 15, "colSpan": 2 },
+      { "id": "K117", "row": 1, "col": 17, "colSpan": 2 },
+      { "id": "K119", "row": 1, "col": 19, "colSpan": 2 },
+      { "id": "K121", "row": 1, "col": 21, "colSpan": 2 },
+
+      { "id": "K202", "row": 2, "col": 2,  "colSpan": 2 },
+      { "id": "K204", "row": 2, "col": 4,  "colSpan": 2 },
+      { "id": "K206", "row": 2, "col": 6,  "colSpan": 2 },
+      { "id": "K208", "row": 2, "col": 8,  "colSpan": 2 },
+      { "id": "K210", "row": 2, "col": 10, "colSpan": 2 },
+      { "id": "K212", "row": 2, "col": 12, "colSpan": 2 },
+      { "id": "K214", "row": 2, "col": 14, "colSpan": 2 },
+      { "id": "K216", "row": 2, "col": 16, "colSpan": 2 },
+      { "id": "K218", "row": 2, "col": 18, "colSpan": 2 },
+      { "id": "K220", "row": 2, "col": 20, "colSpan": 3 },
+
+      { "id": "K301", "row": 3, "col": 1,  "colSpan": 2 },
+      { "id": "K303", "row": 3, "col": 3,  "colSpan": 2 },
+      { "id": "K305", "row": 3, "col": 5,  "colSpan": 2 },
+      { "id": "K307", "row": 3, "col": 7,  "colSpan": 2 },
+      { "id": "K309", "row": 3, "col": 9,  "colSpan": 2 },
+      { "id": "K311", "row": 3, "col": 11, "colSpan": 2 },
+      { "id": "K313", "row": 3, "col": 13, "colSpan": 2 },
+      { "id": "K315", "row": 3, "col": 15, "colSpan": 2 },
+      { "id": "K317", "row": 3, "col": 17, "colSpan": 2 },
+
+      { "id": "K401", "row": 4, "col": 1,  "colSpan": 2 },
+      { "id": "K403", "row": 4, "col": 3,  "colSpan": 2 },
+      { "id": "K405", "row": 4, "col": 5,  "colSpan": 12 },
+      { "id": "K417", "row": 4, "col": 17, "colSpan": 2 },
+      { "id": "K419", "row": 4, "col": 19, "colSpan": 2 },
+      { "id": "K421", "row": 4, "col": 21, "colSpan": 2 }
+    ]
+  },
+  "layerFiles": [
+    "layers/ipad01_vol13_layer0.json",
+    "layers/ipad01_vol13_layer2.json",
+    "layers/ipad01_vol13_layer3.json"
+  ]
+}

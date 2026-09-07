@@ -1,0 +1,54 @@
+{
+  "layoutId": "ipad_v13",
+  "description": "Vol1.3キーボード版（P-005 段階B）。ipad_main との違いは SEC-KEYBOARD の ref だけで、他の区画（コピペリスト・Stream Deck・十字キー）はまったく同じ。\n\n■ キーボードの世代を切り替える\n  Vol1.2（数字段・Tab/Ctrl/Shift あり）… /layout?id=ipad_main\n  Vol1.3（Gboard風の日本語配列）    … /layout?id=ipad_v13\nURLを変えるだけで切り替わる（Hubの再読込も不要）。\n\n■ なぜ世代を分けるのか\n以前『キーボードを直したらレイアウトが崩れた』ことがあったため、既存の盤面は編集せず複製して新しい世代を作る運用にしている。片方を壊しても、もう片方は無傷のまま残る。\n\n手順は docs/HUB_MANUAL.md。",
+  "grid": {
+    "cols": 12,
+    "rows": 9
+  },
+  "sections": [
+    {
+      "id": "SEC-LEFT",
+      "row": 1,
+      "col": 1,
+      "colSpan": 3,
+      "rowSpan": 4,
+      "component": {
+        "kind": "deck",
+        "ref": "story_paths"
+      }
+    },
+    {
+      "id": "SEC-CENTER",
+      "row": 1,
+      "col": 4,
+      "colSpan": 6,
+      "rowSpan": 4,
+      "component": {
+        "kind": "deck",
+        "ref": "default"
+      }
+    },
+    {
+      "id": "SEC-KEYBOARD",
+      "row": 5,
+      "col": 1,
+      "colSpan": 12,
+      "rowSpan": 5,
+      "component": {
+        "kind": "keyboard",
+        "ref": "ipad01_vol13"
+      }
+    },
+    {
+      "id": "SEC-NEW1",
+      "row": 1,
+      "col": 10,
+      "colSpan": 3,
+      "rowSpan": 4,
+      "component": {
+        "kind": "trackball",
+        "ref": "tb01"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "layer": 0,
+  "description": "矢印キー版の割当。UP/DOWN/LEFT/RIGHT は文字を生まないため、テキスト欄にフォーカスがあっても文字が混入しない（WASD版との唯一の違い）。押している間だけ押され続ける（key.hold）。",
+  "keys": {
+    "D102": { "label": "↑", "action": { "t": "key.hold", "vk": "UP" } },
+    "D201": { "label": "←", "action": { "t": "key.hold", "vk": "LEFT" } },
+    "D202": { "label": "", "action": { "t": "none" } },
+    "D203": { "label": "→", "action": { "t": "key.hold", "vk": "RIGHT" } },
+    "D302": { "label": "↓", "action": { "t": "key.hold", "vk": "DOWN" } }
+  }
+}

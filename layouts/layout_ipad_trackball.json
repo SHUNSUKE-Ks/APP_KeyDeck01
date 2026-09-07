@@ -1,0 +1,54 @@
+{
+  "layoutId": "ipad_trackball",
+  "description": "ipad_main の右上を十字キーからトラックボールへ入れ替えた版（P-005 段階B/C）。\n\n■ これは何のためにあるか\n『十字キーとトラックボールを手で取り換える』の実演。ipad_main との違いは SEC-RIGHT の component 1行だけで、他はまったく同じ。\n\n■ 切り替え方は2通り\n(A) URLで切り替える … /layout?id=ipad_trackball（Hubの再読込すら要らない）\n(B) ipad_main を直接書き換える … SEC-RIGHT の component を {\"kind\":\"trackball\",\"ref\":\"tb01\"} にして /api/reload\n\n詳しい手順は docs/HUB_MANUAL.md。",
+  "grid": {
+    "cols": 12,
+    "rows": 9
+  },
+  "sections": [
+    {
+      "id": "SEC-LEFT",
+      "row": 1,
+      "col": 1,
+      "colSpan": 3,
+      "rowSpan": 4,
+      "component": {
+        "kind": "deck",
+        "ref": "story_paths"
+      }
+    },
+    {
+      "id": "SEC-CENTER",
+      "row": 1,
+      "col": 4,
+      "colSpan": 6,
+      "rowSpan": 4,
+      "component": {
+        "kind": "deck",
+        "ref": "default"
+      }
+    },
+    {
+      "id": "SEC-RIGHT",
+      "row": 1,
+      "col": 10,
+      "colSpan": 3,
+      "rowSpan": 4,
+      "component": {
+        "kind": "trackball",
+        "ref": "tb01"
+      }
+    },
+    {
+      "id": "SEC-KEYBOARD",
+      "row": 5,
+      "col": 1,
+      "colSpan": 12,
+      "rowSpan": 5,
+      "component": {
+        "kind": "keyboard",
+        "ref": "ipad01_vol12"
+      }
+    }
+  ]
+}

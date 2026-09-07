@@ -74,7 +74,7 @@
       }
     },
     "action": {
-      "description": "D4のアクション型＋D20のtext。vk名の辞書検証はスキーマではなくproto-keymap側で行う（LOAD_VK_UNKNOWN）。textはvk辞書の対象外（adapter側でKEYEVENTF_UNICODEにより直接注入）。",
+      "description": "D4のアクション型＋D20のtext＋T21のtg.fire。vk名の辞書検証はスキーマではなくproto-keymap側で行う（LOAD_VK_UNKNOWN）。textはvk辞書の対象外（adapter側でKEYEVENTF_UNICODEにより直接注入）。",
       "oneOf": [
         { "type": "object", "required": ["t", "vk"],     "additionalProperties": false, "properties": { "t": { "const": "key" },   "vk": { "type": "string" } } },
         { "type": "object", "required": ["t", "keys"],   "additionalProperties": false, "properties": { "t": { "const": "chord" }, "keys": { "type": "array", "minItems": 2, "items": { "type": "string" } } } },
@@ -84,7 +84,8 @@
         { "type": "object", "required": ["t"],           "additionalProperties": false, "properties": { "t": { "const": "none" } } },
         { "type": "object", "required": ["t", "id"],     "additionalProperties": false, "properties": { "t": { "const": "keymap.switch" }, "id": { "type": "string", "minLength": 1 } } },
         { "type": "object", "required": ["t"],           "additionalProperties": false, "properties": { "t": { "const": "keymap.reset" } } },
-        { "type": "object", "required": ["t", "string"], "additionalProperties": false, "properties": { "t": { "const": "text" }, "string": { "type": "string", "minLength": 1 } } }
+        { "type": "object", "required": ["t", "string"], "additionalProperties": false, "properties": { "t": { "const": "text" }, "string": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "required": ["t", "layer", "fire"], "additionalProperties": false, "description": "T21: レイヤーのトグルとアクション発火を1打鍵で同時に行う。英数⇄日本語のように、OS側のモードを変えると同時に画面表示も変えたいキー用。fireに置けるのはkey/chord/textのみ（mo/tg/tg.fire/keymap.*の入れ子はproto-keymap側がLOAD_SCHEMA_INVALIDで拒否）。Deck面には置けない。", "properties": { "t": { "const": "tg.fire" }, "layer": { "type": "integer", "minimum": 1, "maximum": 15 }, "fire": { "$ref": "#/$defs/action" } } }
       ]
     }
   }

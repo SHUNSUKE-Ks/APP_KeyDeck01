@@ -1,0 +1,20 @@
+{
+  "keymapId": "dpad01",
+  "kind": "single",
+  "description": "ゲーム用の十字キー（P-005 段階C）。新しい部品種別ではなく『3×3の小さなboardを持つkeyboard』でしかない。中央は空き。各キーは key.hold なので押している間だけPC側でキーが押され続ける（離すと止まる）。切断・画面を閉じた場合はHubが強制的に離す（ws.rs::release_held_keys）。割当を変えたいときは layers/dpad01_layer0.json の vk を書き換えて /api/reload するだけでよい。",
+  "board": {
+    "cols": 3,
+    "keys": [
+      { "id": "D102", "row": 1, "col": 2 },
+
+      { "id": "D201", "row": 2, "col": 1 },
+      { "id": "D202", "row": 2, "col": 2 },
+      { "id": "D203", "row": 2, "col": 3 },
+
+      { "id": "D302", "row": 3, "col": 2 }
+    ]
+  },
+  "layerFiles": [
+    "layers/dpad01_layer0.json"
+  ]
+}

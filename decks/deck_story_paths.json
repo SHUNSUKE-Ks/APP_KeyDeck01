@@ -1,0 +1,23 @@
+{
+  "deckId": "story_paths",
+  "description": "コピペリスト（P-005 段階A）。押すとそのフォルダのフルパスが、いま入力中のところへそのまま打ち込まれる。クリップボードは書き換えない（D20: text アクション=KEYEVENTF_UNICODE の直接入力。設計書は『クリップボードを黙って書き換えない』と定めている）。render=list なので、正方形スロットではなく横いっぱいの縦リストで描かれる。項目を増やすときは slots に足して grid.rows も一緒に増やすこと（rows を超えると起動時に LOAD_SCHEMA_INVALID で弾かれる）。",
+  "grid": { "cols": 1, "rows": 2 },
+  "render": "list",
+  "pages": [
+    {
+      "id": 1,
+      "slots": [
+        {
+          "slotId": "S01",
+          "label": "00_inbox",
+          "action": { "t": "text", "string": "C:\\Users\\enjoy\\Dropbox\\09_Story\\01_hazimarinomatiboueisen\\00_inbox" }
+        },
+        {
+          "slotId": "S02",
+          "label": "01_storyRule",
+          "action": { "t": "text", "string": "C:\\Users\\enjoy\\Dropbox\\09_Story\\01_hazimarinomatiboueisen\\01_StoryRule" }
+        }
+      ]
+    }
+  ]
+}

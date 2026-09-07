@@ -1,0 +1,27 @@
+{
+  "layoutId": "ipad_main",
+  "description": "iPad一枚の主レイアウト（P-005 段階B）。上段に3部品（左=コピペリスト／中=Stream Deck／右=十字キー）、下段にキーボード。\n\n■ 部品の入れ替え方（パズル）\nsection の row/col/colSpan/rowSpan を書き換えて /api/reload するだけ。HTMLは1行も触らない。\n例) 十字キーとトラックボールの交換 … SEC-RIGHT の component を {\"kind\":\"trackball\",\"ref\":\"tb01\"} に書き換える。\n例) 左右の入れ替え … SEC-LEFT と SEC-RIGHT の col を入れ替える（1 と 10）。\n\n■ 検証はロード時に効く\n区画がグリッドからはみ出す・区画同士が重なる・参照先idが存在しない、はすべて起動/reload時に拒否される。画面上は『片方が消えた』ようにしか見えない事故なので、JSONの時点で止めている。\n\n■ 手順書\nHubの操作方法は docs/HUB_MANUAL.md にまとめてある。",
+  "grid": { "cols": 12, "rows": 9 },
+  "sections": [
+    {
+      "id": "SEC-LEFT",
+      "row": 1, "col": 1, "colSpan": 3, "rowSpan": 4,
+      "component": { "kind": "deck", "ref": "story_paths" }
+    },
+    {
+      "id": "SEC-CENTER",
+      "row": 1, "col": 4, "colSpan": 6, "rowSpan": 4,
+      "component": { "kind": "deck", "ref": "default" }
+    },
+    {
+      "id": "SEC-RIGHT",
+      "row": 1, "col": 10, "colSpan": 3, "rowSpan": 4,
+      "component": { "kind": "keyboard", "ref": "dpad_arrows" }
+    },
+    {
+      "id": "SEC-KEYBOARD",
+      "row": 5, "col": 1, "colSpan": 12, "rowSpan": 5,
+      "component": { "kind": "keyboard", "ref": "ipad01_vol12" }
+    }
+  ]
+}

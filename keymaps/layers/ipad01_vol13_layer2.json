@@ -1,0 +1,35 @@
+{
+  "layer": 2,
+  "description": "Vol1.3 記号盤。K301『記号』(tg)で切替・もう一度で戻る。\n\n■ ここに数字を置いている理由\nVol1.3の基盤には数字段が無く、Q〜Pの右肩は表示だけのヒント（フリック未対応）。そのため数字は記号盤の1段目に置き、スクショのヒントと同じ並び（Q=1 … P=0）にしてある。ヒントを見て『記号』を押せば同じ位置にその数字がある、という対応を意図している。\n\n■ 全角/半角\n数字はvkで送る（半角）。読点・句点・カギ括弧などの日本語記号はtextで直接注入するので、IMEの全角/半角状態に関係なく指定どおり入る（D20）。\n\n■ layer3（日本語モード表示）と重ならないようにしてある\n有効レイヤーは番号の大きい方が勝つ（D3）ため、layer3がここのキーを再定義すると記号盤が壊れる。layer3側はここに無いキー（確定・Space）しか触っていない。",
+  "keys": {
+    "K101": { "label": "1", "action": { "t": "key", "vk": "1" } },
+    "K103": { "label": "2", "action": { "t": "key", "vk": "2" } },
+    "K105": { "label": "3", "action": { "t": "key", "vk": "3" } },
+    "K107": { "label": "4", "action": { "t": "key", "vk": "4" } },
+    "K109": { "label": "5", "action": { "t": "key", "vk": "5" } },
+    "K111": { "label": "6", "action": { "t": "key", "vk": "6" } },
+    "K113": { "label": "7", "action": { "t": "key", "vk": "7" } },
+    "K115": { "label": "8", "action": { "t": "key", "vk": "8" } },
+    "K117": { "label": "9", "action": { "t": "key", "vk": "9" } },
+    "K119": { "label": "0", "action": { "t": "key", "vk": "0" } },
+
+    "K202": { "label": "「", "action": { "t": "text", "string": "「" } },
+    "K204": { "label": "」", "action": { "t": "text", "string": "」" } },
+    "K206": { "label": "（", "action": { "t": "text", "string": "（" } },
+    "K208": { "label": "）", "action": { "t": "text", "string": "）" } },
+    "K210": { "label": "・", "action": { "t": "text", "string": "・" } },
+    "K212": { "label": "：", "action": { "t": "text", "string": "：" } },
+    "K214": { "label": "；", "action": { "t": "text", "string": "；" } },
+    "K216": { "label": "＝", "action": { "t": "text", "string": "＝" } },
+    "K218": { "label": "…", "action": { "t": "text", "string": "…" } },
+
+    "K303": { "label": "？", "action": { "t": "text", "string": "？" } },
+    "K305": { "label": "！", "action": { "t": "text", "string": "！" } },
+    "K307": { "label": "＃", "action": { "t": "text", "string": "#" } },
+    "K309": { "label": "＠", "action": { "t": "text", "string": "@" } },
+    "K311": { "label": "／", "action": { "t": "text", "string": "/" } },
+    "K313": { "label": "＊", "action": { "t": "text", "string": "*" } },
+    "K315": { "label": "＋", "action": { "t": "text", "string": "+" } },
+    "K317": { "label": "〜", "action": { "t": "text", "string": "〜" } }
+  }
+}

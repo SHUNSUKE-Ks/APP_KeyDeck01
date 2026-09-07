@@ -1,0 +1,11 @@
+{
+  "layer": 0,
+  "description": "十字キーの割当。既定はWASD（多くのゲームの移動キー）。⚠️ vk W/A/S/D は英字キーそのものなので、テキスト欄にフォーカスがあると wasd と打ち込まれる（仕様。ゲーム用のため）。文字を出したくない場合は keymap_dpad_arrows.json（矢印キー版）へ差し替えるか、ここの vk を UP/DOWN/LEFT/RIGHT に書き換えて /api/reload する。中央 D202 は空き。",
+  "keys": {
+    "D102": { "label": "↑", "action": { "t": "key.hold", "vk": "W" } },
+    "D201": { "label": "←", "action": { "t": "key.hold", "vk": "A" } },
+    "D202": { "label": "", "action": { "t": "none" } },
+    "D203": { "label": "→", "action": { "t": "key.hold", "vk": "D" } },
+    "D302": { "label": "↓", "action": { "t": "key.hold", "vk": "S" } }
+  }
+}

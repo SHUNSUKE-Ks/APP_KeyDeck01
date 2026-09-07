@@ -1,7 +1,7 @@
 {
   "deckId": "default",
-  "description": "初期セットリスト（D11: Import=このフォルダにファイルを置いて再起動 / Export=GET /api/deck/export）",
-  "grid": { "cols": 5, "rows": 3 },
+  "description": "初期セットリスト（D11: Import=このフォルダにファイルを置いて再起動 / Export=GET /api/deck/export?deck=default）。2026-09-05のユーザー指示で縦2段にした（P-005 段階A）。スロット15個を2段に収めるため cols=8（容量16）。段数・列数を変えたいときはこの grid を書き換えて /api/reload するだけでよい。cols×rows を超えるスロットを置くと起動時に LOAD_SCHEMA_INVALID で弾かれる",
+  "grid": { "cols": 8, "rows": 2 },
   "pages": [
     { "id": 1, "slots": [
       { "slotId": "S01", "label": "消音",      "action": { "t": "key", "vk": "MUTE" } },
