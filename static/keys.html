@@ -172,7 +172,8 @@
     <h1>KeyDeck — キー編集</h1>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
-    <button id="revertBtn" type="button">元に戻す</button>
+    <button id="undoBtn" type="button">1つ戻す</button>
+    <button id="revertBtn" type="button">全部戻す</button>
     <button id="saveBtn" type="button" class="primary">保存</button>
     <span class="sp"></span>
     <span id="conn"></span>
@@ -217,6 +218,49 @@
     let picked = null;
     // 位置編集用の下書き。board.keys を丸ごと持つ（保存するまでディスクへは行かない）
     let boardDraft = null;
+
+    // ------------------------------------------------------------------
+    // 一手戻す。
+    //
+    // 触るたびに「触る前」を積む。**中身（レイヤー）と位置（盤面）を
+    // 一緒に積む**ので、どちらを触った操作でも同じ1手として戻せる。
+    // 保存はしないので、戻したあとに保存すれば無かったことにできる。
+    // ------------------------------------------------------------------
+    const HISTORY_MAX = 50;
+    const undoStack = [];   // window.history と衝突しない名前にする
+
+    /// 変更を加える**直前**に呼ぶ。
+    function snapshot() {
+      undoStack.push({
+        draft: JSON.parse(JSON.stringify(draft)),
+        board: boardDraft ? JSON.parse(JSON.stringify(boardDraft)) : null,
+      });
+      if (undoStack.length > HISTORY_MAX) undoStack.shift();
+      updateUndoBtn();
+    }
+
+    function undo() {
+      const prev = undoStack.pop();
+      if (!prev) { flash("これ以上戻せません"); return; }
+      draft = prev.draft;
+      boardDraft = prev.board;
+      picked = null;
+      renderParts();
+      renderBoard();
+      updateUndoBtn();
+      flash("1つ戻しました（あと " + undoStack.length + " 手戻せます）");
+    }
+
+    function updateUndoBtn() {
+      const b = document.getElementById("undoBtn");
+      if (b) b.disabled = undoStack.length === 0;
+    }
+
+    /// 読み直したら、それが新しい出発点。履歴は捨てる。
+    function clearHistory() {
+      undoStack.length = 0;
+      updateUndoBtn();
+    }
 
     const flashEl = document.getElementById("flash");
     const connEl = document.getElementById("conn");
@@ -396,9 +440,16 @@
         if (target) {
           target.classList.add("dragover");
         } else {
-          // キー以外の場所には入れられない。枠だけ出して「置けない」を示す
+          // **空きへ落とすと、そこに新しいキーができる。**
+          // 枠は「ふつうのキー1つ分」で出す。1×1 で出すと半分の幅になり、
+          // 実際に置かれる大きさと食い違う。
           const cell = cellAt(event);
-          if (cell) showDropCell(cell, 1, 1, true);
+          if (cell) {
+            const size = standardKeySize();
+            const spot = snapFree(fitCell(cell, size), size);
+            showDropCell(spot, size.colSpan, size.rowSpan,
+              !cellIsFree(spot, size.colSpan, size.rowSpan, null));
+          }
         }
       });
       const done = (event) => {
@@ -409,12 +460,39 @@
         hideGhost();
         const target = keyUnder(event, null);
         clearDragMarks();
-        if (!target) return;
-        const keyId = target.dataset.keyId;
-        draft[keyId] = { label: String(part.label).split("\n")[0], action: part.action };
+        const name = String(part.label).split("\n")[0];
+
+        if (target) {
+          snapshot();
+          const keyId = target.dataset.keyId;
+          draft[keyId] = { label: name, action: part.action };
+          pushRecent(part);
+          flash(keyId + " に「" + name + "」を入れました");
+          renderBoard();
+          return;
+        }
+
+        // **空きへ落とした = そこに新しいキーを作る。**
+        // これが無いと、キーを動かして空いたところへ別のキーを置けず、
+        // 「消したら二度と戻せない」ことになる。
+        const cell = cellAt(event);
+        if (!cell || !boardDraft) return;
+        const size = standardKeySize();
+        const spot = snapFree(fitCell(cell, size), size);
+        if (!cellIsFree(spot, size.colSpan, size.rowSpan, null)) {
+          flash("そこには置けません（他のキーと重なります）");
+          return;
+        }
+        snapshot();
+        const id = newKeyId(spot.row, spot.col);
+        boardDraft.keys.push({
+          id, row: spot.row, col: spot.col,
+          colSpan: size.colSpan, rowSpan: size.rowSpan,
+        });
+        draft[id] = { label: name, action: part.action };
         pushRecent(part);
-        flash(keyId + " に「" + String(part.label).split("\n")[0] + "」を入れました");
         renderBoard();
+        flash(id + " を 行" + spot.row + " 列" + spot.col + " に作って「" + name + "」を入れました");
       };
       el.addEventListener("pointerup", done);
       el.addEventListener("pointercancel", done);
@@ -537,6 +615,31 @@
       if (box) box.remove();
     }
 
+    /// 盤面からはみ出さないところまで左へ寄せたマス。
+    function fitCell(cell, size) {
+      const cols = boardDraft ? boardDraft.cols : 1;
+      return {
+        row: cell.row,
+        col: Math.max(1, Math.min(cell.col, cols - (size.colSpan || 1) + 1)),
+      };
+    }
+
+    /// 指したマスが埋まっていたら、**同じ行の一番近い空きへ寄せる**。
+    /// 盤面は1キー＝2列なので、穴を狙っても1列ずれて弾かれることがある。
+    /// 狙ったところがそのまま空いていれば動かさない。
+    function snapFree(cell, size) {
+      const span = size.colSpan || 1;
+      if (cellIsFree(cell, span, size.rowSpan, null)) return cell;
+      for (let d = 1; d <= span; d += 1) {
+        for (const col of [cell.col - d, cell.col + d]) {
+          const spot = fitCell({ row: cell.row, col }, size);
+          if (col >= 1 && spot.col === col
+            && cellIsFree(spot, span, size.rowSpan, null)) return spot;
+        }
+      }
+      return cell;
+    }
+
     /// そのマスへ置けるか（自分以外のキーが居ないか）
     function cellIsFree(cell, colSpan, rowSpan, exceptId) {
       if (!cell || !boardDraft) return false;
@@ -631,6 +734,7 @@
 
           if (wasOverDrop) {
             if (draft[keyId]) {
+              snapshot();
               delete draft[keyId];
               flash(keyId + " をこのレイヤーから外しました（下のレイヤーの内容が出ます）");
             } else {
@@ -644,6 +748,7 @@
             // **キーの上で離した = 中身を入れ替える。**
             // どちらかが未定義（下から継承）なら、見えている内容を写してから
             // 入れ替える。そうしないと「空と入れ替えたら片方が消えた」ように見える。
+            snapshot();
             const otherId = target.dataset.keyId;
             const a = draft[keyId] || shownDef(keyId);
             const b = draft[otherId] || shownDef(otherId);
@@ -661,11 +766,13 @@
           if (cell && boardDraft) {
             const k = boardKey(keyId);
             if (k) {
+              snapshot();
               const before = { row: k.row, col: k.col };
               k.row = cell.row;
               k.col = Math.min(cell.col, boardDraft.cols - (k.colSpan || 1) + 1);
               if (paintConflicts().has(keyId) || k.col < 1) {
                 k.row = before.row; k.col = before.col;
+                undoStack.pop(); updateUndoBtn();   // 何も起きていないので1手に数えない
                 renderBoard();
                 flash("そこには置けません（他のキーと重なります）");
                 return;
@@ -685,6 +792,7 @@
           flash("キーを別のキーへドラッグすると入れ替わります。部品を入れるときは上の部品を選んでから押してください。");
           return;
         }
+        snapshot();
         draft[keyId] = { label: String(picked.label).split("\n")[0], action: picked.action };
         pushRecent(picked);
         clearFlash();
@@ -718,6 +826,37 @@
     // 掴んで動かす＝位置、右下のつまみ＝幅。重なりとはみ出しは
     // その場で赤くし、指を離した時点で不正なら元へ戻す（区画エディタと同じ）。
     // ================================================================
+    /// この盤面での**ふつうのキー1つ分**の大きさ。
+    /// vol1.3 は 22 列で 1 キー＝2 列（互い違いを表すため）なので、
+    /// 決め打ちの 1×1 だと半分の幅になってしまう。実際に並んでいる
+    /// キーの一番多い大きさを見て決める。
+    function standardKeySize() {
+      const count = (field) => {
+        const tally = new Map();
+        for (const k of (boardDraft ? boardDraft.keys : [])) {
+          const v = k[field] || 1;
+          tally.set(v, (tally.get(v) || 0) + 1);
+        }
+        let best = 1, most = 0;
+        for (const [v, n] of tally) if (n > most) { most = n; best = v; }
+        return best;
+      };
+      return { colSpan: count("colSpan"), rowSpan: count("rowSpan") };
+    }
+
+    /// 新しいキーのid。既存は K<行><列2桁>（K419 = 行4 列19）なので、それに倣う。
+    /// 万一ぶつかったら末尾に文字を足して必ず一意にする。
+    function newKeyId(row, col) {
+      const base = "K" + row + String(col).padStart(2, "0");
+      const used = new Set((boardDraft ? boardDraft.keys : []).map((k) => k.id));
+      if (!used.has(base)) return base;
+      for (let i = 97; i <= 122; i += 1) {
+        const id = base + String.fromCharCode(i);
+        if (!used.has(id)) return id;
+      }
+      return base + Date.now();
+    }
+
     function boardKey(id) {
       return boardDraft.keys.find((k) => k.id === id);
     }
@@ -791,6 +930,7 @@
         event.stopPropagation();      // 本体のドラッグ（移動）を始めさせない
         const k = boardKey(keyId);
         if (!k) return;
+        snapshot();
         dragging = true;
         const rect = boardEl.querySelector(".kbgrid").getBoundingClientRect();
         cellW = rect.width / boardDraft.cols;
@@ -817,6 +957,7 @@
         const k = boardKey(keyId);
         if (paintConflicts().has(keyId)) {
           k.colSpan = orig.colSpan; k.rowSpan = orig.rowSpan;
+          undoStack.pop(); updateUndoBtn();   // 何も起きていないので1手に数えない
           renderBoard();
           flash(keyId + " はその大きさだと他のキーと重なります");
           return;
@@ -907,14 +1048,17 @@
     document.getElementById("keymapSel").addEventListener("change", (e) => {
       keymapId = e.target.value; picked = null;
       localStorage.setItem("keydeck.lastKeymap", keymapId);
-      fillSelectors(); loadDraft(); loadBoardDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
+      fillSelectors(); loadDraft(); loadBoardDraft(); clearHistory();
+      rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
     document.getElementById("layerSel").addEventListener("change", (e) => {
       layerId = Number(e.target.value); picked = null;
-      loadDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
+      loadDraft(); clearHistory(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
+    document.getElementById("undoBtn").addEventListener("click", undo);
+
     document.getElementById("revertBtn").addEventListener("click", () => {
-      loadDraft(); loadBoardDraft(); renderBoard();
+      loadDraft(); loadBoardDraft(); clearHistory(); renderBoard();
       flash("Hubが読み込んでいる内容へ戻しました（保存はしていません）");
     });
 
@@ -1017,6 +1161,7 @@
         if (first) {
           loadDraft();
           loadBoardDraft();
+          clearHistory();
         }
         rememberUrl();
         renderTabs();
