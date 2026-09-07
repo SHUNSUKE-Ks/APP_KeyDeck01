@@ -106,6 +106,9 @@
       color: var(--ink); font-size: 13px; line-height: 1.1;
       display: flex; align-items: center; justify-content: center; text-align: center;
       overflow: hidden; word-break: break-all;
+      /* 部品の上で始めた指の動きは**ドラッグ**として扱う。これが無いと、
+         一覧をスクロールする動きだと解釈されて掴めないことがある。 */
+      touch-action: none;
     }
     .part.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 2px rgba(45,103,217,.45); }
     .part small { font-size: 9px; color: var(--ink-dim); display: block; }
@@ -148,6 +151,12 @@
     }
     #dragghost[hidden] { display: none !important; }
     #board .key.bad { outline-color: var(--err); }
+    /* 落下予想地。手を離すとここへ入る。中身は出さず枠だけ */
+    .dropcell {
+      border: 2px dashed var(--accent); border-radius: var(--key-radius);
+      background: rgba(45,103,217,.12); pointer-events: none; z-index: 4;
+    }
+    .dropcell.blocked { border-color: var(--err); background: rgba(226,85,90,.14); }
     /* 幅を変えるつまみ。位置編集のときだけ意味がある */
     .kmhandle {
       position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
@@ -240,10 +249,13 @@
 
     /// 部品1つ = { label, action, tab }
     function buildParts() {
+      // 文字と数字（36個）
       const basic = [];
       for (const c of LETTERS) basic.push({ label: c, action: { t: "key", vk: c } });
       for (const d of DIGITS) basic.push({ label: d, action: { t: "key", vk: d } });
-      for (const [vk, label] of NAMED) basic.push({ label, action: { t: "key", vk } });
+      // Ctrl / Shift / Enter / 矢印 / F1〜F12 など（30個）。
+      // 文字と混ぜると2行に収まらず、下端のものが見切れて掴めなくなる。
+      const special = NAMED.map(([vk, label]) => ({ label, action: { t: "key", vk } }));
 
       const symbols = SYMBOLS.map((c) => ({ label: c, action: { t: "text", string: c } }));
 
@@ -274,7 +286,7 @@
         layers.push({ label: name + "\n固定", action: { t: "tg", layer: layer.id }, note: "tg" });
       }
 
-      return { basic, symbols, macros, layers };
+      return { basic, special, symbols, macros, layers };
     }
 
     /// レイヤーの表示名。説明の1行目から「Vol1.3 」などの接頭辞を落として短くする。
@@ -287,7 +299,8 @@
 
     const TABS = [
       { id: "recent", label: "最近" },
-      { id: "basic", label: "基本キー" },
+      { id: "basic", label: "文字" },
+      { id: "special", label: "特殊キー" },
       { id: "symbols", label: "記号" },
       { id: "layers", label: "レイヤー切替" },
       { id: "macros", label: "マクロ" },
@@ -329,6 +342,7 @@
       const all = buildParts();
       if (activeTab === "recent") return loadRecent();
       if (activeTab === "basic") return all.basic;
+      if (activeTab === "special") return all.special;
       if (activeTab === "symbols") return all.symbols;
       if (activeTab === "layers") return all.layers;
       return all.macros;
@@ -379,7 +393,13 @@
         moveGhost(event);
         clearDragMarks();
         const target = keyUnder(event, null);
-        if (target) target.classList.add("dragover");
+        if (target) {
+          target.classList.add("dragover");
+        } else {
+          // キー以外の場所には入れられない。枠だけ出して「置けない」を示す
+          const cell = cellAt(event);
+          if (cell) showDropCell(cell, 1, 1, true);
+        }
       });
       const done = (event) => {
         if (!dragging) return;
@@ -492,6 +512,42 @@
       for (const el of boardEl.querySelectorAll(".dragover, .dragsrc")) {
         el.classList.remove("dragover", "dragsrc");
       }
+      hideDropCell();
+    }
+
+    /// 落下予想地の枠。**中身は描かず枠だけ**を、実際に入るマスへ出す。
+    /// 掴んでいるキーの大きさで出すので、入る場所と大きさが手を離す前に分かる。
+    function showDropCell(cell, colSpan, rowSpan, blocked) {
+      const grid = boardEl.querySelector(".kbgrid");
+      if (!grid || !cell) return hideDropCell();
+      let box = grid.querySelector(".dropcell");
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "dropcell";
+        grid.appendChild(box);
+      }
+      box.style.gridColumn = cell.col + " / span " + (colSpan || 1);
+      box.style.gridRow = cell.row + " / span " + (rowSpan || 1);
+      box.classList.toggle("blocked", !!blocked);
+      box.hidden = false;
+    }
+
+    function hideDropCell() {
+      const box = boardEl.querySelector(".dropcell");
+      if (box) box.remove();
+    }
+
+    /// そのマスへ置けるか（自分以外のキーが居ないか）
+    function cellIsFree(cell, colSpan, rowSpan, exceptId) {
+      if (!cell || !boardDraft) return false;
+      const cs = colSpan || 1, rs = rowSpan || 1;
+      if (cell.col + cs - 1 > boardDraft.cols) return false;
+      return !boardDraft.keys.some((k) => {
+        if (k.id === exceptId) return false;
+        const kc = k.colSpan || 1, kr = k.rowSpan || 1;
+        return cell.col < k.col + kc && cell.col + cs > k.col
+            && cell.row < k.row + kr && cell.row + rs > k.row;
+      });
     }
 
     // ================================================================
@@ -541,7 +597,20 @@
         btn.classList.add("dragsrc");
         if (!overDrop) {
           const target = keyUnder(event, keyId);
-          if (target) target.classList.add("dragover");
+          if (target) {
+            // キーの上 = 入れ替え。予想枠は出さない（相手が光る）
+            target.classList.add("dragover");
+          } else {
+            // 空きの上 = そこへ動く。**落下予想地に枠を出す**
+            const k = boardKey(keyId);
+            const cell = cellAt(event);
+            if (k && cell) {
+              const col = Math.min(cell.col, boardDraft.cols - (k.colSpan || 1) + 1);
+              const spot = { row: cell.row, col: Math.max(1, col) };
+              showDropCell(spot, k.colSpan, k.rowSpan,
+                !cellIsFree(spot, k.colSpan, k.rowSpan, keyId));
+            }
+          }
         }
       });
 
