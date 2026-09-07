@@ -40,28 +40,56 @@
     main {
       flex: 1;
       display: grid;
-      gap: 10px;
+      gap: 8px;
       padding: 12px;
       align-content: start;
+      /* スロットが正方形になった分、横幅いっぱいに広げると1枚が巨大になる。
+         上限を置いて中央寄せする（配置の正: brief/mockup/screen_mock_streamdeck_v0.8.html ②） */
+      width: 100%;
+      max-width: 620px;
+      margin: 0 auto;
     }
+    /* P-003 Ver1-a（ユーザー裁定「表示側は四角いスロット」）: 常に正方形にする。
+       列数・行数はdecks/deck_*.jsonのgridがそのまま正なので、cols を変えても崩れない。 */
     .slot {
-      min-height: 64px;
-      min-width: 64px;
-      border: 0;
-      border-radius: 14px;
+      aspect-ratio: 1 / 1;
+      width: 100%;
+      min-width: 0;
+      border: 1px solid #2d3550;
+      border-radius: 12px;
       background: #1c2338;
       color: #f4f7ff;
       font: inherit;
       font-size: 13px;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
+      gap: 4px;
       text-align: center;
-      padding: 6px;
+      padding: 4px;
+      overflow: hidden;
     }
-    .slot:active { background: #2d67d9; }
-    .slot[data-empty="true"] { background: #161c30; color: #4b5468; }
-    .slot img { max-width: 28px; max-height: 28px; display: block; margin: 0 auto 4px; }
+    .slot:active { background: #2d67d9; border-color: #2d67d9; }
+    .slot > span { font-size: 11px; line-height: 1.15; color: #b7bfd6; overflow: hidden; }
+    .slot:active > span { color: #fff; }
+    .slot[data-empty="true"] { background: #161c30; border-style: dashed; border-color: #232b48; color: #4b5468; }
+    .slot[data-empty="true"] > span { color: #4b5468; }
+    .slot[data-empty="true"]:active { background: #161c30; }
+    .slot img { max-width: 28px; max-height: 28px; display: block; }
+    /* P-005 段階A: render="list"（コピペリスト）。正方形をやめ横いっぱいの行にする。 */
+    main.render-list { grid-template-columns: 1fr !important; max-width: 520px; gap: 6px; }
+    main.render-list .slot {
+      aspect-ratio: auto;
+      min-height: 46px;
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    main.render-list .slot > span { font-size: 14px; color: #f4f7ff; flex: 1 1 auto; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     footer[role="status"] {
       padding: 10px 14px;
       font-size: 13px;
@@ -89,12 +117,15 @@
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
+    // P-005 段階A: どのDeckを描くか（省略時はdefault）。
+    const deckId = params.get("deck") || "default";
 
     const statusEl = document.getElementById("status");
     const dotEl = document.getElementById("dot");
     const gridEl = document.getElementById("grid");
     const exportLinkEl = document.getElementById("exportLink");
-    exportLinkEl.href = "/api/deck/export?token=" + encodeURIComponent(token);
+    exportLinkEl.href = "/api/deck/export?deck=" + encodeURIComponent(deckId) +
+      "&token=" + encodeURIComponent(token);
 
     let socket = null;
     let reconnectTimer = null;
@@ -108,13 +139,21 @@
       }
     }
 
+    // P-005: 一度「tokenが古い」と分かったら、その警告を貼り付ける。
+    // これが無いと、2秒ごとの再接続が「接続中…」→「切断中…」で警告を上書きし続け、
+    // ユーザーは原因を知らされないまま待つことになる（実際にそうなっていた）。
+    let stickyStatus = false;
     function setStatus(text, isError) {
+      if (stickyStatus && !isError) return;
       statusEl.textContent = text;
       statusEl.classList.toggle("error", !!isError);
     }
 
     function render(deck) {
-      gridEl.style.gridTemplateColumns = "repeat(" + deck.grid.cols + ", 1fr)";
+      // minmax(0,1fr): 1frは内容の最小幅を下回れないため、狭いWebViewで右端が
+      // 見切れる（STATE.md「落とし穴」/ ipad.htmlと同じ修正）。
+      gridEl.classList.toggle("render-list", deck.render === "list");
+      gridEl.style.gridTemplateColumns = "repeat(" + deck.grid.cols + ", minmax(0, 1fr))";
       gridEl.innerHTML = "";
       const page = deck.pages[0];
       for (const slot of page.slots) {
@@ -152,7 +191,7 @@
         log("ERR", "WS_SEND_CLOSED", "socket not open; deck.press dropped", { slotId });
         return;
       }
-      const message = { type: "deck.press", slotId };
+      const message = { type: "deck.press", deckId, slotId };
       socket.send(JSON.stringify(message));
       log("T4-2", "OK", "send deck.press", message);
       setStatus(slotId + " を送信しました");
@@ -186,12 +225,38 @@
         setSlotsEnabled(false);
         setStatus("切断中は操作できません。再接続中…");
         log("ERR", "WS_CLOSE", "disconnected; retrying");
+        diagnoseDisconnect();
         scheduleReconnect();
       });
 
       socket.addEventListener("error", () => {
         log("ERR", "WS_ERROR", "websocket error event");
       });
+    }
+
+    // ---- P-005: 「切れている」のか「tokenが古い」のかを見分けて伝える ----
+    // Hubを再起動するとtokenが変わる（D8）。端末が古いURLを掴んだままだと、
+    // WSは延々と拒否され続けるのに画面は「再接続中…」としか言わないため、
+    // 何が悪いのか分からないまま何分も待つことになる（実際に起きた）。
+    // WSが閉じたら /api/ping を叩き、401ならtokenが古いと断定して案内する。
+    let staleTokenNotified = false;
+    async function diagnoseDisconnect() {
+      if (staleTokenNotified) return;
+      try {
+        const res = await fetch("/api/ping?token=" + encodeURIComponent(token), { cache: "no-store" });
+        if (res.status === 401) {
+          staleTokenNotified = true;
+          stickyStatus = true;
+          setStatus("このURLのtokenは古くなっています。PCのHub画面（ http://<PCのIP>:8770/ ）を開き直して、QRを読み直してください。", true);
+          if (typeof statusLabelEl !== "undefined" && statusLabelEl) {
+            statusLabelEl.textContent = "tokenが古い";
+          }
+          log("ERR", "WS_TOKEN_INVALID", "stale token; the Hub was restarted after this page was opened");
+        }
+      } catch (error) {
+        // Hub自体が落ちている場合はここに来る。従来どおり再接続を待つ。
+        log("T4-1", "OK", "hub unreachable while diagnosing: " + error);
+      }
     }
 
     function scheduleReconnect() {
@@ -204,11 +269,20 @@
 
     function handleServerMessage(data) {
       switch (data.type) {
-        case "surface.config":
-          log("T4-1", "OK", "surface.config received", { deckId: data.deck.deckId });
-          render(data.deck);
+        case "surface.config": {
+          const deck = data.decks[deckId];
+          if (!deck) {
+            log("ERR", "DECK_UNKNOWN_ID", "surface.config has no deck named '" + deckId + "'",
+                Object.keys(data.decks));
+            setStatus("Deck '" + deckId + "' が見つかりません", true);
+            break;
+          }
+          log("T4-1", "OK", "surface.config received", { deckId, available: Object.keys(data.decks) });
+          document.getElementById("title").textContent = "KeyDeck — Deck (" + deckId + ")";
+          render(deck);
           setSlotsEnabled(true);
           break;
+        }
         case "layer.state":
           // Deck面はレイヤー表示を持たない（kb.html側の責務）。無視してよい。
           break;

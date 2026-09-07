@@ -1,32 +1,27 @@
 <!DOCTYPE html>
 <html lang="ja">
 <!-- ============================================================
-  settings.html — 設定画面。素のHTML+JSのみ（D2）。URL: /settings?token=…
+  settings.html — Hubの操作画面。素のHTML+JSのみ（D2）。URL: /settings?token=…
 
-  ■ 現状のスコープ（設計書v0.5 F3。B2のみ実装。VIAL型エディタ本体=T9は未着手）
-    このファイルはT9（VIAL型設定エディタ）の骨組みを保持しつつ、v0.5 F3で
-    要求された「再読込ボタン」だけを先に実装する。フォーマット一覧・QRモーダル・
-    割当パレット等は引き続きTODO(T9)のまま（新機能の先回り実装はしない）。
+  ■ この画面の役割（T9・設計書v0.5 F3）
+    「いま何が読み込まれているか」「どこへ繋げるか」をHub側で見るための画面。
+    以前はここに再読込ボタン1つしか無く、実質空だった。構成を知るのに
+    JSONを手で開くしかない状態は運用として無理があるので、まず見えるようにする。
 
-  ■ 再読込ボタンの挙動（B2）
-    POST /api/reload?token=… を叩く。Hubがdisk上のkeymaps/decksを再スキャン・検証し、
-    成功時のみ差替えて全クライアントへsurface.configを再配信、失敗時は現行構成を維持して
-    エラーJSON（{code,cause,errors}）を返す。ここでは結果をステータス行に表示するのみ
-    （画面自体の再描画は行わない＝対象キーボード側は自分のWS経由で追従する）。
+  ■ データの出どころ
+    GET /api/formats?token=…（読み取り専用。ws.rs）
+      targets … 接続先（target/label/kind/url）。`connection_targets()` 由来なので
+                ランディングページ・起動バナーと必ず同じ並びになる
+      keymaps / decks / layouts … 読み込み済みの中身
 
-  ■ 見た目の正（VIAL型本体を実装する際に必ず踏襲すること。現時点はボタンのみ流用）
-    brief/mockup/screen_mock_v0.4.html の「② 設定（VIAL型エディタ）」画面。
-    一覧行=［フォーマット名｜kindチップ｜URL文字列｜QRボタン］、
-    QRボタン→モーダルに**単一QRをでかでか表示**（1画面1QR。一覧にQRを並べない）。
+  ■ 見た目の正（brief/mockup/screen_mock_v0.4.html「② 設定」）
+    一覧行=［名前｜kindチップ｜URL文字列｜QRボタン］、
+    QRボタン→モーダルに単一QRをでかでか表示（1画面1QR。一覧にQRを並べない）。
+    ランディングページ（/）がQRを縦に全部並べるのに対し、こちらは一覧＋1枚表示。
 
-  ■ データの取得（T9で着手）
-    静的ページなのでフォーマット一覧はHubから取得する:
-    GET /api/formats?token=… → [{id:"kb-left",label,kind,url}, …]（T9で新設。tokenはHub検証）
-    QR画像は既存 /api/qr?target=… のSVGを<img>で表示（モーダル内で320px以上）。
-
-  ■ 挙動・エラー
-    D9書式のconsoleログ（[KD][B2-1] 再読込成功 / [KD][ERR][…] 失敗）。
-    API失敗時は握りつぶさずステータス行にcode+causeを表示する。
+  ■ 書き込みはしない
+    この画面が叩くのは GET /api/formats と POST /api/reload の2本だけ。
+    /api/reload はディスク上のJSONを読み直すだけで、何も書かない。
   ============================================================ -->
 <head>
   <meta charset="utf-8">
@@ -35,33 +30,116 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg:#101526; --panel:#1c2338; --ink:#f4f7ff; --ink-muted:#b7bfd6; --ink-dim:#4b5468;
+      --bg:#101526; --panel:#1c2338; --ink:#f4f7ff; --ink-muted:#b7bfd6; --ink-dim:#6b7590;
       --accent:#2d67d9; --ok:#35c47a; --err:#e2555a; --line:#2d3550;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
-    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); padding: 16px; }
-    h1 { font-size: 16px; margin: 0 0 12px; }
-    .set-head { display: flex; align-items: center; gap: 10px; }
-    #reloadBtn {
-      min-width: 96px; min-height: 40px; border: 0; border-radius: 8px;
-      background: var(--accent); color: #fff; font: inherit; font-size: 14px; padding: 0 16px;
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); padding: 16px 20px 48px;
+      font-size: 13px; line-height: 1.6;
     }
-    #reloadBtn:disabled { background: var(--ink-dim); color: var(--panel); }
-    #reloadStatus { margin-top: 12px; font-size: 13px; color: var(--ink-muted); min-height: 18px; }
+    h1 { font-size: 16px; margin: 0; }
+    h2 {
+      font-size: 12px; margin: 28px 0 8px; padding-bottom: 6px;
+      border-bottom: 1px solid var(--line); color: var(--ink-muted);
+      letter-spacing: .06em; text-transform: uppercase;
+    }
+    h2 .count { color: var(--ink-dim); font-weight: 400; margin-left: 6px; text-transform: none; letter-spacing: 0; }
+
+    .set-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .set-head a { color: var(--ink-muted); font-size: 12px; }
+    button {
+      min-height: 34px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel); color: var(--ink); font: inherit; font-size: 12px;
+      padding: 0 14px; cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { background: #2a3048; color: var(--ink-dim); cursor: default; border-color: var(--line); }
+
+    #reloadStatus { margin: 10px 0 0; font-size: 12px; color: var(--ink-muted); min-height: 18px; }
     #reloadStatus.ok { color: var(--ok); }
     #reloadStatus.error { color: var(--err); }
-    #list, #qrmodal { margin-top: 16px; color: var(--ink-dim); font-size: 12px; }
+
+    /* ---- 一覧（モックの行構造に合わせる） ---- */
+    table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+    th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { font-size: 11px; color: var(--ink-dim); font-weight: 600; letter-spacing: .04em; }
+    td.name { font-weight: 600; white-space: nowrap; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-muted); white-space: nowrap; }
+    td.desc { color: var(--ink-muted); font-size: 12px; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .chip {
+      display: inline-block; padding: 1px 8px; border-radius: 999px;
+      font-size: 10px; letter-spacing: .04em;
+      background: #2a3352; color: var(--ink-muted); border: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    /* 部品種別だけが色を持つ。規則は brief/ref_component_visual_rules_v1.md。
+       色は「その部品がHubへ送るメッセージ種別」で決まる。好みで変えないこと。
+       接続先（画面の入口）や描き方（grid/list）は部品種別ではないので、
+       上の中立色のまま。以前ここで `layout` に青を使っていたが、
+       青は key.press（キーボード）に割り当てたため意味が衝突していた。 */
+    .chip.kind-keyboard  { background: #24365c; color: #a9c6f0; }  /* 青 key.press     */
+    .chip.kind-deck      { background: #3a2b4d; color: #d9b3ff; }  /* 紫 deck.press    */
+    .chip.kind-trackball { background: #163f3a; color: #8fe0cf; }  /* 緑 surface.state */
+
+    /* URLは長い。折り返してよい */
+    td.url { font-size: 11px; color: var(--ink-dim); word-break: break-all; max-width: 420px; }
+
+    /* ---- QRモーダル（1画面1QR。一覧にQRは並べない） ---- */
+    #qrmodal {
+      position: fixed; inset: 0; background: rgba(8,11,20,.86);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    /* [hidden]は作者スタイルに負けるので明示的に打ち消す（layout.htmlで同じ罠を踏んだ） */
+    #qrmodal[hidden] { display: none; }
+    .qr-card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+      padding: 24px; text-align: center; max-width: 420px;
+    }
+    .qr-card h3 { margin: 0 0 14px; font-size: 15px; }
+    .qr-card img { background: #fff; border-radius: 10px; padding: 16px; display: block; margin: 0 auto; }
+    .qr-card .url { font-size: 11px; color: var(--ink-muted); word-break: break-all; margin: 14px 0 18px; }
+
+    .note { color: var(--ink-dim); font-size: 11px; margin: 6px 0 0; }
+    .empty { color: var(--ink-dim); padding: 10px 0; }
+    .layout-head { font-weight: 600; margin: 18px 0 4px; }
   </style>
 </head>
 <body>
   <div class="set-head">
     <h1>KeyDeck — 設定</h1>
-    <button id="reloadBtn" type="button">再読込</button>
+    <button id="reloadBtn" type="button" class="primary">JSONを再読込</button>
+    <a href="/">QRランディングページ →</a>
   </div>
   <p id="reloadStatus" role="status"></p>
-  <div id="list"><!-- TODO(T9): /api/formats から動的生成 --></div>
-  <div id="qrmodal"><!-- TODO(T9): モックの.qr-card構造。中身は /api/qr のSVG --></div>
+
+  <h2>接続先<span class="count" id="targetCount"></span></h2>
+  <p class="note">QRのURLにはトークンが入ります。トークンは<strong>Hubを起動するたびに作り直される</strong>ため、QR画像を保存しても次回は使えません（D8）。</p>
+  <div id="targets"></div>
+
+  <h2>キーボード<span class="count" id="keymapCount"></span></h2>
+  <div id="keymaps"></div>
+
+  <h2>Deck<span class="count" id="deckCount"></span></h2>
+  <div id="decks"></div>
+
+  <h2>レイアウト（区画割り）<span class="count" id="layoutCount"></span></h2>
+  <div id="layouts"></div>
+
+  <div id="qrmodal" hidden>
+    <div class="qr-card">
+      <h3 id="qrTitle"></h3>
+      <img id="qrImage" width="300" height="300" alt="">
+      <p class="url" id="qrUrl"></p>
+      <button type="button" id="qrClose">閉じる</button>
+    </div>
+  </div>
+
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
@@ -83,6 +161,149 @@
       if (cls) statusEl.classList.add(cls);
     }
 
+    // ---- 描画の小道具 -------------------------------------------------
+    // 中身は必ず textContent で入れる。JSONの説明文に何が書かれていても
+    // マークアップとして解釈されない（innerHTMLを使わない）。
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function table(headers, rows, host) {
+      if (rows.length === 0) {
+        host.appendChild(el("p", "empty", "1件もありません。"));
+        return;
+      }
+      const t = document.createElement("table");
+      const head = document.createElement("tr");
+      for (const h of headers) head.appendChild(el("th", null, h));
+      t.appendChild(head);
+      for (const cells of rows) {
+        const tr = document.createElement("tr");
+        for (const cell of cells) tr.appendChild(cell);
+        t.appendChild(tr);
+      }
+      host.appendChild(t);
+    }
+
+    // 説明文には長い注意書きが入っていることがある。一覧では1行目だけ出す。
+    function firstLine(text) {
+      if (!text) return "";
+      const line = String(text).split("\n")[0].trim();
+      return line.length > 90 ? line.slice(0, 90) + "…" : line;
+    }
+
+    // ---- QRモーダル ---------------------------------------------------
+    const modal = document.getElementById("qrmodal");
+    function openQr(label, target, url) {
+      document.getElementById("qrTitle").textContent = label;
+      document.getElementById("qrUrl").textContent = url;
+      const img = document.getElementById("qrImage");
+      img.alt = "QR: " + label;
+      // targetの `layout:xxx` はコロンを含むので必ずエンコードする
+      img.src = "/api/qr?target=" + encodeURIComponent(target);
+      modal.hidden = false;
+      document.getElementById("qrClose").focus();
+    }
+    function closeQr() { modal.hidden = true; }
+    document.getElementById("qrClose").addEventListener("click", closeQr);
+    modal.addEventListener("click", (event) => { if (event.target === modal) closeQr(); });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeQr(); });
+
+    // ---- 一覧の読み込み -----------------------------------------------
+    async function loadFormats() {
+      const response = await fetch("/api/formats?token=" + encodeURIComponent(token));
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        log("ERR", String(response.status), "formats request failed: " + text);
+        setStatus("一覧を取得できません（" + response.status + " " + text + "）。URLのトークンが古い可能性があります。", "error");
+        return;
+      }
+      const data = await response.json();
+      log("T9", "OK", "formats received", data);
+      render(data);
+    }
+
+    function render(data) {
+      // ---- 接続先 ----
+      const targetHost = document.getElementById("targets");
+      targetHost.textContent = "";
+      document.getElementById("targetCount").textContent = "（" + data.targets.length + "）";
+      table(["名前", "種別", "URL", ""], data.targets.map((item) => {
+        const btn = el("button", null, "QR");
+        btn.addEventListener("click", () => openQr(item.label, item.target, item.url));
+        const action = el("td");
+        action.appendChild(btn);
+        const chipCell = el("td");
+        // 接続先は「画面の入口」であって部品種別ではない。色は付けない（中立の灰）
+        chipCell.appendChild(el("span", "chip", item.kind));
+        return [el("td", "name", item.label), chipCell, el("td", "url", item.url), action];
+      }), targetHost);
+
+      // ---- キーボード ----
+      const keymapHost = document.getElementById("keymaps");
+      keymapHost.textContent = "";
+      document.getElementById("keymapCount").textContent = "（" + data.keymaps.length + "）";
+      table(["keymapId", "種別", "キー数", "列", "レイヤー", "説明"], data.keymaps.map((k) => {
+        const chipCell = el("td");
+        chipCell.appendChild(el("span", "chip", k.kind));
+        // splitはboardを持たずhalvesで持つのでkeys=0になる。壊れている訳ではない
+        return [
+          el("td", "name", k.id), chipCell,
+          el("td", "num", k.keys === 0 ? "—" : k.keys),
+          el("td", "num", k.cols || "—"),
+          el("td", "num", k.layers),
+          el("td", "desc", firstLine(k.description)),
+        ];
+      }), keymapHost);
+
+      // ---- Deck ----
+      const deckHost = document.getElementById("decks");
+      deckHost.textContent = "";
+      document.getElementById("deckCount").textContent = "（" + data.decks.length + "）";
+      table(["deckId", "描き方", "格子", "ページ", "スロット", "説明"], data.decks.map((d) => {
+        const chipCell = el("td");
+        // grid / list は「描き方」であって部品種別ではない。中立の灰
+        chipCell.appendChild(el("span", "chip", d.render));
+        return [
+          el("td", "name", d.id), chipCell,
+          el("td", "num", d.cols + "×" + d.rows),
+          el("td", "num", d.pages),
+          el("td", "num", d.slots),
+          el("td", "desc", firstLine(d.description)),
+        ];
+      }), deckHost);
+
+      // ---- レイアウト ----
+      const layoutHost = document.getElementById("layouts");
+      layoutHost.textContent = "";
+      document.getElementById("layoutCount").textContent = "（" + data.layouts.length + "）";
+      if (data.layouts.length === 0) {
+        layoutHost.appendChild(el("p", "empty", "1件もありません。"));
+      }
+      for (const layout of data.layouts) {
+        layoutHost.appendChild(el(
+          "p", "layout-head",
+          layout.id + "  （" + layout.cols + "×" + layout.rows + " 格子 / 区画 " + layout.sections.length + "）"
+        ));
+        if (layout.description) layoutHost.appendChild(el("p", "note", firstLine(layout.description)));
+        const box = el("div");
+        layoutHost.appendChild(box);
+        table(["区画id", "部品", "参照先", "位置 (行,列)", "大きさ (列×行)"], layout.sections.map((sec) => {
+          const chipCell = el("td");
+          // ここだけが本物の部品種別。規則どおり3色を使う
+          chipCell.appendChild(el("span", "chip kind-" + sec.kind, sec.kind));
+          return [
+            el("td", "name", sec.id), chipCell, el("td", null, sec.ref),
+            el("td", "num", sec.row + ", " + sec.col),
+            el("td", "num", sec.colSpan + "×" + sec.rowSpan),
+          ];
+        }), box);
+      }
+    }
+
     reloadBtn.addEventListener("click", async () => {
       reloadBtn.disabled = true;
       setStatus("再読込中…");
@@ -91,7 +312,9 @@
         const body = await response.json().catch(() => ({}));
         if (response.ok) {
           log("B2-1", "OK", "reload succeeded", body);
-          setStatus("再読込しました（keymaps: " + (body.keymapsLoaded ?? "?") + "件）", "ok");
+          // 読み直した結果をそのまま画面へ反映する（数字が変われば成功が目に見える）
+          await loadFormats();
+          setStatus("再読込しました。", "ok");
         } else {
           log("ERR", body.code || String(response.status), body.cause || "reload failed", body);
           setStatus("エラー: " + (body.code || response.status) + " — " + (body.cause || "詳細不明"), "error");
@@ -111,7 +334,10 @@
       log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
     });
 
-    // TODO(T9): /api/formats から対象キーボード一覧・QRモーダル・割当パレットを実装する。
+    loadFormats().catch((error) => {
+      log("ERR", "INTERNAL", "initial load failed: " + error);
+      setStatus("一覧を取得できません: " + error, "error");
+    });
   </script>
 </body>
 </html>

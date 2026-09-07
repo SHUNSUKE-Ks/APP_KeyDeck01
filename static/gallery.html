@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  gallery.html — 接続先のギャラリー。URL: /connect?token=…
+  素のHTML+JSのみ（D2）。
+
+  ■ なぜトップから分けたか
+    以前はトップ（/）がQRを縦に9枚並べるページだった。だが日常的にPCで開くのは
+    「レイアウトを直す」ほうで、QRを読むのは端末を繋ぎ直すときだけ。
+    2026-09-07 のユーザー判断で、トップはエディタ、QRはこの専用ページへ分けた。
+
+  ■ カードの表と裏
+    表 … その面がどんな見た目かを出す
+         1. static/shots/<target>.png があればそれ（実機のスクショ）
+         2. 無ければ /api/formats のデータから描く簡易図
+         スクショは置くだけで効く。無い状態でも簡易図が出るので運用が止まらない。
+    裏 … QRとURL。カード右上のボタンで表裏が入れ替わる
+
+  ■ 簡易図について
+    「それらしい絵」を手で描くのではなく、**Hubが実際に読み込んでいるJSONから**描く。
+    レイアウトは本物の区画割り、Deckは本物の格子とスロット数。
+    こうしておくと構成を変えたときに絵が古くならない。
+
+  ■ 色
+    brief/ref_component_visual_rules_v1.md に従う。
+    色を持つのは部品種別だけ（青=key.press / 紫=deck.press / 緑=surface.state）。
+    接続先の種別は「画面の入口」なので中立の灰。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — 接続</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel2:#161c2e; --ink:#f4f7ff;
+      --ink-muted:#b7bfd6; --ink-dim:#6b7590;
+      --accent:#2d67d9; --ok:#35c47a; --err:#e2555a; --line:#2d3550;
+      /* 部品種別の3色。規則書 §1 */
+      --kind-key:#2b4a7a; --kind-cmd:#4a2f66; --kind-state:#1c4d47;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); padding: 16px 20px 48px;
+      font-size: 13px; line-height: 1.6;
+    }
+    h1 { font-size: 16px; margin: 0; }
+    .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .head a { color: var(--ink-muted); font-size: 12px; }
+    .note { color: var(--ink-dim); font-size: 11px; margin: 8px 0 18px; }
+    .err { color: var(--err); }
+
+    .cards {
+      display: grid; gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+    .card {
+      background: var(--panel2); border: 1px solid var(--line); border-radius: 12px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .card-head {
+      display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .card-title { font-weight: 600; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip {
+      display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 9px;
+      background: #2a3352; color: var(--ink-muted); border: 1px solid var(--line);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    /* QRボタンはカード右上。押すとそのカードだけが裏返る */
+    .qrbtn {
+      margin-left: auto; flex-shrink: 0;
+      min-height: 26px; padding: 0 9px; border-radius: 7px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      font: inherit; font-size: 11px; cursor: pointer;
+    }
+    .qrbtn:hover { border-color: var(--accent); }
+    .card.flipped .qrbtn { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .face { padding: 12px; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .card:not(.flipped) .back { display: none; }
+    .card.flipped .front { display: none; }
+
+    .back { align-items: center; text-align: center; }
+    .back img { background: #fff; border-radius: 8px; padding: 10px; width: 100%; max-width: 200px; }
+    .back .url { font-size: 10px; color: var(--ink-dim); word-break: break-all; margin: 10px 0 0; }
+
+    /* 実機スクショ */
+    .shot { width: 100%; border-radius: 8px; display: block; }
+    /* display:block が [hidden] に勝ってしまうので明示的に打ち消す。
+       これが無いと、スクショが無いカードに壊れた画像とalt文字が出る（実際に出た）。 */
+    .shot[hidden] { display: none !important; }
+
+    /* ---- 簡易図。実データから描くので構成を変えれば絵も変わる ---- */
+    .mini {
+      background: #0c1120; border: 1px solid var(--line); border-radius: 8px;
+      padding: 4px; display: grid; gap: 2px; aspect-ratio: 4 / 3;
+    }
+    .mini .cell { background: #131a2c; border-radius: 2px; }
+    .mini .blk { border-radius: 3px; border: 1px solid rgba(255,255,255,.14); }
+    .mini .blk.keyboard { background: var(--kind-key); }
+    .mini .blk.deck { background: var(--kind-cmd); }
+    .mini .blk.trackball { background: var(--kind-state); }
+    .mini .blk.plain { background: #26304d; }
+    .ball { border-radius: 50%; background: var(--kind-state); border: 1px solid rgba(255,255,255,.2); }
+    .minicap { font-size: 10px; color: var(--ink-dim); margin-top: 7px; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <h1>KeyDeck — 接続</h1>
+    <a href="/">← トップ（レイアウト編集）</a>
+    <a href="/settings">設定</a>
+  </div>
+  <p class="note">
+    カード右上の <strong>QR</strong> を押すと、そのカードがQRに切り替わります。端末のカメラで読み取ってください。<br>
+    QRのURLにはトークンが入ります。トークンは<strong>Hubを起動するたびに作り直される</strong>ため、QR画像を保存しても次回は使えません（D8）。<br>
+    カードの絵はHubが読み込んでいるJSONから描いた簡易図です。実機のスクショを
+    <code>static/shots/&lt;target&gt;.png</code>（例 <code>layout_ipad_v13.png</code>）に置くと、そちらに差し替わります。
+  </p>
+  <div class="cards" id="cards"></div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") console.error(line, context ?? "");
+      else console.info(line, context ?? "");
+    }
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    // トップと設定へのリンクにトークンを引き継ぐ。手で貼り直さなくて済むように。
+    for (const a of document.querySelectorAll(".head a")) {
+      a.href = a.getAttribute("href") + "?token=" + encodeURIComponent(token);
+    }
+
+    // ================================================================
+    // 簡易図。**Hubが実際に読み込んでいるJSONから描く。**
+    // それらしい絵を手で描くと、構成を変えたときに古くなって嘘になる。
+    // ================================================================
+    function miniGrid(cols, rows) {
+      const box = el("div", "mini");
+      box.style.gridTemplateColumns = "repeat(" + cols + ", 1fr)";
+      box.style.gridTemplateRows = "repeat(" + rows + ", 1fr)";
+      return box;
+    }
+
+    function fillCells(box, count, className) {
+      for (let i = 0; i < count; i += 1) box.appendChild(el("div", className || "cell"));
+    }
+
+    /// レイアウト面 … 本物の区画割りをそのまま描く
+    function miniLayout(layout) {
+      const box = miniGrid(layout.cols, layout.rows);
+      fillCells(box, layout.cols * layout.rows);
+      for (const sec of layout.sections) {
+        const blk = el("div", "blk " + sec.kind);
+        blk.style.gridColumn = sec.col + " / span " + sec.colSpan;
+        blk.style.gridRow = sec.row + " / span " + sec.rowSpan;
+        box.appendChild(blk);
+      }
+      return box;
+    }
+
+    /// キーボード面 … 列数と行数ぶんのキーを並べる（キーの形までは /api/formats に無い）
+    function miniKeyboard(keymap) {
+      const cols = keymap.cols || 12;
+      const rows = Math.max(1, Math.round(keymap.keys / Math.max(1, cols))) || 4;
+      const box = miniGrid(cols, rows);
+      fillCells(box, cols * rows, "blk keyboard");
+      return box;
+    }
+
+    /// Deck面 … 本物の格子。スロットが無いところは空きとして描く
+    function miniDeck(deck) {
+      const box = miniGrid(deck.cols, deck.rows);
+      const total = deck.cols * deck.rows;
+      for (let i = 0; i < total; i += 1) {
+        box.appendChild(el("div", i < deck.slots ? "blk deck" : "cell"));
+      }
+      return box;
+    }
+
+    function miniTrackball() {
+      const box = el("div", "mini");
+      box.style.cssText += ";place-items:center";
+      const ball = el("div", "ball");
+      ball.style.cssText = "width:58%;aspect-ratio:1";
+      box.appendChild(ball);
+      return box;
+    }
+
+    /// 分割面 … 上がDeck、下がキーボードの固定2段
+    function miniPanel(data) {
+      const box = miniGrid(1, 3);
+      const top = el("div", "blk deck");
+      const bottom = el("div", "blk keyboard");
+      bottom.style.gridRow = "2 / span 2";
+      box.appendChild(top); box.appendChild(bottom);
+      return box;
+    }
+
+    /// targetから簡易図と説明を作る。data は /api/formats の中身。
+    function buildPreview(item, data) {
+      const id = item.target;
+      if (id.startsWith("layout:")) {
+        const layout = data.layouts.find((l) => l.id === id.slice("layout:".length));
+        if (layout) {
+          return [miniLayout(layout),
+                  layout.cols + "×" + layout.rows + " 格子 / 区画 " + layout.sections.length];
+        }
+      }
+      if (id === "deck") {
+        const deck = data.decks.find((d) => d.id === "default");
+        if (deck) return [miniDeck(deck), deck.cols + "×" + deck.rows + " / " + deck.slots + "スロット"];
+      }
+      if (id === "ipad") {
+        const km = data.keymaps.find((k) => k.id === "ipad01_vol12");
+        if (km) return [miniKeyboard(km), km.cols + "列 / " + km.keys + "キー"];
+      }
+      if (id === "kb-left" || id === "kb-right") {
+        // 分割キーボードは board を持たない（halves で持つ）ので寸法が取れない。
+        // 数字を捏造せず、形だけの図に留める。
+        return [miniKeyboard({ cols: 6, keys: 24 }), "分割の片側"];
+      }
+      if (id === "trackball") return [miniTrackball(), "連続値（surface.state）"];
+      if (id === "panel") return [miniPanel(), "上=Deck / 下=キーボード"];
+      return [miniKeyboard({ cols: 6, keys: 24 }), ""];
+    }
+
+    function buildCard(item, data) {
+      const card = el("div", "card");
+
+      const head = el("div", "card-head");
+      head.appendChild(el("div", "card-title", item.label));
+      head.appendChild(el("span", "chip", item.kind));   // 入口なので色は付けない
+      const btn = el("button", "qrbtn", "QR");
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        const on = card.classList.toggle("flipped");
+        btn.textContent = on ? "戻す" : "QR";
+        // QR画像は開くまで読み込まない。9枚ぶんを最初に取りに行かないため。
+        if (on && !img.src) img.src = "/api/qr?target=" + encodeURIComponent(item.target);
+      });
+      head.appendChild(btn);
+      card.appendChild(head);
+
+      // ---- 表: スクショ、無ければ簡易図 ----
+      const front = el("div", "face front");
+      const [mini, caption] = buildPreview(item, data);
+      // スクショは**Hubが実在すると言ったものだけ**読む。
+      // 当てずっぽうに取りに行くと、置いていないぶんだけ404がコンソールに並ぶ。
+      const shotName = item.target.replace(":", "_") + ".png";
+      const cap = el("div", "minicap", caption);
+      if ((data.shots || []).includes(shotName)) {
+        const shot = document.createElement("img");
+        shot.className = "shot";
+        shot.alt = item.label + " の画面";
+        shot.src = "/shots/" + encodeURIComponent(shotName);
+        front.appendChild(shot);
+      } else {
+        front.appendChild(mini);
+        front.appendChild(cap);
+      }
+      card.appendChild(front);
+
+      // ---- 裏: QRとURL ----
+      const back = el("div", "face back");
+      const img = document.createElement("img");
+      img.alt = "QR: " + item.label;
+      img.width = 200; img.height = 200;
+      back.appendChild(img);
+      back.appendChild(el("p", "url", item.url));
+      card.appendChild(back);
+
+      return card;
+    }
+
+    async function load() {
+      const host = document.getElementById("cards");
+      const response = await fetch("/api/formats?token=" + encodeURIComponent(token));
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        log("ERR", String(response.status), "formats request failed: " + text);
+        host.appendChild(el("p", "err",
+          "接続先を取得できません（" + response.status + " " + text + "）。" +
+          "URLのトークンが古い可能性があります。Hubのコンソールに出ている新しいURLを開いてください。"));
+        return;
+      }
+      const data = await response.json();
+      log("T35", "OK", "formats received", data);
+      host.textContent = "";
+      for (const item of data.targets) host.appendChild(buildCard(item, data));
+    }
+
+    window.addEventListener("error", (event) => {
+      log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+    });
+
+    load().catch((error) => {
+      log("ERR", "INTERNAL", "initial load failed: " + error);
+      document.getElementById("cards").appendChild(el("p", "err", "読み込みに失敗しました: " + error));
+    });
+  </script>
+</body>
+</html>

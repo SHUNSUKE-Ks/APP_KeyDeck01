@@ -159,6 +159,17 @@
     #stateOut .sink.live { color: var(--ok); }
     #stateOut .sink.bad { color: var(--err); }
 
+    /* ===== embedモード（P-005 段階B） =====
+       `?embed=1` で開かれたとき、この面を `/layout` の1区画にそのまま埋め込めるよう、
+       ヘッダ・パラメータUI・下半分のプレースホルダを隠して盤面だけにする。
+       ボールの描画・慣性・ジェスチャー（Core/View/Gesture）には一切触っていない。 */
+    body.embed .tb-head,
+    body.embed #paramToggle,
+    body.embed .ui-panel,
+    body.embed #stateOut,
+    body.embed #lower-half { display: none !important; }
+    body.embed #stage { height: 100%; }
+
     /* ===== QRモーダル（D25。ipad.htmlと同一構造・値。z-indexのみ本ページの
        既存オーバーレイ(#paramToggle:30/.ui-panel:20)より上に出るよう引き上げてある） ===== */
     #qrModal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,14,.88); z-index: 100; }
@@ -265,6 +276,11 @@
     "use strict";
 
     // ---- 起動時の文脈（D8: tokenはURLクエリから） --------------------------
+    // P-005 段階B: `/layout` の区画に埋め込まれているときは、盤面だけを出す。
+    if (new URLSearchParams(location.search).get("embed")) {
+      document.body.classList.add("embed");
+    }
+
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
     // D28: surfaces/trackball.jsonに登録済みの自分の識別子。出口(binding)はここには無い。

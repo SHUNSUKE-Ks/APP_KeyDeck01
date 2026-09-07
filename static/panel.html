@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  panel.html — 分割面（上=Stream Deck／下=キーボード）。T20 / P-003 Ver1-a。
+  素のHTML+JSのみ（D2）。URL: /panel?token=…
+
+  ■ 見た目の正
+    brief/mockup/screen_mock_streamdeck_v0.8.html の「① 分割画面」。
+    :rootトークン・.kbgrid（13列グリッド）・.key状態表現は ipad.html と同値（変えない）。
+    四角スロットは aspect-ratio:1（ユーザー裁定「表示側は四角いスロット」）。
+
+  ■ 既存面との関係（新規発明を最小に保つための設計）
+    - キーボード部分 … ipad.html の board描画・resolveDisplay・bindKey をそのまま移植
+    - Deck部分       … deck.html の slot描画・deck.press送信 をそのまま移植
+    - WSは1本だけ。`surface.config` は元々 keymap と deck の両方を1メッセージで配って
+      いるため、この面は**プロトコル変更ゼロ**で成立する（P-003 §6）。
+    - 接続は `/ws?surface=ipad&token=…`。キーボードはipad面と同じ
+      keymap(ipad01_vol12)固定＋専用layer_state（T8）を使い、Deck発火は
+      surfaceに依存しない `deck.press`（Hub側 handle_deck_press）をそのまま使う。
+
+  ■ Ver1-aの範囲（P-003 §11）
+    アクションは既存6種のまま（key/chord/text/keymap.switch/keymap.reset/none）。
+    web.open・multi・app.launch 等は Ver1-b / Ver1-c で追加する。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>KeyDeck — 分割</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel-lit:#232b48; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+      --ink-dim:#4b5468; --empty:#161c30; --accent:#2d67d9; --accent-soft:#24478f;
+      --ok:#35c47a; --err:#e2555a; --line:#2d3550; --key-radius:10px; --key-gap:7px;
+      --slot-radius:12px;
+      /* 上下比率。3プリセットがこの2つだけを書き換える */
+      --split-deck:40fr; --split-kb:60fr;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink);
+      touch-action: manipulation; -webkit-user-select: none; user-select: none;
+      display: flex; flex-direction: column; height: 100%;
+    }
+
+    /* ===== ヘッダ（ipad.htmlのD25/D26まわりを同値で移植） ===== */
+    .head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex-shrink: 0; }
+    .head h1 { font-size: 14px; margin: 0; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { font-size: 11px; padding: 3px 10px; border-radius: 999px; background: var(--accent); flex-shrink: 0; }
+    .spacer { flex: 1; }
+    .ratio { display: flex; gap: 4px; flex-shrink: 0; }
+    .ratio button {
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink-muted);
+      border-radius: 7px; padding: 5px 9px; font: inherit; font-size: 11px; min-height: 32px;
+    }
+    .ratio button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    #statusBtn {
+      display: flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+      border-radius: 999px; background: var(--panel); color: var(--ink); font: inherit;
+      font-size: 12px; padding: 5px 12px 5px 8px; flex-shrink: 0;
+    }
+    #statusBtn .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-dim); display: inline-block; }
+    #statusBtn.connected .dot { background: var(--ok); }
+    #statusBtn.disconnected .dot { background: var(--err); }
+    #qrOpenBtn {
+      min-width: 44px; min-height: 40px; border: 0; border-radius: 8px;
+      background: var(--accent); color: #fff; font: inherit; font-size: 13px; padding: 0 12px; flex-shrink: 0;
+    }
+
+    /* ===== 上下分割 =====
+       行トラックは必ず minmax(0, …)。CSS Gridの `1fr` は内容の最小サイズを下回れず、
+       狭い画面で下段がはみ出す（STATE.md「落とし穴」の縦版）。 */
+    .split {
+      flex: 1; min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, var(--split-deck)) 10px minmax(0, var(--split-kb));
+    }
+    .deckpane {
+      min-height: 0; overflow: auto; padding: 10px 12px;
+      display: flex; flex-direction: column; justify-content: center; gap: 8px;
+    }
+    .handle {
+      background: #0a0e1b; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .handle::after { content: ""; width: 52px; height: 3px; border-radius: 2px; background: #39415f; }
+    .kbpane { min-height: 0; overflow: auto; padding: 8px; background: #0c1120; }
+
+    /* ===== 四角スロット（Deck） ===== */
+    .deckgrid { display: grid; gap: 8px; width: 100%; max-width: 740px; margin: 0 auto; flex: 0 0 auto; }
+    .slot {
+      aspect-ratio: 1 / 1; width: 100%; min-width: 0;
+      border: 1px solid var(--line); border-radius: var(--slot-radius);
+      background: var(--panel); color: var(--ink); font: inherit;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+      padding: 4px; overflow: hidden; text-align: center;
+      touch-action: manipulation; user-select: none;
+    }
+    .slot .ico { font-size: 22px; line-height: 1; }
+    .slot .ico img { max-width: 28px; max-height: 28px; display: block; }
+    .slot .lb { font-size: 11px; line-height: 1.15; color: var(--ink-muted); overflow: hidden; }
+    .slot:active, .slot.pressed { background: var(--accent); border-color: var(--accent); }
+    .slot:active .lb, .slot.pressed .lb { color: #fff; }
+    .slot[data-empty="true"] { background: var(--empty); border-style: dashed; border-color: #232b48; color: var(--ink-dim); }
+    .slot[data-empty="true"] .lb { color: var(--ink-dim); }
+    .slot[data-empty="true"]:active { background: var(--empty); }
+    /* P-005 段階A: render="list"（コピペリスト）。正方形をやめ、横いっぱいの行にする。
+       押すと text アクションでフルパスがそのまま打ち込まれる（クリップボードは触らない）。 */
+    .deckgrid.render-list { grid-template-columns: 1fr !important; max-width: 520px; gap: 6px; }
+    .deckgrid.render-list .slot {
+      aspect-ratio: auto;
+      min-height: 46px;
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    .deckgrid.render-list .slot .ico { font-size: 16px; flex: 0 0 auto; }
+    .deckgrid.render-list .slot .lb {
+      font-size: 14px; color: var(--ink); flex: 1 1 auto; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* ページドット（pages が2枚以上あるときだけ出す。表示専用＝Hubへは何も送らない） */
+    .pagedots { display: flex; gap: 6px; align-items: center; justify-content: center; flex: 0 0 auto; }
+    /* 作者スタイルはUAスタイルシートに常に勝つため、.pagedots{display:flex}だけだと
+       hidden属性が効かない（空の箱がflex gapぶんの高さを食う）。明示的に打ち消す。 */
+    .pagedots[hidden] { display: none; }
+    .pagedots button { width: 10px; height: 10px; border-radius: 50%; border: 0; padding: 0; background: #39415f; }
+    .pagedots button.on { background: var(--accent); }
+
+    /* ===== キーボード（ipad.htmlから同値で移植） ===== */
+    .kbgrid { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: var(--key-gap); height: 100%; }
+    .key {
+      min-width: 0; min-height: 0; border: 0; border-radius: var(--key-radius); background: var(--panel); color: var(--ink);
+      font: inherit; font-size: 16px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; line-height: 1.1; touch-action: manipulation; user-select: none; padding: 2px;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    }
+    .key small { font-size: 10px; color: var(--ink-muted); }
+    /* 狭い画面ではタイトルが幅0まで潰れて「空白が空いているだけ」に見えるため、
+       いっそ畳む（レイヤーバッジ・接続状態・QRの方が現場で要る情報）。 */
+    @media (max-width: 560px) {
+      .head h1 { display: none; }
+      .head { padding: 6px 8px; gap: 6px; }
+    }
+    @media (max-width: 480px) {
+      :root { --key-gap: 4px; }
+      .key { font-size: 12px; }
+      .key small { font-size: 8px; }
+      .slot .ico { font-size: 18px; }
+      .slot .lb { font-size: 10px; }
+    }
+    .key:active, .key.pressed { background: var(--accent); }
+    .key[data-empty="true"] { background: var(--empty); color: var(--ink-dim); }
+    .key[data-empty="true"]:active { background: var(--empty); }
+    .key.fn { background: var(--accent-soft); }
+    body.sym .key { background: #20304f; }
+    body.sym .key[data-empty="true"] { background: var(--empty); }
+    body.sym .key.fn { background: var(--accent); }
+    /* T21: 日本語モード（layer3がtoggled）。記号盤と同じく地色で状態を示す。 */
+    body.jp .key { background: #1f2b45; }
+    body.jp .key[data-empty="true"] { background: var(--empty); }
+    body.jp .key.fn { background: var(--accent); }
+    /* ローマ字入力では英字キーは日本語モードでも英字を送るので表示は変えない。
+       2行ラベルを持つキー（K410の「、」＋「,」など）だけ、日本語モードでは
+       上下の主従を入れ替えて日本語側（上の小さい行）を主にする。
+       記号盤が出ている間は記号側が正なので :not(.sym) で除外する。 */
+    body.jp:not(.sym) .key.dual { font-size: 10px; color: var(--ink-muted); }
+    body.jp:not(.sym) .key.dual small { font-size: 17px; color: var(--ink); }
+
+    footer[role="status"] { padding: 4px 12px 8px; font-size: 12px; color: var(--ink-muted); min-height: 16px; flex-shrink: 0; }
+    footer.error { color: #ff8a8a; }
+
+    /* ===== QRモーダル（D25。1画面1QR） ===== */
+    #qrModal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,14,.88); z-index: 10; }
+    #qrModal.on { display: flex; }
+    .qr-card { background: var(--panel); border-radius: 16px; padding: 24px; text-align: center; }
+    .qr-card img { width: 300px; height: 300px; background: #fff; border-radius: 10px; display: block; margin: 0 auto; }
+    .qr-close { margin-top: 16px; min-width: 120px; min-height: 44px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; }
+  </style>
+</head>
+<body>
+  <header class="head">
+    <h1 id="title">KeyDeck — 分割</h1>
+    <span class="badge" id="layerBadge">Layer 0</span>
+    <span class="spacer"></span>
+    <div class="ratio" id="ratio">
+      <button type="button" data-deck="55" data-kb="45">デッキ大</button>
+      <button type="button" class="on" data-deck="40" data-kb="60">半々</button>
+      <button type="button" data-deck="26" data-kb="74">キーボード大</button>
+    </div>
+    <button id="statusBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="statusLabel">未接続</span></button>
+    <button id="qrOpenBtn" type="button">QR</button>
+  </header>
+
+  <div class="split">
+    <div class="deckpane" id="deckPane">
+      <div class="deckgrid" id="deckGrid" aria-label="deck"></div>
+      <div class="pagedots" id="pageDots" hidden></div>
+    </div>
+    <div class="handle" aria-hidden="true"></div>
+    <div class="kbpane">
+      <div class="kbgrid" id="kbGrid" aria-label="keyboard"></div>
+    </div>
+  </div>
+
+  <footer role="status" id="status"></footer>
+
+  <div id="qrModal">
+    <div class="qr-card">
+      <h2>分割（Deck＋キーボード）</h2>
+      <img src="/api/qr?target=panel" alt="QR: 分割面">
+      <button class="qr-close" id="qrCloseBtn">閉じる</button>
+    </div>
+  </div>
+
+  <script>
+    // ---- 起動時の文脈 --------------------------------------------------
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+    // P-005 段階A: どのDeckを描くかをURLで選ぶ（省略時はdefault）。Hubは全Deckを
+    // surface.config で配ってくるので、選ぶのはクライアント側の表示の都合でしかない。
+    const deckId = params.get("deck") || "default";
+
+    const statusEl = document.getElementById("status");
+    const statusBtnEl = document.getElementById("statusBtn");
+    const statusLabelEl = document.getElementById("statusLabel");
+    const deckPaneEl = document.getElementById("deckPane");
+    const deckGridEl = document.getElementById("deckGrid");
+    const pageDotsEl = document.getElementById("pageDots");
+    const kbGridEl = document.getElementById("kbGrid");
+    const layerBadgeEl = document.getElementById("layerBadge");
+    const titleEl = document.getElementById("title");
+
+    let socket = null;
+    let surfaceConfig = null;              // 直近受信したsurface.config
+    let layerState = { momentary: [], toggled: [] };
+    let pageIndex = 0;                     // 表示中のDeckページ（表示専用。Hubへは送らない）
+    let reconnectTimer = null;
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") {
+        console.error(line, context ?? "");
+      } else {
+        console.info(line, context ?? "");
+      }
+    }
+
+    // P-005: 一度「tokenが古い」と分かったら、その警告を貼り付ける。
+    // これが無いと、2秒ごとの再接続が「接続中…」→「切断中…」で警告を上書きし続け、
+    // ユーザーは原因を知らされないまま待つことになる（実際にそうなっていた）。
+    let stickyStatus = false;
+    function setStatus(text, isError) {
+      if (stickyStatus && !isError) return;
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", !!isError);
+    }
+
+    function setConnectionBadge(connected) {
+      statusBtnEl.classList.toggle("connected", connected);
+      statusBtnEl.classList.toggle("disconnected", !connected);
+      statusLabelEl.textContent = connected ? "接続中" : "切断・タップで再接続";
+    }
+
+    // ==================================================================
+    // Deck（上ペイン）— deck.html の描画・送信をそのまま移植
+    // ==================================================================
+
+    function renderDeck() {
+      if (!surfaceConfig) return;
+      const deck = surfaceConfig.decks[deckId];
+      if (!deck) {
+        log("ERR", "DECK_UNKNOWN_ID", "surface.config has no deck named '" + deckId + "'",
+            Object.keys(surfaceConfig.decks));
+        setStatus("Deck '" + deckId + "' が見つかりません", true);
+        return;
+      }
+      const pages = deck.pages || [];
+      if (pageIndex >= pages.length) pageIndex = 0;
+
+      const cols = deck.grid.cols;
+      const isList = deck.render === "list";
+      deckGridEl.classList.toggle("render-list", isList);
+      deckGridEl.style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+      deckGridEl.innerHTML = "";
+      const page = pages[pageIndex];
+      if (!page) {
+        log("ERR", "INTERNAL", "deck has no pages", deck);
+        return;
+      }
+
+      for (const slot of page.slots) {
+        const btn = document.createElement("button");
+        btn.className = "slot";
+        btn.dataset.slotId = slot.slotId;
+        const isEmpty = slot.action.t === "none";
+        if (isEmpty) btn.dataset.empty = "true";
+
+        const ico = document.createElement("span");
+        ico.className = "ico";
+        if (slot.icon) {
+          // icon は data URI（deck.schema.json）。読めない場合も枠は残る＝ラベルで判別できる。
+          const img = document.createElement("img");
+          img.src = slot.icon;
+          img.alt = "";
+          ico.appendChild(img);
+        }
+        btn.appendChild(ico);
+
+        const lb = document.createElement("span");
+        lb.className = "lb";
+        lb.textContent = slot.label;
+        btn.appendChild(lb);
+
+        btn.disabled = isEmpty;
+        btn.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          sendDeckPress(slot.slotId);
+        });
+        deckGridEl.appendChild(btn);
+      }
+
+      renderPageDots(pages.length);
+      // P-005 段階A: 行数は grid.rows が正（それ以前はスロット数÷colsの暗黙値だった）。
+      // listは高さが内容で決まるので寸法計算しない。
+      if (!isList) fitDeckGrid(cols, deck.grid.rows);
+    }
+
+    // 四角スロットは「幅」で大きさが決まるため、行数が多いDeck（例: 5列×3行）を
+    // そのまま置くと上ペインからはみ出して縦スクロールになる（上下分割の意味が消える）。
+    // ペインの高さから1マスの上限を逆算し、グリッドの最大幅として与える。
+    // 比率プリセットの切替・画面回転のたびに呼び直す。
+    const DECK_GAP = 8;
+    // 1マスの下限。これを下回るとタップ目標として小さすぎる（横向きスマホ+5列3行の
+    // 「半々」で実測35pxまで縮んだ）。下限に達したらそれ以上は縮めず、上ペイン側を
+    // スクロールさせる（overflow:auto）。押しにくいボタンを並べるより、はみ出す方がまし。
+    const MIN_CELL = 44;
+    function fitDeckGrid(cols, rows) {
+      rows = Math.max(1, rows);
+      const paneStyle = getComputedStyle(deckPaneEl);
+      const padY = parseFloat(paneStyle.paddingTop) + parseFloat(paneStyle.paddingBottom);
+      const dotsHeight = pageDotsEl.hidden ? 0 : pageDotsEl.offsetHeight + DECK_GAP;
+      const availableHeight = deckPaneEl.clientHeight - padY - dotsHeight;
+      const cell = Math.max(MIN_CELL, (availableHeight - DECK_GAP * (rows - 1)) / rows);
+      const widthFromHeight = cell * cols + DECK_GAP * (cols - 1);
+      // 上限740px: 横に広い画面で1マスが巨大になるのを防ぐ（幅側はwidth:100%が効く）。
+      deckGridEl.style.maxWidth = Math.min(740, widthFromHeight) + "px";
+    }
+
+    // 高さが変わる出来事のたびに測り直す（比率プリセットはハンドラ側から呼ぶ）。
+    window.addEventListener("resize", () => {
+      if (surfaceConfig) renderDeck();
+    });
+
+    // ページが1枚しかないときはドットを出さない（見た目のノイズを増やさない）。
+    function renderPageDots(pageCount) {
+      pageDotsEl.innerHTML = "";
+      pageDotsEl.hidden = pageCount <= 1;
+      if (pageCount <= 1) return;
+      for (let i = 0; i < pageCount; i += 1) {
+        const dot = document.createElement("button");
+        dot.type = "button";
+        dot.setAttribute("aria-label", "ページ " + (i + 1));
+        if (i === pageIndex) dot.classList.add("on");
+        dot.addEventListener("click", () => {
+          pageIndex = i;
+          renderDeck();
+        });
+        pageDotsEl.appendChild(dot);
+      }
+    }
+
+    function setSlotsEnabled(enabled) {
+      for (const btn of deckGridEl.querySelectorAll(".slot")) {
+        if (btn.dataset.empty === "true") continue;
+        btn.disabled = !enabled;
+      }
+    }
+
+    function sendDeckPress(slotId) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; deck.press dropped", { slotId });
+        return;
+      }
+      const message = { type: "deck.press", deckId, slotId };
+      socket.send(JSON.stringify(message));
+      log("T4-2", "OK", "send deck.press", message);
+      setStatus(slotId + " を送信しました");
+    }
+
+    // ==================================================================
+    // キーボード（下ペイン）— ipad.html の描画・送信をそのまま移植
+    // ==================================================================
+
+    // D3と同じ規則をクライアント側でも適用してラベルを引く（発火判定は必ずHub側=表示専用）。
+    function resolveDisplay(keyId) {
+      if (!surfaceConfig) return null;
+      const active = new Set([0, ...layerState.momentary, ...layerState.toggled]);
+      const ordered = [...active].sort((a, b) => b - a);
+      for (const layerId of ordered) {
+        const layer = surfaceConfig.keymap.layers.find((l) => l.id === layerId);
+        if (!layer) continue;
+        const def = layer.keys[keyId];
+        if (def && def.action.t !== "trans") return def;
+      }
+      return null;
+    }
+
+    function renderLabel(btn, label) {
+      btn.textContent = "";
+      const lines = label.split("\n");
+      if (lines.length >= 2) {
+        const small = document.createElement("small");
+        small.textContent = lines[0];
+        btn.appendChild(small);
+        btn.appendChild(document.createTextNode(lines.slice(1).join("\n")));
+        // T21: 2行ラベルであること自体を印にする（日本語モードで主従を入れ替えるCSS用）。
+        btn.classList.add("dual");
+      } else {
+        btn.textContent = label;
+      }
+    }
+
+    function renderKeyboard() {
+      if (!surfaceConfig) return;
+      const board = surfaceConfig.keymap.board;
+      kbGridEl.innerHTML = "";
+      if (!board) {
+        log("ERR", "INTERNAL", "surface.config has no board for kind=single", surfaceConfig.keymap);
+        return;
+      }
+      for (const boardKey of board.keys) {
+        const def = resolveDisplay(boardKey.id);
+        const btn = document.createElement("button");
+        btn.className = "key";
+        btn.dataset.keyId = boardKey.id;
+        const colSpan = boardKey.colSpan || 1;
+        const rowSpan = boardKey.rowSpan || 1;
+        btn.style.gridColumn = boardKey.col + " / " + (boardKey.col + colSpan);
+        btn.style.gridRow = boardKey.row + " / " + (boardKey.row + rowSpan);
+
+        const isEmpty = !def || def.action.t === "none";
+        if (isEmpty) {
+          btn.dataset.empty = "true";
+          renderLabel(btn, "");
+        } else {
+          if (def.action.t === "mo" || def.action.t === "tg") btn.classList.add("fn");
+          renderLabel(btn, def.label);
+        }
+        bindKey(btn, boardKey.id);
+        kbGridEl.appendChild(btn);
+      }
+
+      const highestActive = Math.max(0, ...layerState.momentary, ...layerState.toggled);
+      const symbolActive = layerState.toggled.includes(2);
+      // T21: layer3 = 日本語モード表示。Hubがtg.fireで立てた状態をそのまま映すだけ。
+      const japaneseActive = layerState.toggled.includes(3);
+      document.body.classList.toggle("sym", symbolActive);
+      document.body.classList.toggle("jp", japaneseActive);
+      if (symbolActive) {
+        layerBadgeEl.textContent = "記号";
+      } else if (highestActive > 0 && highestActive !== 3) {
+        layerBadgeEl.textContent = "Layer " + highestActive;
+      } else {
+        // 英数/日本語はKeyDeckが送ったALT+GRAVEの回数から導いた「推定」であって、
+        // Windowsに問い合わせた実測ではない。ずれたらバッジ長押し（H03）で直す。
+        layerBadgeEl.textContent = japaneseActive ? "日本語" : "英数";
+      }
+      titleEl.textContent = "KeyDeck — 分割 (" + surfaceConfig.activeKeymapId + " + " + deckId + ")";
+    }
+
+    function setKeysEnabled(enabled) {
+      for (const btn of kbGridEl.querySelectorAll(".key")) {
+        btn.disabled = !enabled;
+      }
+    }
+
+    function bindKey(btn, keyId) {
+      const down = (event) => {
+        event.preventDefault();
+        sendKeyPress(keyId, "down");
+      };
+      const up = (event) => {
+        event.preventDefault();
+        sendKeyPress(keyId, "up");
+      };
+      btn.addEventListener("pointerdown", down);
+      btn.addEventListener("pointerup", up);
+      btn.addEventListener("pointercancel", up);
+      btn.addEventListener("pointerleave", up);
+    }
+
+    function sendKeyPress(keyId, edge) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; key.press dropped", { keyId, edge });
+        return;
+      }
+      const message = { type: "key.press", keyId, edge };
+      socket.send(JSON.stringify(message));
+      log("T4-2", "OK", "send key.press", message);
+      if (edge === "down") setStatus(keyId + " を送信しました");
+    }
+
+    // ==================================================================
+    // 送受信（WSは1本。deck.press も key.press も同じソケットで送る）
+    // ==================================================================
+
+    function connect() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      setStatus("接続中…");
+      socket = new WebSocket(
+        (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host +
+          "/ws?surface=ipad&token=" + encodeURIComponent(token)
+      );
+
+      socket.addEventListener("open", () => {
+        log("T20-1", "OK", "ws open (surface=ipad, panel)");
+        setConnectionBadge(true);
+        setStatus("接続しました");
+      });
+
+      socket.addEventListener("message", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          log("ERR", "INTERNAL", "failed to parse server message: " + error, event.data);
+          return;
+        }
+        handleServerMessage(data);
+      });
+
+      socket.addEventListener("close", () => {
+        setConnectionBadge(false);
+        setKeysEnabled(false);
+        setSlotsEnabled(false);
+        setStatus("切断中は操作できません。再接続中…");
+        log("ERR", "WS_CLOSE", "disconnected; retrying");
+        diagnoseDisconnect();
+        scheduleReconnect();
+      });
+
+      socket.addEventListener("error", () => {
+        // closeイベントが後続するため、ここではログのみ（二重の再接続予約はしない）。
+        log("ERR", "WS_ERROR", "websocket error event");
+      });
+    }
+
+    // ---- P-005: 「切れている」のか「tokenが古い」のかを見分けて伝える ----
+    // Hubを再起動するとtokenが変わる（D8）。端末が古いURLを掴んだままだと、
+    // WSは延々と拒否され続けるのに画面は「再接続中…」としか言わないため、
+    // 何が悪いのか分からないまま何分も待つことになる（実際に起きた）。
+    // WSが閉じたら /api/ping を叩き、401ならtokenが古いと断定して案内する。
+    let staleTokenNotified = false;
+    async function diagnoseDisconnect() {
+      if (staleTokenNotified) return;
+      try {
+        const res = await fetch("/api/ping?token=" + encodeURIComponent(token), { cache: "no-store" });
+        if (res.status === 401) {
+          staleTokenNotified = true;
+          stickyStatus = true;
+          setStatus("このURLのtokenは古くなっています。PCのHub画面（ http://<PCのIP>:8770/ ）を開き直して、QRを読み直してください。", true);
+          if (typeof statusLabelEl !== "undefined" && statusLabelEl) {
+            statusLabelEl.textContent = "tokenが古い";
+          }
+          log("ERR", "WS_TOKEN_INVALID", "stale token; the Hub was restarted after this page was opened");
+        }
+      } catch (error) {
+        // Hub自体が落ちている場合はここに来る。従来どおり再接続を待つ。
+        log("T4-1", "OK", "hub unreachable while diagnosing: " + error);
+      }
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, 2000);
+    }
+
+    function handleServerMessage(data) {
+      switch (data.type) {
+        case "surface.config":
+          surfaceConfig = data;
+          layerState = data.layer;
+          log("T20-1", "OK", "surface.config received", {
+            keymapId: data.activeKeymapId,
+            deckIds: Object.keys(data.decks),
+            layers: data.keymap.layers.length,
+          });
+          renderKeyboard();
+          renderDeck();
+          setKeysEnabled(true);
+          setSlotsEnabled(true);
+          break;
+        case "layer.state":
+          // レイヤーが変わるのはキーボード側だけ。Deckは再描画しない（押下中の枠が消えないように）。
+          layerState = data;
+          log("T20-2", "OK", "layer.state", data);
+          renderKeyboard();
+          break;
+        case "error":
+          log("ERR", data.code, "cause: " + data.cause, data.context);
+          setStatus("エラー: " + data.code, true);
+          break;
+        default:
+          log("ERR", "INTERNAL", "unknown message type from server: " + data.type, data);
+      }
+    }
+
+    // ==================================================================
+    // 上下比率（3プリセット）。CSS変数2つだけを書き換える
+    // ==================================================================
+    for (const btn of document.querySelectorAll("#ratio button")) {
+      btn.addEventListener("click", () => {
+        for (const other of document.querySelectorAll("#ratio button")) other.classList.remove("on");
+        btn.classList.add("on");
+        document.documentElement.style.setProperty("--split-deck", btn.dataset.deck + "fr");
+        document.documentElement.style.setProperty("--split-kb", btn.dataset.kb + "fr");
+        // 上ペインの高さが変わったので、スロットの大きさを測り直す。
+        if (surfaceConfig) renderDeck();
+        log("T20-3", "OK", "split ratio changed", { deck: btn.dataset.deck, kb: btn.dataset.kb });
+      });
+    }
+
+    // D26: 状態ボタンをタップすると即時再接続を試みる（すでに接続中なら何もしない）。
+    statusBtnEl.addEventListener("click", () => {
+      if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
+        log("T20-1", "OK", "manual reconnect requested via status button");
+        connect();
+      }
+    });
+
+    // D25: QRボタン→中央モーダルに自ページのQR。閉じるで戻る（1画面1QR）。
+    document.getElementById("qrOpenBtn").addEventListener("click", () => {
+      document.getElementById("qrModal").classList.add("on");
+    });
+    document.getElementById("qrCloseBtn").addEventListener("click", () => {
+      document.getElementById("qrModal").classList.remove("on");
+    });
+
+
+    // ---- T21: レイヤーバッジ長押しで「表示だけ」直す ------------------
+    // KeyDeck以外（タスクバー・PC本体の半角/全角キー・アプリ切替）でIMEが変わると、
+    // Hubが持つ推定と実態がずれる。H03はlayer3をトグルするだけのboard外keyIdで、
+    // PCへは何も送らない（layer0で { "t": "tg", "layer": 3 } として定義）。
+    (function bindBadgeLongPress() {
+      const HOLD_MS = 600;
+      let timer = null;
+      let fired = false;
+
+      layerBadgeEl.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        fired = false;
+        timer = setTimeout(() => {
+          timer = null;
+          fired = true;
+          sendKeyPress("H03", "down");
+          sendKeyPress("H03", "up");
+          setStatus("表示だけ切り替えました（PCへは何も送っていません）");
+          log("T21", "OK", "display-only IME state corrected via H03");
+        }, HOLD_MS);
+      });
+      const cancel = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      layerBadgeEl.addEventListener("pointerup", cancel);
+      layerBadgeEl.addEventListener("pointercancel", cancel);
+      layerBadgeEl.addEventListener("pointerleave", cancel);
+      // 長押し後のクリックが他所へ抜けないように潰す。
+      layerBadgeEl.addEventListener("click", (event) => {
+        if (fired) event.preventDefault();
+      });
+      layerBadgeEl.style.cursor = "pointer";
+      layerBadgeEl.title = "長押しで、PCへ送らずに日本語/英数の表示だけ切り替える";
+    })();
+
+    // ---- 例外の取りこぼし防止（T4-3と同じ規則） -------------------------
+    window.addEventListener("error", (event) => {
+      log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+    });
+
+    connect();
+  </script>
+</body>
+</html>

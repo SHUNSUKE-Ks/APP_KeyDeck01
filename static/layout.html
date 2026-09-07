@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  layout.html — レイアウト面（P-005 段階B/C）。素のHTML+JSのみ（D2）。
+  URL: /layout?id=<layoutId>&token=…   （id省略時は ipad_main）
+
+  ■ これは何か
+  これまで「画面=1枚の手書きHTML」で、どの部品をどこへ置くかはHTML/CSSに直書きだった。
+  このページは **layouts/layout_*.json の区画割りをそのまま描く1枚**で、
+  部品の配置を変えるのに HTML を触る必要がない（JSONを書き換えて /api/reload するだけ）。
+
+  ■ 三層（P-005 §2 ユーザー裁定）
+    section（区画）… 画面の1区画。中に部品をちょうど1つ持つ
+    Component（部品）… keyboard / deck / trackball
+    slot（スロット）… Deck部品の中のボタン1つ（既存の意味のまま）
+
+  ■ 部品の描き方
+    keyboard  … keymaps[ref].board を13列でも3列でもそのまま描く。十字キーもこれ
+                （新部品ではなく「小さいboardを持つkeyboard」）。押下は
+                key.press{keymapId, keyId, edge}。レイヤー状態は盤面IDごとに独立。
+    deck      … decks[ref] を render(grid|list)で描く。押下は deck.press{deckId, slotId}。
+    trackball … 検証済みの static/trackball.html を <iframe ...&embed=1> で埋める。
+                ボールの描画・慣性・ジェスチャー（Core/View/Gesture）は無改変のまま使う。
+                取引: WS接続が1本増える（Hubから見ると別クライアント）。将来ここを
+                共有モジュール化するときは、trackball.html の Core/View を切り出すこと。
+
+  ■ 増やし方
+  部品種別を足すときは (1) crates/proto-hub/src/layout.rs の ComponentKind
+  (2) このファイルの renderSection の分岐 の2箇所を同時に足す。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>KeyDeck — レイアウト</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel-lit:#232b48; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+      --ink-dim:#4b5468; --empty:#161c30; --accent:#2d67d9; --accent-soft:#24478f;
+      --ok:#35c47a; --err:#e2555a; --line:#2d3550; --key-radius:10px; --key-gap:6px;
+      --slot-radius:12px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink);
+      touch-action: manipulation; -webkit-user-select: none; user-select: none;
+      display: flex; flex-direction: column; height: 100%;
+    }
+
+    /* ===== ヘッダ（ipad.html/panel.htmlと同値） ===== */
+    .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex-shrink: 0; }
+    .head h1 { font-size: 13px; margin: 0; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .spacer { flex: 1; }
+    #statusBtn {
+      display: flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+      border-radius: 999px; background: var(--panel); color: var(--ink); font: inherit;
+      font-size: 12px; padding: 5px 12px 5px 8px; flex-shrink: 0;
+    }
+    #statusBtn .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-dim); display: inline-block; }
+    #statusBtn.connected .dot { background: var(--ok); }
+    #statusBtn.disconnected .dot { background: var(--err); }
+    #qrOpenBtn {
+      min-width: 44px; min-height: 38px; border: 0; border-radius: 8px;
+      background: var(--accent); color: #fff; font: inherit; font-size: 13px; padding: 0 12px; flex-shrink: 0;
+    }
+    .logo { font-size: 13px; font-weight: 700; letter-spacing: .02em; flex-shrink: 0; }
+    .sel { display: flex; align-items: center; gap: 5px; flex-shrink: 0; min-width: 0; }
+    .sel-cap { font-size: 10px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .06em; }
+    .sel select {
+      background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+      border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12px;
+      min-height: 32px; max-width: 168px;
+    }
+    .sel select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* 狭い画面ではロゴと見出しを畳む。セレクタは機能なので必ず残す。 */
+    @media (max-width: 560px) {
+      .logo { display: none; }
+      .sel-cap { display: none; }
+      .sel select { max-width: 116px; }
+    }
+
+    /* ===== 区画グリッド =====
+       layouts/*.json の grid.cols / grid.rows をそのままCSS Gridへ転記する。
+       行トラックは必ず minmax(0,…)（1frは内容の最小サイズを下回れず、狭い画面で
+       下段がはみ出す。STATE.mdの落とし穴の縦版）。 */
+    #stage { flex: 1; min-height: 0; display: grid; gap: 6px; padding: 6px; }
+    .section {
+      min-width: 0; min-height: 0;
+      border: 1px solid var(--line); border-radius: 12px;
+      background: #0c1120; overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .section > .body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 6px; }
+    .section.kind-keyboard > .body { justify-content: stretch; }
+    .section .oops { color: var(--err); font-size: 12px; padding: 10px; text-align: center; }
+
+    /* ===== キーボード部品（ipad.htmlから同値で移植） ===== */
+    /* 数字ヒント（vol1.3のQ〜Pの右肩）は角へ寄せる。スクショのGboardと同じ見え方にするため。
+       .dual が付くのは「日本語側の代替表記」を持つキーだけ（renderLabel参照）で、
+       そちらは従来どおり文字の上に中央寄せで出す。 */
+    /* 押しっぱなし中（key.hold）は色を変える。いま押しているのが目で分かる＝
+       離し忘れに気づける。 */
+    /* 十字キーは文字を大きく（3×3の小さな盤面なので詰まって見えないように） */
+    body.sym .key { background: #20304f; }
+    body.sym .key[data-empty="true"] { background: var(--empty); }
+    body.sym .key.fn { background: var(--accent); }
+    body.jp .key { background: #1f2b45; }
+    body.jp .key[data-empty="true"] { background: var(--empty); }
+    body.jp .key.fn { background: var(--accent); }
+    body.jp:not(.sym) .key.dual { font-size: 10px; color: var(--ink-muted); }
+    body.jp:not(.sym) .key.dual small { font-size: 17px; color: var(--ink); }
+
+    /* ================================================================
+       押した感（P-005）。安っぽく感じる原因は「押した瞬間にもtransitionが
+       かかっていて、指の動きより表示が遅れること」なので、次の2点を守る。
+         ・押下は transition なし（0ms）で即座に沈む
+         ・戻りだけ緩やかに（cubic-bezierで軽く弾ませる）
+       transformは合成のみでレイアウトを起こさないため、60fpsを保ちやすい。
+       ================================================================ */
+    /* 押している最中（key.hold）は沈んだまま保つ */
+
+    /* 波紋（ripple）。指が触れた「その点」から広がるので、
+       指の下が見えないタッチ操作でも「どこを押したか」が返る。
+       pointer-events:none で押下判定の邪魔をしない。 */
+    .key, .slot { position: relative; overflow: hidden; }
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      background: radial-gradient(circle, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 70%);
+      transform: translate(-50%, -50%) scale(0);
+      opacity: .9;
+      animation: ripple-out 420ms ease-out forwards;
+    }
+    @keyframes ripple-out {
+      to { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+    }
+    /* 端末が「動きを減らす」設定のときは波紋も拡縮も出さない（酔い・疲労対策） */
+    @media (prefers-reduced-motion: reduce) {
+      .key, .slot { transition: background-color 100ms ease-out; }
+      .ripple { display: none; }
+    }
+
+    /* Deck・キーボードの見た目は static/components.js が持つ（重複させない）。
+       ここに残っているのは、この面だけの装飾（波紋・区画枠など）。 */
+
+    /* ===== トラックボール部品（既存の検証済みページを埋め込む） ===== */
+    .tbframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+
+    footer[role="status"] { padding: 3px 10px 6px; font-size: 12px; color: var(--ink-muted); min-height: 14px; flex-shrink: 0; }
+    footer.error { color: #ff8a8a; }
+
+    #qrModal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,14,.88); z-index: 10; }
+    #qrModal.on { display: flex; }
+    .qr-card { background: var(--panel); border-radius: 16px; padding: 24px; text-align: center; }
+    .qr-card img { width: 300px; height: 300px; background: #fff; border-radius: 10px; display: block; margin: 0 auto; }
+    .qr-close { margin-top: 16px; min-width: 120px; min-height: 44px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; }
+  </style>
+</head>
+<body>
+  <header class="head">
+    <span class="logo">KeyDeck</span>
+    <!-- ① 登録board切り替え: 画面まるごと差し替える（layouts/*.json の1枚を選ぶ） -->
+    <label class="sel">
+      <span class="sel-cap">board</span>
+      <select id="layoutSel" aria-label="登録boardを切り替え"></select>
+    </label>
+    <!-- ② キーLayout切り替え: 文字入力キーボードがある場合だけ出す。盤面だけを差し替える -->
+    <label class="sel" id="keymapSelWrap" hidden>
+      <span class="sel-cap">layout</span>
+      <select id="keymapSel" aria-label="キーボードの配列を切り替え"></select>
+    </label>
+    <span class="spacer"></span>
+    <button id="statusBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="statusLabel">未接続</span></button>
+    <button id="qrOpenBtn" type="button">QR</button>
+  </header>
+
+  <div id="stage" aria-label="layout"></div>
+
+  <footer role="status" id="status"></footer>
+
+  <div id="qrModal">
+    <div class="qr-card">
+      <h2>レイアウト面</h2>
+      <img src="/api/qr?target=layout" alt="QR: レイアウト面">
+      <button class="qr-close" id="qrCloseBtn">閉じる</button>
+    </div>
+  </div>
+
+  <script src="/components.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+
+    const statusEl = document.getElementById("status");
+    const statusBtnEl = document.getElementById("statusBtn");
+    const statusLabelEl = document.getElementById("statusLabel");
+    const stageEl = document.getElementById("stage");
+
+    let socket = null;
+    let config = null;                 // 直近のsurface.config
+    let layerStates = {};              // keymapId -> {momentary,toggled}
+    let reconnectTimer = null;
+
+    // ================================================================
+    // 画面の状態（ステート駆動）
+    //   layoutId       … どの登録boardを出すか。丸ごと差し替わる
+    //   keymapOverride … 文字入力キーボードの盤面だけを差し替える。
+    //                    nullならlayouts/*.jsonが指定したものをそのまま使う
+    // どちらも端末に覚えさせる（localStorage）。Hubのファイルは書き換えない＝
+    // 「この端末ではこう出す」という表示上の選択でしかない。
+    // ================================================================
+    const STORE_LAYOUT = "keydeck.layoutId";
+    const STORE_KEYMAP = "keydeck.keymapOverride";
+
+    function loadPref(key) {
+      try { return localStorage.getItem(key); } catch (error) { return null; }
+    }
+    function savePref(key, value) {
+      try {
+        if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
+      } catch (error) { /* プライベートブラウズ等では保存できない。動作には影響しない */ }
+    }
+
+    // URLで明示されたレイアウトが最優先。無ければ前回の選択、それも無ければ既定。
+    let layoutId = params.get("id") || loadPref(STORE_LAYOUT) || "ipad_main";
+    let keymapOverride = loadPref(STORE_KEYMAP);
+
+    // 「文字入力のキーボード」とみなす下限。十字キー（5キー）のような小さな盤面を
+    // 配列セレクタの選択肢に混ぜないための線引き。
+    const TEXT_KEYBOARD_MIN_KEYS = 20;
+
+    function isTextKeyboard(keymap) {
+      return !!(keymap && keymap.board && keymap.board.keys.length >= TEXT_KEYBOARD_MIN_KEYS);
+    }
+
+    /// その区画が実際に描くkeymapId。文字入力キーボードだけが上書きの対象。
+    function effectiveKeymapId(section) {
+      const ref = section.component.ref;
+      if (section.component.kind !== "keyboard") return ref;
+      if (!keymapOverride || keymapOverride === ref) return ref;
+      const base = (config.keymaps || {})[ref];
+      const next = (config.keymaps || {})[keymapOverride];
+      // 上書きしてよいのは「文字入力キーボード同士」のときだけ。
+      // これが無いと、十字キーの区画まで一枚キーボードに置き換わってしまう。
+      return isTextKeyboard(base) && isTextKeyboard(next) ? keymapOverride : ref;
+    }
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") console.error(line, context ?? "");
+      else console.info(line, context ?? "");
+    }
+
+    // P-005: 一度「tokenが古い」と分かったら、その警告を貼り付ける。
+    // これが無いと、2秒ごとの再接続が「接続中…」→「切断中…」で警告を上書きし続け、
+    // ユーザーは原因を知らされないまま待つことになる（実際にそうなっていた）。
+    let stickyStatus = false;
+    function setStatus(text, isError) {
+      if (stickyStatus && !isError) return;
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", !!isError);
+    }
+
+    function setConnectionBadge(connected) {
+      statusBtnEl.classList.toggle("connected", connected);
+      statusBtnEl.classList.toggle("disconnected", !connected);
+      statusLabelEl.textContent = connected ? "接続中" : "切断・タップで再接続";
+    }
+
+    // ================================================================
+    // 区画の描画
+    // ================================================================
+
+    // 受け取ったconfigから選択肢を作り直す。レイアウトや盤面が増えたら自動で増える。
+    function buildSelectors() {
+      const layoutSel = document.getElementById("layoutSel");
+      const keymapSel = document.getElementById("keymapSel");
+      const keymapWrap = document.getElementById("keymapSelWrap");
+
+      const layoutIds = Object.keys(config.layouts || {});
+      layoutSel.innerHTML = "";
+      for (const id of layoutIds) {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = id;
+        if (id === layoutId) option.selected = true;
+        layoutSel.appendChild(option);
+      }
+      layoutSel.disabled = layoutIds.length <= 1;
+
+      // ② は「いま出している画面に文字入力キーボードがあるとき」だけ出す。
+      const layout = (config.layouts || {})[layoutId];
+      const textSections = layout
+        ? layout.sections.filter(
+            (sec) => sec.component.kind === "keyboard" &&
+                     isTextKeyboard((config.keymaps || {})[sec.component.ref])
+          )
+        : [];
+      if (textSections.length === 0) {
+        keymapWrap.hidden = true;
+        return;
+      }
+      keymapWrap.hidden = false;
+
+      const current = effectiveKeymapId(textSections[0]);
+      const candidates = Object.keys(config.keymaps || {})
+        .filter((id) => isTextKeyboard(config.keymaps[id]));
+      keymapSel.innerHTML = "";
+      for (const id of candidates) {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = id;
+        if (id === current) option.selected = true;
+        keymapSel.appendChild(option);
+      }
+      keymapSel.disabled = candidates.length <= 1;
+    }
+
+    function render() {
+      if (!config) return;
+      buildSelectors();
+      const layout = (config.layouts || {})[layoutId];
+      if (!layout) {
+        stageEl.innerHTML = "";
+        const oops = document.createElement("div");
+        oops.className = "oops";
+        oops.textContent = "レイアウト '" + layoutId + "' が見つかりません（layouts/layout_*.json を確認）";
+        stageEl.appendChild(oops);
+        log("ERR", "LAYOUT_UNKNOWN_ID", "no such layout", Object.keys(config.layouts || {}));
+        return;
+      }
+
+      stageEl.style.gridTemplateColumns = "repeat(" + layout.grid.cols + ", minmax(0, 1fr))";
+      stageEl.style.gridTemplateRows = "repeat(" + layout.grid.rows + ", minmax(0, 1fr))";
+      stageEl.innerHTML = "";
+
+      for (const section of layout.sections) {
+        const box = document.createElement("div");
+        box.className = "section kind-" + section.component.kind;
+        box.dataset.sectionId = section.id;
+        const colSpan = section.colSpan || 1;
+        const rowSpan = section.rowSpan || 1;
+        box.style.gridColumn = section.col + " / " + (section.col + colSpan);
+        box.style.gridRow = section.row + " / " + (section.row + rowSpan);
+
+        const body = document.createElement("div");
+        body.className = "body";
+        renderComponent(body, section.component, effectiveKeymapId(section));
+        box.appendChild(body);
+        stageEl.appendChild(box);
+      }
+      applyBodyModes();
+    }
+
+    function renderComponent(body, component, effectiveRef) {
+      switch (component.kind) {
+        case "keyboard": return renderKeyboard(body, effectiveRef || component.ref);
+        case "deck":     return renderDeck(body, component.ref);
+        case "trackball":return renderTrackball(body, component.ref);
+        default: {
+          const oops = document.createElement("div");
+          oops.className = "oops";
+          oops.textContent = "未知の部品 '" + component.kind + "'";
+          body.appendChild(oops);
+          log("ERR", "LAYOUT_UNKNOWN_KIND", "unknown component kind", component);
+        }
+      }
+    }
+
+    // ================================================================
+    // 押した感（P-005 ②③）
+    // ================================================================
+
+    // ② 押し込み: pointerdownで即座に .pressing を付け、離したら外す。
+    //    CSSの transition:none と組み合わせて「入り0ms・戻りだけ緩やか」にする。
+    // ③ 波紋: 触れた座標を要素内の相対位置に直し、そこを中心に円を広げる。
+    //    要素の対角線ぶんまで広げれば、角を押しても全体を覆える。
+    // 「動きを減らす」設定の端末では波紋を作らない（作ってもCSSで display:none になり、
+    // アニメが走らない＝animationendも来ないので片付けられずDOMに溜まる）。
+    const REDUCED_MOTION = window.matchMedia
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : { matches: false };
+
+    function pressFeedback(el, event) {
+      el.classList.add("pressing");
+      if (REDUCED_MOTION.matches) return;
+
+      // 1キーに波紋を溜めない。連打時は古いものから捨てる。
+      const stale = el.querySelectorAll(".ripple");
+      for (let i = 0; i + 2 < stale.length; i += 1) stale[i].remove();
+
+      const rect = el.getBoundingClientRect();
+      // pointerdown以外（キャンセル等）で座標が無い場合は中心から出す
+      const x = (event && event.clientX !== undefined) ? event.clientX - rect.left : rect.width / 2;
+      const y = (event && event.clientY !== undefined) ? event.clientY - rect.top : rect.height / 2;
+      // 押した点から四隅までの最大距離＝これを直径にすれば必ず全体を覆う
+      const far = Math.max(
+        Math.hypot(x, y),
+        Math.hypot(rect.width - x, y),
+        Math.hypot(x, rect.height - y),
+        Math.hypot(rect.width - x, rect.height - y)
+      );
+
+      const ripple = document.createElement("span");
+      ripple.className = "ripple";
+      ripple.style.left = x + "px";
+      ripple.style.top = y + "px";
+      ripple.style.width = ripple.style.height = (far * 2) + "px";
+      el.appendChild(ripple);
+      // 片付けは2重にする。animationend だけに頼ると、**タブが非表示のあいだCSSアニメが
+      // 進まず animationend が永久に来ない**ため、波紋がDOMに溜まり続ける
+      // （iPadでは他アプリへの切替・画面ロックが日常なので確実に踏む。実測で9個溜まった）。
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        ripple.remove();
+      };
+      ripple.addEventListener("animationend", cleanup);
+      setTimeout(cleanup, 700);   // アニメ420ms + 余裕。非表示中でもタイマーは進む
+    }
+
+    function releaseFeedback(el) {
+      el.classList.remove("pressing");
+    }
+
+    // ---- 部品の描画 ---------------------------------------------------
+    // **描画の実装は static/components.js にしかない。** ここは呼ぶだけ。
+    // 実機の面とエディタが同じ関数を使うので、エディタのプレビューが嘘にならない。
+    // 送るものはここが決める（不変条件1: 意味の解決はHub側。ここは位置IDを渡すだけ）。
+
+    function renderKeyboard(body, keymapId) {
+      const keymap = (config.keymaps || {})[keymapId];
+      const state = layerStates[keymapId] || { momentary: [], toggled: [] };
+      KDComponents.renderKeyboard(body, keymap, state, {
+        interactive: true,
+        press: pressFeedback,
+        release: releaseFeedback,
+        onDown: (keyId) => sendKeyPress(keymapId, keyId, "down"),
+        onUp: (keyId) => sendKeyPress(keymapId, keyId, "up"),
+      });
+    }
+
+    function renderDeck(body, deckId) {
+      const deck = (config.decks || {})[deckId];
+      const grid = KDComponents.renderDeck(body, deck, {
+        interactive: true,
+        press: pressFeedback,
+        release: releaseFeedback,
+        onPress: (slotId) => sendDeckPress(deckId, slotId),
+      });
+      // 正方形スロットは幅で大きさが決まるため、行数が多いと区画からはみ出す。
+      if (grid && deck && deck.render !== "list") {
+        requestAnimationFrame(() =>
+          KDComponents.fitDeck(body, grid, deck.grid.cols, deck.grid.rows, 40));
+      }
+    }
+
+    // ---- トラックボール部品 -----------------------------------------
+    // 検証済みの static/trackball.html をそのまま埋める（Core/View/Gestureを改変しない）。
+    // 取引: この区画は自前のWS接続を1本持つ（Hubから見ると別クライアント）。
+    function renderTrackball(body, surfaceId) {
+      const frame = document.createElement("iframe");
+      frame.className = "tbframe";
+      frame.title = "トラックボール";
+      frame.src = "/trackball?embed=1&token=" + encodeURIComponent(token);
+      frame.dataset.surfaceId = surfaceId;
+      body.style.padding = "0";
+      body.appendChild(frame);
+    }
+
+    // ---- 盤面全体のモード表示（記号盤・日本語モード） ------------------
+    function applyBodyModes() {
+      const main = layerStates["ipad01_vol12"] || { toggled: [] };
+      document.body.classList.toggle("sym", (main.toggled || []).includes(2));
+      document.body.classList.toggle("jp", (main.toggled || []).includes(3));
+    }
+
+    // ================================================================
+    // 送受信
+    // ================================================================
+
+    function sendKeyPress(keymapId, keyId, edge) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; key.press dropped", { keymapId, keyId, edge });
+        return;
+      }
+      socket.send(JSON.stringify({ type: "key.press", keymapId, keyId, edge }));
+      if (edge === "down") setStatus(keymapId + " / " + keyId);
+    }
+
+    function sendDeckPress(deckId, slotId) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("ERR", "WS_SEND_CLOSED", "socket not open; deck.press dropped", { deckId, slotId });
+        return;
+      }
+      socket.send(JSON.stringify({ type: "deck.press", deckId, slotId }));
+      setStatus(deckId + " / " + slotId + " を送信しました");
+    }
+
+    function connect() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      setStatus("接続中…");
+      socket = new WebSocket(
+        (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host +
+          "/ws?surface=layout&token=" + encodeURIComponent(token)
+      );
+
+      socket.addEventListener("open", () => {
+        log("P005-B", "OK", "ws open (surface=layout)");
+        setConnectionBadge(true);
+        setStatus("接続しました");
+      });
+
+      socket.addEventListener("message", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          log("ERR", "INTERNAL", "failed to parse server message: " + error, event.data);
+          return;
+        }
+        handleServerMessage(data);
+      });
+
+      socket.addEventListener("close", () => {
+        setConnectionBadge(false);
+        setStatus("切断中は操作できません。再接続中…");
+        log("ERR", "WS_CLOSE", "disconnected; retrying");
+        diagnoseDisconnect();
+        scheduleReconnect();
+      });
+
+      socket.addEventListener("error", () => log("ERR", "WS_ERROR", "websocket error event"));
+    }
+
+    // ---- P-005: 「切れている」のか「tokenが古い」のかを見分けて伝える ----
+    // Hubを再起動するとtokenが変わる（D8）。端末が古いURLを掴んだままだと、
+    // WSは延々と拒否され続けるのに画面は「再接続中…」としか言わないため、
+    // 何が悪いのか分からないまま何分も待つことになる（実際に起きた）。
+    // WSが閉じたら /api/ping を叩き、401ならtokenが古いと断定して案内する。
+    let staleTokenNotified = false;
+    async function diagnoseDisconnect() {
+      if (staleTokenNotified) return;
+      try {
+        const res = await fetch("/api/ping?token=" + encodeURIComponent(token), { cache: "no-store" });
+        if (res.status === 401) {
+          staleTokenNotified = true;
+          stickyStatus = true;
+          setStatus("このURLのtokenは古くなっています。PCのHub画面（ http://<PCのIP>:8770/ ）を開き直して、QRを読み直してください。", true);
+          if (typeof statusLabelEl !== "undefined" && statusLabelEl) {
+            statusLabelEl.textContent = "tokenが古い";
+          }
+          log("ERR", "WS_TOKEN_INVALID", "stale token; the Hub was restarted after this page was opened");
+        }
+      } catch (error) {
+        // Hub自体が落ちている場合はここに来る。従来どおり再接続を待つ。
+        log("T4-1", "OK", "hub unreachable while diagnosing: " + error);
+      }
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 2000);
+    }
+
+    function handleServerMessage(data) {
+      switch (data.type) {
+        case "surface.config":
+          config = data;
+          layerStates = data.layerStates || {};
+          log("P005-B", "OK", "surface.config received", {
+            layouts: Object.keys(data.layouts || {}),
+            keymaps: Object.keys(data.keymaps || {}),
+            decks: Object.keys(data.decks || {}),
+          });
+          render();
+          break;
+        case "layer.state": {
+          // どの盤面のレイヤーが変わったかは keymapId で分かる。
+          // 該当する区画だけ描き直す（他の区画の押下中の見た目を壊さないため）。
+          const id = data.keymapId;
+          if (!id) break;
+          layerStates[id] = { momentary: data.momentary, toggled: data.toggled };
+          rerenderKeyboards(id);
+          applyBodyModes();
+          break;
+        }
+        case "error":
+          log("ERR", data.code, "cause: " + data.cause, data.context);
+          setStatus("エラー: " + data.code, true);
+          break;
+        default:
+          log("ERR", "INTERNAL", "unknown message type from server: " + data.type, data);
+      }
+    }
+
+    function rerenderKeyboards(keymapId) {
+      if (!config) return;
+      const layout = (config.layouts || {})[layoutId];
+      if (!layout) return;
+      for (const section of layout.sections) {
+        if (section.component.kind !== "keyboard") continue;
+        if (effectiveKeymapId(section) !== keymapId) continue;
+        const box = stageEl.querySelector('[data-section-id="' + section.id + '"] > .body');
+        if (!box) continue;
+        box.innerHTML = "";
+        renderKeyboard(box, keymapId);
+      }
+    }
+
+    // ① 登録boardを切り替える＝画面を丸ごと差し替える。
+    //    URLにも反映しておくと、再読込やQR共有でそのまま同じ画面に戻れる。
+    document.getElementById("layoutSel").addEventListener("change", (event) => {
+      layoutId = event.target.value;
+      savePref(STORE_LAYOUT, layoutId);
+      const url = new URL(location.href);
+      url.searchParams.set("id", layoutId);
+      history.replaceState(null, "", url);
+      log("P005-B", "OK", "board switched", { layoutId });
+      render();
+    });
+
+    // ② キーボードの配列だけを差し替える。区画の配置は変えない。
+    //    layouts/*.json は書き換えない（この端末での表示上の選択）。
+    document.getElementById("keymapSel").addEventListener("change", (event) => {
+      keymapOverride = event.target.value;
+      savePref(STORE_KEYMAP, keymapOverride);
+      log("P005-B", "OK", "keyboard layout switched", { keymapOverride });
+      render();
+    });
+
+    statusBtnEl.addEventListener("click", () => {
+      if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) connect();
+    });
+    document.getElementById("qrOpenBtn").addEventListener("click", () => document.getElementById("qrModal").classList.add("on"));
+    document.getElementById("qrCloseBtn").addEventListener("click", () => document.getElementById("qrModal").classList.remove("on"));
+
+    // 区画の大きさが変わったらDeckのマス目を測り直す。
+    window.addEventListener("resize", () => { if (config) render(); });
+
+    window.addEventListener("error", (event) => log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error));
+    window.addEventListener("unhandledrejection", (event) => log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason));
+
+    connect();
+  </script>
+</body>
+</html>

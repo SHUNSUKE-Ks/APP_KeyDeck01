@@ -103,6 +103,16 @@
     body.sym .key { background: #20304f; }
     body.sym .key[data-empty="true"] { background: var(--empty); }
     body.sym .key.fn { background: var(--accent); }
+    /* T21: 日本語モード（layer3がtoggled）。記号盤と同じく地色で状態を示す。 */
+    body.jp .key { background: #1f2b45; }
+    body.jp .key[data-empty="true"] { background: var(--empty); }
+    body.jp .key.fn { background: var(--accent); }
+    /* ローマ字入力では英字キーは日本語モードでも英字を送るので表示は変えない。
+       2行ラベルを持つキー（K410の「、」＋「,」など）だけ、日本語モードでは
+       上下の主従を入れ替えて日本語側（上の小さい行）を主にする。
+       記号盤が出ている間は記号側が正なので :not(.sym) で除外する。 */
+    body.jp:not(.sym) .key.dual { font-size: 10px; color: var(--ink-muted); }
+    body.jp:not(.sym) .key.dual small { font-size: 17px; color: var(--ink); }
 
     footer[role="status"] { padding: 6px 14px 10px; font-size: 12px; color: var(--ink-muted); min-height: 16px; }
     footer.error { color: #ff8a8a; }
@@ -166,7 +176,12 @@
       }
     }
 
+    // P-005: 一度「tokenが古い」と分かったら、その警告を貼り付ける。
+    // これが無いと、2秒ごとの再接続が「接続中…」→「切断中…」で警告を上書きし続け、
+    // ユーザーは原因を知らされないまま待つことになる（実際にそうなっていた）。
+    let stickyStatus = false;
     function setStatus(text, isError) {
+      if (stickyStatus && !isError) return;
       statusEl.textContent = text;
       statusEl.classList.toggle("error", !!isError);
     }
@@ -204,6 +219,8 @@
         small.textContent = lines[0];
         btn.appendChild(small);
         btn.appendChild(document.createTextNode(lines.slice(1).join("\n")));
+        // T21: 2行ラベルであること自体を印にする（日本語モードで主従を入れ替えるCSS用）。
+        btn.classList.add("dual");
       } else {
         btn.textContent = label;
       }
@@ -241,8 +258,19 @@
 
       const highestActive = Math.max(0, ...layerState.momentary, ...layerState.toggled);
       const symbolActive = layerState.toggled.includes(2);
+      // T21: layer3 = 日本語モード表示。Hubがtg.fireで立てた状態をそのまま映すだけ。
+      const japaneseActive = layerState.toggled.includes(3);
       document.body.classList.toggle("sym", symbolActive);
-      layerBadgeEl.textContent = symbolActive ? "記号" : "Layer " + highestActive;
+      document.body.classList.toggle("jp", japaneseActive);
+      if (symbolActive) {
+        layerBadgeEl.textContent = "記号";
+      } else if (highestActive > 0 && highestActive !== 3) {
+        layerBadgeEl.textContent = "Layer " + highestActive;
+      } else {
+        // 英数/日本語はKeyDeckが送ったALT+GRAVEの回数から導いた「推定」であって、
+        // Windowsに問い合わせた実測ではない。ずれたらバッジ長押し（H03）で直す。
+        layerBadgeEl.textContent = japaneseActive ? "日本語" : "英数";
+      }
       titleEl.textContent = "KeyDeck — iPad (" + surfaceConfig.activeKeymapId + ")";
     }
 
@@ -320,6 +348,7 @@
         setKeysEnabled(false);
         setStatus("切断中は操作できません。再接続中…");
         log("ERR", "WS_CLOSE", "disconnected; retrying");
+        diagnoseDisconnect();
         scheduleReconnect();
       });
 
@@ -327,6 +356,31 @@
         // closeイベントが後続するため、ここではログのみ（二重の再接続予約はしない）。
         log("ERR", "WS_ERROR", "websocket error event");
       });
+    }
+
+    // ---- P-005: 「切れている」のか「tokenが古い」のかを見分けて伝える ----
+    // Hubを再起動するとtokenが変わる（D8）。端末が古いURLを掴んだままだと、
+    // WSは延々と拒否され続けるのに画面は「再接続中…」としか言わないため、
+    // 何が悪いのか分からないまま何分も待つことになる（実際に起きた）。
+    // WSが閉じたら /api/ping を叩き、401ならtokenが古いと断定して案内する。
+    let staleTokenNotified = false;
+    async function diagnoseDisconnect() {
+      if (staleTokenNotified) return;
+      try {
+        const res = await fetch("/api/ping?token=" + encodeURIComponent(token), { cache: "no-store" });
+        if (res.status === 401) {
+          staleTokenNotified = true;
+          stickyStatus = true;
+          setStatus("このURLのtokenは古くなっています。PCのHub画面（ http://<PCのIP>:8770/ ）を開き直して、QRを読み直してください。", true);
+          if (typeof statusLabelEl !== "undefined" && statusLabelEl) {
+            statusLabelEl.textContent = "tokenが古い";
+          }
+          log("ERR", "WS_TOKEN_INVALID", "stale token; the Hub was restarted after this page was opened");
+        }
+      } catch (error) {
+        // Hub自体が落ちている場合はここに来る。従来どおり再接続を待つ。
+        log("T4-1", "OK", "hub unreachable while diagnosing: " + error);
+      }
     }
 
     function scheduleReconnect() {
@@ -379,6 +433,45 @@
     document.getElementById("qrCloseBtn").addEventListener("click", () => {
       document.getElementById("qrModal").classList.remove("on");
     });
+
+
+    // ---- T21: レイヤーバッジ長押しで「表示だけ」直す ------------------
+    // KeyDeck以外（タスクバー・PC本体の半角/全角キー・アプリ切替）でIMEが変わると、
+    // Hubが持つ推定と実態がずれる。H03はlayer3をトグルするだけのboard外keyIdで、
+    // PCへは何も送らない（layer0で { "t": "tg", "layer": 3 } として定義）。
+    (function bindBadgeLongPress() {
+      const HOLD_MS = 600;
+      let timer = null;
+      let fired = false;
+
+      layerBadgeEl.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        fired = false;
+        timer = setTimeout(() => {
+          timer = null;
+          fired = true;
+          sendPress("H03", "down");
+          sendPress("H03", "up");
+          setStatus("表示だけ切り替えました（PCへは何も送っていません）");
+          log("T21", "OK", "display-only IME state corrected via H03");
+        }, HOLD_MS);
+      });
+      const cancel = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      layerBadgeEl.addEventListener("pointerup", cancel);
+      layerBadgeEl.addEventListener("pointercancel", cancel);
+      layerBadgeEl.addEventListener("pointerleave", cancel);
+      // 長押し後のクリックが他所へ抜けないように潰す。
+      layerBadgeEl.addEventListener("click", (event) => {
+        if (fired) event.preventDefault();
+      });
+      layerBadgeEl.style.cursor = "pointer";
+      layerBadgeEl.title = "長押しで、PCへ送らずに日本語/英数の表示だけ切り替える";
+    })();
 
     // ---- 例外の取りこぼし防止（T4-3） ----------------------------------
     window.addEventListener("error", (event) => {
