@@ -124,6 +124,11 @@ pub fn send(action: &Action) -> Result<(), AdapterError> {
         Action::Key { vk } => send_key(vk),
         Action::Chord { keys } => send_chord(keys),
         Action::Text { string } => send_text(string),
+        // P-005 段階C: 押しっぱなし。pressとreleaseを別々に打つ（send_key()はpress+releaseで一体）。
+        Action::KeyButton { vk, down } => {
+            let code = resolve_code(vk)?;
+            if *down { press(code, vk) } else { release(code, vk) }
+        }
         Action::MouseMove { dx, dy } => send_mouse_move(*dx, *dy),
         // T16（brief/keydeck_trackball_gestures_v0.7.md §5）: discrete/continuousジェスチャーの出口。
         Action::MouseClick { button } => send_mouse_click(*button),

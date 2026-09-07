@@ -9,7 +9,7 @@ proto-adapter-win = { path = "../proto-adapter-win" }
 hub-core = { path = "../hub-core" }   # vendored凍結。CommandServiceの冪等・拒否を流用（D5）
 axum = { version = "0.8.9", features = ["ws"] }
 tokio = { version = "1.53.0", features = ["full"] }
-tower-http = { version = "0.7.0", features = ["fs"] }
+tower-http = { version = "0.7.0", features = ["fs", "set-header"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.150"
 tracing = "0.1.44"

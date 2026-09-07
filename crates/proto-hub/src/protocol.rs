@@ -3,19 +3,32 @@
 use proto_keymap::{Edge, Keymap};
 use serde::{Deserialize, Serialize};
 
+use std::collections::BTreeMap;
+
 use crate::deck::DeckSetlist;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientMessage {
+    /// P-005 段階B: `keymapId`を追加（省略時は面ごとの既定＝従来動作）。1画面に
+    /// 複数のキーボード部品を置けるようになったため、どの盤面のキーかを名指しする必要がある。
+    /// keymapIdもkeyIdと同じ「位置ID」なので不変条件1には抵触しない
+    /// （実行内容を決めるのは相変わらずHub側のJSONだけ）。
     #[serde(rename = "key.press")]
     KeyPress {
+        #[serde(rename = "keymapId", default)]
+        keymap_id: Option<String>,
         #[serde(rename = "keyId")]
         key_id: String,
         edge: EdgeWire,
     },
+    /// P-005 段階A: `deckId`を追加（省略時は`DEFAULT_DECK_ID`）。Deckが複数になったため
+    /// slotIdだけでは一意に決まらない。deckIdもslotIdと同じ「位置ID」なので、
+    /// 不変条件1（クライアントが送ってよいのは位置IDのみ）には抵触しない。
     #[serde(rename = "deck.press")]
     DeckPress {
+        #[serde(rename = "deckId", default)]
+        deck_id: Option<String>,
         #[serde(rename = "slotId")]
         slot_id: String,
     },
@@ -80,6 +93,11 @@ impl From<EdgeWire> for Edge {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LayerStateWire {
+    /// P-005 段階B: どの盤面のレイヤー状態かを名乗る。`/layout`面は複数のキーボードを
+    /// 同時に描くため、これが無いとどれを塗り替えるべきか分からない。
+    /// 既存面（kb/ipad/panel）はこの値を無視して従来どおり動く。
+    #[serde(rename = "keymapId", skip_serializing_if = "Option::is_none")]
+    pub keymap_id: Option<String>,
     pub momentary: Vec<u8>,
     pub toggled: Vec<u8>,
 }
@@ -87,9 +105,16 @@ pub struct LayerStateWire {
 impl From<&proto_keymap::LayerState> for LayerStateWire {
     fn from(state: &proto_keymap::LayerState) -> Self {
         Self {
+            keymap_id: None,
             momentary: state.momentary().iter().copied().collect(),
             toggled: state.toggled().iter().copied().collect(),
         }
+    }
+}
+
+impl LayerStateWire {
+    pub fn for_keymap(keymap_id: &str, state: &proto_keymap::LayerState) -> Self {
+        Self { keymap_id: Some(keymap_id.to_string()), ..Self::from(state) }
     }
 }
 
@@ -99,7 +124,17 @@ pub struct SurfaceConfig<'a> {
     pub active_keymap_id: &'a str,
     pub keymap: &'a Keymap,
     pub layer: LayerStateWire,
-    pub deck: &'a DeckSetlist,
+    /// P-005 段階A: 全Deckを`deckId`をキーにして配る。クライアントはURL（`?deck=`）で
+    /// どれを描くかを選ぶ。1本のWSで複数の部品を同時に描けるようにするため。
+    pub decks: &'a BTreeMap<String, DeckSetlist>,
+    /// P-005 段階B: `/layout`面が使う。全keymap・全レイアウト・盤面ごとのレイヤー状態。
+    /// 既存面はこれらを見ない（従来の`keymap`/`layer`をそのまま使う）ので無影響。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keymaps: Option<&'a BTreeMap<String, Keymap>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layouts: Option<&'a BTreeMap<String, crate::layout::Layout>>,
+    #[serde(rename = "layerStates", skip_serializing_if = "Option::is_none")]
+    pub layer_states: Option<BTreeMap<String, LayerStateWire>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -17,3 +17,9 @@ pub const RELOAD_INVALID: &str = "RELOAD_INVALID";
 pub const LOAD_JSON_SYNTAX: &str = proto_keymap::LOAD_JSON_SYNTAX;
 pub const LOAD_SCHEMA_INVALID: &str = proto_keymap::LOAD_SCHEMA_INVALID;
 pub const LOAD_VK_UNKNOWN: &str = proto_keymap::LOAD_VK_UNKNOWN;
+
+/// P-005 段階D: レイアウト保存の拒否（検証に落ちた／idの形が不正）。
+/// ディスクは変更されないか、変更されても巻き戻される。
+pub const LAYOUT_SAVE_REJECTED: &str = "LAYOUT_SAVE_REJECTED";
+/// P-005 段階D: レイアウト保存の失敗（ファイル操作そのものが失敗した）。
+pub const LAYOUT_SAVE_FAILED: &str = "LAYOUT_SAVE_FAILED";

@@ -53,6 +53,17 @@ pub struct Page {
     pub slots: Vec<Slot>,
 }
 
+/// P-005 段階A: Deckの描き方。データ（label＋actionの並び）は同じで見た目だけが違う。
+/// `grid`=正方形スロットの格子（Stream Deck）、`list`=横いっぱいの縦リスト（コピペリスト）。
+/// 省略時は`grid`なので、既存のDeck JSONは書き換えなくてよい。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DeckRender {
+    #[default]
+    Grid,
+    List,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckSetlist {
@@ -61,6 +72,9 @@ pub struct DeckSetlist {
     #[serde(default)]
     pub description: String,
     pub grid: Grid,
+    /// P-005 段階A。省略時は`Grid`。
+    #[serde(default)]
+    pub render: DeckRender,
     pub pages: Vec<Page>,
 }
 
@@ -107,6 +121,26 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
         }
     }
 
+    // P-005 段階A（§1.3の欠陥修正）: `grid.rows`はこれまで宣言されているだけで、
+    // 描画にも検証にも一度も使われていなかった（行数はスロット数÷colsで暗黙に決まっていた）。
+    // ここで「1ページのスロット数は cols×rows に収まること」を検証し、rowsを本物の
+    // 意味のあるフィールドにする。溢れたスロットが黙って消える事故も同時に防ぐ。
+    let capacity = deck.grid.cols as usize * deck.grid.rows as usize;
+    for page in &deck.pages {
+        if page.slots.len() > capacity {
+            return Err(DeckError::new(
+                LOAD_SCHEMA_INVALID,
+                format!(
+                    "{source}: page {} has {} slots but grid is {}x{} (capacity {capacity}); increase grid.cols/grid.rows or split the slots across pages",
+                    page.id,
+                    page.slots.len(),
+                    deck.grid.cols,
+                    deck.grid.rows
+                ),
+            ));
+        }
+    }
+
     // vk辞書検証（Key/Chordのみ。KeymapSwitch先の存在確認はmain.rs側で全ロード後に行う）
     for slot in deck.pages.iter().flat_map(|page| page.slots.iter()) {
         match &slot.action {
@@ -134,11 +168,24 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
                     }
                 }
             }
-            Action::Mo { .. } | Action::Tg { .. } | Action::Trans => {
+            // T21: tg.fireもレイヤー状態を持つキーボード専用アクション。Deckには
+            // レイヤーの概念が無いため、mo/tg/transと同じくロード時に拒否する。
+            // P-005 段階C: key.hold/key.buttonはDeckに置けない。`deck.press`にはedgeが無く、
+            // 「離す」機会が来ないため、押したキーが永久に押されっぱなしになる。
+            Action::KeyHold { .. } | Action::KeyButton { .. } => {
                 return Err(DeckError::new(
                     LOAD_SCHEMA_INVALID,
                     format!(
-                        "{source}: slot '{}': mo/tg/trans are keyboard-layer actions and are not valid on the Deck",
+                        "{source}: slot '{}': key.hold/key.button need a release edge, but deck.press has none; use 'key' or 'chord' on a Deck",
+                        slot.slot_id
+                    ),
+                ));
+            }
+            Action::Mo { .. } | Action::Tg { .. } | Action::Trans | Action::TgFire { .. } => {
+                return Err(DeckError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!(
+                        "{source}: slot '{}': mo/tg/tg.fire/trans are keyboard-layer actions and are not valid on the Deck",
                         slot.slot_id
                     ),
                 ));
@@ -220,6 +267,41 @@ mod tests {
         }"#;
         let error = load_deck_str("test", text).unwrap_err();
         assert_eq!(error.code, LOAD_SCHEMA_INVALID);
+    }
+
+    /// P-005 段階A: `grid.rows`が本当に効いていること（capacity超過を拒否）。
+    /// この欠陥は「rowsを2にしてもDeckが2段にならない」という形で実機に出ていた。
+    #[test]
+    fn rejects_more_slots_than_grid_capacity() {
+        let text = r#"{
+            "deckId": "t",
+            "grid": { "cols": 2, "rows": 1 },
+            "pages": [ { "id": 1, "slots": [
+                { "slotId": "S01", "label": "a", "action": { "t": "none" } },
+                { "slotId": "S02", "label": "b", "action": { "t": "none" } },
+                { "slotId": "S03", "label": "c", "action": { "t": "none" } }
+            ] } ]
+        }"#;
+        let error = load_deck_str("test", text).unwrap_err();
+        assert_eq!(error.code, LOAD_SCHEMA_INVALID);
+        assert!(error.cause.contains("capacity"), "cause must explain the capacity: {}", error.cause);
+    }
+
+    /// `render`は省略可能で、省略時はgrid（既存のDeck JSONを書き換えなくてよい）。
+    #[test]
+    fn render_defaults_to_grid_and_accepts_list() {
+        let deck = load_deck_str("test", sample_text()).unwrap();
+        assert_eq!(deck.render, DeckRender::Grid);
+
+        let text = r#"{
+            "deckId": "l",
+            "grid": { "cols": 1, "rows": 1 },
+            "render": "list",
+            "pages": [ { "id": 1, "slots": [
+                { "slotId": "S01", "label": "a", "action": { "t": "text", "string": "x" } }
+            ] } ]
+        }"#;
+        assert_eq!(load_deck_str("test", text).unwrap().render, DeckRender::List);
     }
 
     #[test]

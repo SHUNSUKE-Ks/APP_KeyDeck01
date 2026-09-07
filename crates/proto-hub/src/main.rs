@@ -4,6 +4,7 @@
 //! 実装箇所コメントに残している（ws.rsを参照）。
 
 mod deck;
+mod layout;
 mod error;
 mod protocol;
 mod qr;
@@ -21,10 +22,14 @@ use state::{AccessToken, HubState, PORT};
 /// `keymap_*.json`を全てスキャン・ロードする（`startup::discover_keymap_paths`）。
 /// 新フォーマットはここへファイルを置くだけで起動時に発見される。
 const KEYMAPS_DIR: &str = "keymaps";
-const DECK_PATH: &str = "decks/deck_default.json";
+/// P-005 段階A: Deckは1枚固定をやめ、`keymaps/`と同じディレクトリスキャンにした。
+const DECKS_DIR: &str = "decks";
 /// T11（D28）: `surfaces/trackball.json`を置くディレクトリ。存在しなくても起動は成功する
 /// （startup::load_startup_dataのT11-4）。
 const SURFACES_DIR: &str = "surfaces";
+
+/// P-005 段階B: 画面の区画割り（`layouts/layout_*.json`）。無くても起動する。
+const LAYOUTS_DIR: &str = "layouts";
 
 #[tokio::main]
 async fn main() {
@@ -40,8 +45,9 @@ async fn main() {
     // 起動時とreload時で検証経路が1本に保たれる。
     let startup_data = match startup::load_startup_data(
         Path::new(KEYMAPS_DIR),
-        Path::new(DECK_PATH),
+        Path::new(DECKS_DIR),
         Path::new(SURFACES_DIR),
+        Path::new(LAYOUTS_DIR),
     ) {
         Ok(data) => data,
         Err(startup_errors) => {
@@ -54,16 +60,18 @@ async fn main() {
     };
     let startup::StartupData {
         keymaps,
-        deck,
+        decks,
         command_registry,
         surfaces,
+        layouts,
     } = startup_data;
 
     tracing::info!(
         chk = "T3-1",
         keymaps = keymaps.len(),
-        decks = 1,
+        decks = decks.len(),
         surfaces = surfaces.len(),
+        layouts = layouts.len(),
         "startup data loaded successfully"
     );
     tracing::info!(
@@ -86,15 +94,18 @@ async fn main() {
     let hub_state = HubState::new(
         keymaps,
         active_keymap_id,
-        deck,
+        decks,
         command_registry,
         surfaces,
+        layouts,
         token.clone(),
         adapter_tx,
         lan_ip.clone(),
     );
     let shared = std::sync::Arc::new(std::sync::Mutex::new(hub_state));
 
+    // 起動バナー用に1本持っておく（routerへはこの後moveされるため）
+    let banner_state = std::sync::Arc::clone(&shared);
     let router = ws::router(shared);
     let listener = match tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], PORT))).await {
         Ok(listener) => listener,
@@ -105,13 +116,23 @@ async fn main() {
     };
 
     println!("proto-hub: listening on 0.0.0.0:{PORT}");
-    println!("  QRつきランディングページ: http://{lan_ip}:{PORT}/  ← まずはこれを開く");
-    println!("  keyboard (left) : http://{lan_ip}:{PORT}/kb?half=left&token={}", token.value());
-    println!("  keyboard (right): http://{lan_ip}:{PORT}/kb?half=right&token={}", token.value());
-    println!("  deck            : http://{lan_ip}:{PORT}/deck?token={}", token.value());
-    println!("  ipad (Vol1.2)   : http://{lan_ip}:{PORT}/ipad?token={}", token.value());
-    println!("  trackball       : http://{lan_ip}:{PORT}/trackball?token={}", token.value());
-    println!("  settings（再読込）: http://{lan_ip}:{PORT}/settings?token={}", token.value());
+    println!("  ▼ PCで開く");
+    println!("    トップ（レイアウト編集）: http://{lan_ip}:{PORT}/?token={}", token.value());
+    println!("    QRギャラリー（端末を繋ぐ）: http://{lan_ip}:{PORT}/connect?token={}", token.value());
+    println!("    設定（構成の確認・再読込）: http://{lan_ip}:{PORT}/settings?token={}", token.value());
+    println!("  ▼ 端末で開く（QRギャラリーから読み取るのが早い）");
+    // T9: 一覧は手書きしない。`connection_targets()`（ws.rs）が唯一の表で、
+    // ランディングページ・/api/formats・ここが同じものを見る。
+    // 以前はここだけ手書きの7行で、P-005で足したレイアウト3種が出ていなかった。
+    {
+        let s = banner_state.lock().unwrap();
+        for (target, label, _kind) in ws::connection_targets(&s) {
+            if let Some(url) = s.connection_url(&target) {
+                println!("    {label}: {url}");
+            }
+        }
+    }
+
 
     if let Err(error) = axum::serve(listener, router).await {
         eprintln!("proto-hub: server error: {error}");

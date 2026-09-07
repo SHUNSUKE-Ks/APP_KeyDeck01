@@ -1,6 +1,6 @@
 //! Hub状態の一元保持（D5/D6/D7/D8/D10）。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::Message;
@@ -20,6 +20,10 @@ pub const PORT: u16 = 8770;
 /// active系とは独立）"）。keymap.switch/keymap.resetの影響も受けない。
 pub const IPAD_KEYMAP_ID: &str = "ipad01_vol12";
 
+/// P-005 段階A: `deck.press`が`deckId`を省略したとき、および`/deck`・`/panel`が
+/// 指定なしで開かれたときに使うDeck。起動時に存在を検証する（startup.rs）。
+pub const DEFAULT_DECK_ID: &str = "default";
+
 /// WS接続がどの面かを表す。Split=分割キーボード/Deck（従来どおり共有state.active_keymap_id・
 /// layer_stateを使う）、Ipad=iPad一枚キーボード（IPAD_KEYMAP_ID固定・独立したlayer_state）、
 /// Trackball=T12トラックボール面（D28。keymap/layerを持たず、surface.stateのみを扱う）。
@@ -28,6 +32,10 @@ pub enum SurfaceKind {
     Split,
     Ipad,
     Trackball,
+    /// P-005 段階B: `/layout` 面。1画面に複数の部品（keyboard/deck/trackball）を並べる。
+    /// レイヤー状態はkeymapIdごとに持つ（`HubState::layer_states`）ため、この面は
+    /// SplitともIpadとも状態を共有しない。
+    Layout,
 }
 
 impl SurfaceKind {
@@ -35,6 +43,7 @@ impl SurfaceKind {
         match value {
             Some("ipad") => SurfaceKind::Ipad,
             Some("trackball") => SurfaceKind::Trackball,
+            Some("layout") => SurfaceKind::Layout,
             _ => SurfaceKind::Split,
         }
     }
@@ -87,6 +96,16 @@ pub fn canonical_command_id(action: &Action) -> Option<String> {
         Action::Key { vk } => Some(format!("key:{vk}")),
         Action::Chord { keys } => Some(format!("chord:{}", keys.join("+"))),
         Action::Text { string } => Some(format!("text:{string}")),
+        // T21: tg.fire自体はOSへ届かないが、**中の`fire`は届く**。ここで潜らないと
+        // 起動時の許可リストに内側のアクションが載らず、発火が実行時に
+        // 「absent from the startup allow-list」で弾かれる（実際に一度そうなった。
+        // 症状は「画面表示だけ切り替わり、PCのIMEが切り替わらない」）。
+        // 入れ子は1段だけ（ロード時にfire=key/chord/textへ制限済み）。
+        Action::TgFire { fire, .. } => canonical_command_id(fire),
+        // P-005 段階C: JSONに書くのはKeyHold、実際に発火するのはKeyButton。
+        // **両方が同じidになるようにする**（片方だけだと実行時に許可リストで弾かれる。
+        // T21のtg.fireで実際に踏んだ罠と同じ形）。
+        Action::KeyHold { vk } | Action::KeyButton { vk, .. } => Some(format!("key.hold:{vk}")),
         _ => None,
     }
 }
@@ -98,7 +117,14 @@ pub struct HubState {
     /// T8: ipad面専用のレイヤー状態。IPAD_KEYMAP_IDに対してのみ使う。分割/Deck側の
     /// layer_stateとは独立（keymap.switch/keymap.resetの影響を受けない）。
     pub ipad_layer_state: LayerState,
-    pub deck: DeckSetlist,
+    /// P-005 段階A: Deckは複数持つ（キーは`deckId`）。`DEFAULT_DECK_ID`は必ず存在する。
+    pub decks: BTreeMap<String, DeckSetlist>,
+    /// P-005 段階B: 画面の区画割り（キーは`layoutId`）。0件でも起動する。
+    pub layouts: BTreeMap<String, crate::layout::Layout>,
+    /// P-005 段階B: **keymapIdごと**のレイヤー状態。1画面に複数のキーボード部品を置ける
+    /// ようになったため、面ごと（layer_state/ipad_layer_state）では足りない。
+    /// 同じkeymapを2区画に置いたら状態は共有される＝同じキーボードなら同じレイヤー、が正しい。
+    pub layer_states: BTreeMap<String, LayerState>,
     /// D5: 起動時ロードしたJSON群に現れるKey/Chord/Textアクションの集合のみ実行可。
     /// hub-core::CommandRegistryをそのまま再利用する（新規発明ゼロ）。requestId冪等や
     /// CommandService全体は今回の押下プロトコル（D6）にrequestIdが無いため使わず、
@@ -107,6 +133,10 @@ pub struct HubState {
     /// T11（D28）: `surfaces/trackball.json`から構築したレジストリ。T12でsurface.state
     /// 受信時にsurfaceIdを引くために使う。
     pub surfaces: crate::surface::SurfaceRegistry,
+    /// P-005 段階C: いま押しっぱなしになっているキー（クライアント別）。
+    /// これが無いと、十字キーを押したまま切断・画面を閉じる・電波が切れる、で
+    /// **キーが押されっぱなしになりPCが操作不能になる**。切断時にここを見て全部離す。
+    held_keys: HashMap<ClientId, BTreeSet<String>>,
     clients: HashMap<ClientId, ClientEntry>,
     pub next_client_id: ClientId,
     pub token: AccessToken,
@@ -122,9 +152,10 @@ impl HubState {
     pub fn new(
         keymaps: BTreeMap<String, Keymap>,
         active_keymap_id: String,
-        deck: DeckSetlist,
+        decks: BTreeMap<String, DeckSetlist>,
         command_registry: hub_core::CommandRegistry,
         surfaces: crate::surface::SurfaceRegistry,
+        layouts: BTreeMap<String, crate::layout::Layout>,
         token: AccessToken,
         adapter_tx: mpsc::UnboundedSender<AdapterJob>,
         lan_ip: String,
@@ -134,9 +165,12 @@ impl HubState {
             active_keymap_id,
             layer_state: LayerState::new(),
             ipad_layer_state: LayerState::new(),
-            deck,
+            decks,
+            layouts,
+            layer_states: BTreeMap::new(),
             command_registry,
             surfaces,
+            held_keys: HashMap::new(),
             clients: HashMap::new(),
             next_client_id: 0,
             token,
@@ -145,15 +179,44 @@ impl HubState {
         }
     }
 
-    /// D12/D25: `target`（kb-left/kb-right/deck/ipad/trackball）から接続URLを組み立てる。
+    /// P-005 段階B: keymapIdごとのレイヤー状態を取り出す（無ければ作る）。
+    pub fn layer_state_for(&mut self, keymap_id: &str) -> &mut LayerState {
+        self.layer_states.entry(keymap_id.to_string()).or_default()
+    }
+
+    /// P-005 段階A: `(deckId, slotId)`でスロットを引く。deckIdはクライアントが送る
+    /// 「位置ID」の一部であり、実行内容を指定するものではない（不変条件1）。
+    pub fn find_deck_slot(&self, deck_id: &str, slot_id: &str) -> Option<&crate::deck::Slot> {
+        self.decks.get(deck_id)?.find_slot(slot_id)
+    }
+
+    /// D12/D25: `target`（kb-left/kb-right/deck/ipad/trackball/panel）から接続URLを組み立てる。
     /// tokenはHub内で完結させ、クライアント側HTML/JSには一切埋め込まない。
     pub fn connection_url(&self, target: &str) -> Option<String> {
+        // P-005: `layout:<layoutId>` でレイアウトごとのURLを作れるようにする。
+        // レイアウトが増えても、iPad側は「ランディングページのQRを読む」だけで
+        // 目的の画面に飛べる（URLを手で打たなくてよい）。
+        if let Some(layout_id) = target.strip_prefix("layout:") {
+            if !self.layouts.contains_key(layout_id) {
+                return None;
+            }
+            return Some(format!(
+                "http://{}:{}/layout?id={layout_id}&token={}",
+                self.lan_ip,
+                PORT,
+                self.token.value()
+            ));
+        }
         let path = match target {
             "kb-left" => "/kb?half=left",
             "kb-right" => "/kb?half=right",
             "deck" => "/deck",
             "ipad" => "/ipad",
             "trackball" => "/trackball",
+            // T20（P-003 Ver1-a）: 分割面。WSは`surface=ipad`を使うがURLは独立。
+            "panel" => "/panel",
+            // P-005 段階B: レイアウト面。どのレイアウトを開くかは ?id= で選ぶ。
+            "layout" => "/layout",
             _ => return None,
         };
         let separator = if path.contains('?') { '&' } else { '?' };
@@ -172,6 +235,28 @@ impl HubState {
         surface: SurfaceKind,
     ) {
         self.clients.insert(client_id, ClientEntry { tx, surface });
+    }
+
+    /// P-005 段階C: 押下/解放を台帳に反映する。戻り値は「実際に状態が変わったか」。
+    pub fn note_key_hold(&mut self, client_id: ClientId, vk: &str, down: bool) {
+        let entry = self.held_keys.entry(client_id).or_default();
+        if down {
+            entry.insert(vk.to_string());
+        } else {
+            entry.remove(vk);
+        }
+        if entry.is_empty() {
+            self.held_keys.remove(&client_id);
+        }
+    }
+
+    /// P-005 段階C: そのクライアントが押しっぱなしにしているキーを取り出して台帳から消す。
+    /// 切断時に呼び、返ってきたvkを全部releaseする。
+    pub fn take_held_keys(&mut self, client_id: ClientId) -> Vec<String> {
+        self.held_keys
+            .remove(&client_id)
+            .map(|set| set.into_iter().collect())
+            .unwrap_or_default()
     }
 
     pub fn unregister_client(&mut self, client_id: ClientId) {
@@ -218,4 +303,76 @@ pub fn spawn_adapter_worker() -> mpsc::UnboundedSender<AdapterJob> {
         }
     });
     tx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_state() -> HubState {
+        let deck = crate::deck::load_deck_str(
+            "test",
+            r#"{ "deckId": "default", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
+        )
+        .expect("empty deck must load");
+        let mut decks = BTreeMap::new();
+        decks.insert(deck.deck_id.clone(), deck);
+        let surfaces = crate::surface::load_surface_registry_str("test", r#"{ "surfaces": [] }"#)
+            .expect("empty surface registry must load");
+        let (tx, _rx) = mpsc::unbounded_channel::<AdapterJob>();
+        HubState::new(
+            BTreeMap::new(),
+            "none".to_string(),
+            decks,
+            hub_core::CommandRegistry::new(Vec::<String>::new()),
+            surfaces,
+            BTreeMap::new(),
+            AccessToken::generate(),
+            tx,
+            "192.168.0.5".to_string(),
+        )
+    }
+
+    /// T20（P-003 Ver1-a）: 分割面のQR/ランディングページ用targetが解決できること。
+    /// ここが欠けると `/api/qr?target=panel` が400を返し、panel.html内のQRモーダルが
+    /// 画像切れになる（ブラウザ上はエラーにならず気付きにくいためテストで固定する）。
+    #[test]
+    fn connection_url_resolves_panel_target() {
+        let state = test_state();
+        let url = state.connection_url("panel").expect("panel must be a known target");
+        assert!(url.starts_with("http://192.168.0.5:8770/panel?token="), "unexpected url: {url}");
+    }
+
+    /// ランディングページ（ws.rs::index_page）が並べる全targetが解決できること。
+    /// 片方だけ足して片方を忘れる事故を防ぐ。
+    #[test]
+    fn connection_url_resolves_every_landing_page_target() {
+        let state = test_state();
+        for target in ["kb-left", "kb-right", "deck", "ipad", "trackball", "panel"] {
+            assert!(
+                state.connection_url(target).is_some(),
+                "landing page target '{target}' must resolve to a URL"
+            );
+        }
+    }
+
+    /// T21の回帰テスト: tg.fireの中のアクションが起動時許可リスト（D5）に載ること。
+    /// ここが抜けると、レイヤーは切り替わるのに発火だけがWS実行時に拒否され、
+    /// 「画面だけ切り替わってPCのIMEが変わらない」という分かりにくい壊れ方をする。
+    #[test]
+    fn canonical_command_id_descends_into_tg_fire() {
+        let action = Action::TgFire {
+            layer: 3,
+            fire: Box::new(Action::Chord {
+                keys: vec!["ALT".to_string(), "GRAVE".to_string()],
+            }),
+        };
+        assert_eq!(canonical_command_id(&action).as_deref(), Some("chord:ALT+GRAVE"));
+    }
+
+    #[test]
+    fn connection_url_rejects_unknown_target() {
+        let state = test_state();
+        assert_eq!(state.connection_url("does-not-exist"), None);
+    }
 }

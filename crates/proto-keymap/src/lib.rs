@@ -182,6 +182,31 @@ pub enum Action {
     /// `handle_surface_state`がclamp済み`dy`から組み立てる。
     #[serde(rename = "mouse.scroll")]
     MouseScroll { dy: i32 },
+    /// P-005 段階C: 押している間だけキーを押し続ける（ゲームの十字キー用）。
+    /// 既存の`key`は`send_key()`がpressの直後にreleaseを呼ぶため「押しっぱなし」ができない。
+    ///
+    /// JSONに書くのはこの`key.hold`だけ。`resolve()`がedgeを見て、内部専用の
+    /// `KeyButton{vk, down}`（下）に組み立てて返す（`mouse.button`と同じ形）。
+    /// **Deck面には置けない**（`deck.press`にはedgeが無く、離す機会が来ないため。
+    /// `proto-hub::deck`がロード時に拒否する）。
+    #[serde(rename = "key.hold")]
+    KeyHold { vk: String },
+    /// P-005 段階C: `key.hold`の出口。JSONへ直接書くことも一応できるが、意図された使い方は
+    /// `resolve()`が`KeyHold`から組み立てること。adapterは`down`に応じてpress/releaseを別々に呼ぶ。
+    #[serde(rename = "key.button")]
+    KeyButton { vk: String, down: bool },
+    /// T21: 「PCへ撃つ」と「Hub側のレイヤーを切り替える」を1キーで同時に行う。
+    ///
+    /// 動機（実機で見つかった不具合）: 「英数⇄日本語」キーは `chord: [ALT, GRAVE]` だったため、
+    /// PC側のIMEは切り替わるのに **Hub側には何の状態も残らず**、`layer.state` が配信されないので
+    /// 画面のキーボード表示だけが切り替わらなかった。`tg` は状態を変えるが発火しない、
+    /// `chord` は発火するが状態を変えない ── その両方を要る場面のための型。
+    ///
+    /// `fire` に置けるのは葉アクション（key/chord/text）だけ。mo/tg/tg.fire/keymap.* の
+    /// 入れ子はロード時に拒否する（再帰と、1打鍵での状態二重変更を防ぐため）。
+    /// Deck面には置けない（mo/tgと同じ扱い。`proto-hub::deck` が拒否する）。
+    #[serde(rename = "tg.fire")]
+    TgFire { layer: u8, fire: Box<Action> },
 }
 
 // ============================================================================
@@ -537,6 +562,18 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                         }
                     }
                 }
+                // P-005 段階C: key.hold / key.button のvkも辞書検証の対象。
+                Action::KeyHold { vk } | Action::KeyButton { vk, .. } => {
+                    if !is_known_vk(vk) {
+                        return Err(KeymapError::new(
+                            LOAD_VK_UNKNOWN,
+                            format!(
+                                "{source}: layer {} key '{key_id}': unknown vk '{vk}' in key.hold",
+                                layer.id
+                            ),
+                        ));
+                    }
+                }
                 Action::Mo { layer: target } | Action::Tg { layer: target } => {
                     if !layer_ids.contains(target) {
                         return Err(KeymapError::new(
@@ -546,6 +583,54 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                                 layer.id
                             ),
                         ));
+                    }
+                }
+                // T21: 参照先レイヤーの存在＋`fire`が葉アクションであることの両方を見る。
+                Action::TgFire { layer: target, fire } => {
+                    if !layer_ids.contains(target) {
+                        return Err(KeymapError::new(
+                            LOAD_LAYER_REF_INVALID,
+                            format!(
+                                "{source}: layer {} key '{key_id}': tg.fire references undefined layer {target}",
+                                layer.id
+                            ),
+                        ));
+                    }
+                    match fire.as_ref() {
+                        Action::Key { vk } => {
+                            if !is_known_vk(vk) {
+                                return Err(KeymapError::new(
+                                    LOAD_VK_UNKNOWN,
+                                    format!(
+                                        "{source}: layer {} key '{key_id}': unknown vk '{vk}' in tg.fire",
+                                        layer.id
+                                    ),
+                                ));
+                            }
+                        }
+                        Action::Chord { keys } => {
+                            for vk in keys {
+                                if !is_known_vk(vk) {
+                                    return Err(KeymapError::new(
+                                        LOAD_VK_UNKNOWN,
+                                        format!(
+                                            "{source}: layer {} key '{key_id}': unknown vk '{vk}' in tg.fire chord",
+                                            layer.id
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                        Action::Text { .. } => {}
+                        other => {
+                            return Err(KeymapError::new(
+                                LOAD_SCHEMA_INVALID,
+                                format!(
+                                    "{source}: layer {} key '{key_id}': tg.fire.fire must be key/chord/text, got {other:?}",
+                                    layer.id
+                                ),
+                            ));
+                        }
                     }
                 }
                 Action::Trans
@@ -617,6 +702,10 @@ pub enum Resolved {
     Fire(Action),
     /// mo/tgによる状態変化。呼び出し側はlayer.stateを全クライアントへ配信する。
     LayerChanged,
+    /// T21（tg.fire）: レイヤー状態が変わり、**かつ**発火もする。
+    /// 呼び出し側はlayer.stateの配信とアクション発火の両方を行うこと（片方だけだと、
+    /// 「PCのIMEは変わったのに画面が変わらない」という元の不具合に戻る）。
+    FireAndLayerChanged(Action),
     /// key/chordのup、あるいはtgのupなど、正常だが何もしない場合。
     Ignored,
     /// keyIdがこのキーマップのどの層にも定義されていない。呼び出し側はKEY_UNKNOWN_ID。
@@ -684,8 +773,30 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
                 Edge::Up => Resolved::Ignored,
             }
         }
+        // T21: tgと同じトグル則で状態を変え、同時に`fire`を返す。
+        // 決定性（G5）はtgと同じ: 同じ入力列は常に同じ状態列・同じ発火列を生む。
+        Action::TgFire { layer, fire } => {
+            let layer = *layer;
+            match edge {
+                Edge::Down => {
+                    if !state.toggled.remove(&layer) {
+                        state.toggled.insert(layer);
+                    }
+                    Resolved::FireAndLayerChanged((**fire).clone())
+                }
+                Edge::Up => Resolved::Ignored,
+            }
+        }
+        // P-005 段階C: 押しっぱなし。**upでもFireを返す唯一のアクション**
+        // （他の葉アクションはupがIgnored）。ここでdownフラグを確定させるので、
+        // Hub側は受け取ったKeyButtonをそのままadapterへ流すだけでよい。
+        Action::KeyHold { vk } => Resolved::Fire(Action::KeyButton {
+            vk: vk.clone(),
+            down: matches!(edge, Edge::Down),
+        }),
         Action::Key { .. }
         | Action::Chord { .. }
+        | Action::KeyButton { .. }
         | Action::Text { .. }
         | Action::KeymapSwitch { .. }
         | Action::KeymapReset
@@ -1077,6 +1188,128 @@ mod tests {
         assert_eq!(error.code, LOAD_LAYER_REF_INVALID);
         assert!(error.cause.contains("K1"));
         assert!(error.cause.contains('9'));
+    }
+
+    // ========================================================================
+    // T21: tg.fire（レイヤー切替＋発火を1打鍵で）
+    // 実機で見つかった不具合「英数⇄日本語を押すとPCのIMEは切り替わるのに、
+    // 画面のキーボード表示は切り替わらない」への対処。chordだけではHub側に
+    // 状態が残らずlayer.stateが配信されなかったのが原因。
+    // ========================================================================
+
+    fn tg_fire_keymap() -> (Keymap, LayerState) {
+        let manifest = r#"{
+            "keymapId": "tgfire",
+            "kind": "split",
+            "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+            "layerFiles": ["layer0.json", "layer3.json"]
+        }"#;
+        let layer0 = r#"{ "layer": 0, "keys": {
+            "K1": { "label": "英数⇄日本語", "action": { "t": "tg.fire", "layer": 3, "fire": { "t": "chord", "keys": ["ALT", "GRAVE"] } } }
+        } }"#;
+        let layer3 = r#"{ "layer": 3, "keys": {
+            "K1": { "label": "⇄英数", "action": { "t": "tg.fire", "layer": 3, "fire": { "t": "chord", "keys": ["ALT", "GRAVE"] } } }
+        } }"#;
+        let keymap = load_test_keymap(manifest, &[("layer0.json", layer0), ("layer3.json", layer3)])
+            .expect("tg.fire keymap must load");
+        (keymap, LayerState::new())
+    }
+
+    /// 核心: 1回のdownで「レイヤーが変わる」と「発火する」の両方が起きること。
+    /// どちらか片方だけになると元の不具合（PCだけ切り替わる／画面だけ切り替わる）に戻る。
+    #[test]
+    fn t21_tg_fire_changes_layer_and_fires_in_one_press() {
+        let (keymap, mut state) = tg_fire_keymap();
+
+        let first = resolve(&keymap, &mut state, "K1", Edge::Down);
+        assert_eq!(
+            first,
+            Resolved::FireAndLayerChanged(Action::Chord { keys: vec!["ALT".into(), "GRAVE".into()] }),
+            "tg.fire must report both the layer change and the action to fire"
+        );
+        assert!(state.toggled().contains(&3), "layer 3 must be toggled on");
+    }
+
+    /// もう一度押すと戻る（tgと同じトグル則）。戻すときもPCへALT+GRAVEを送る必要がある。
+    #[test]
+    fn t21_tg_fire_toggles_back_and_still_fires() {
+        let (keymap, mut state) = tg_fire_keymap();
+
+        resolve(&keymap, &mut state, "K1", Edge::Down);
+        let second = resolve(&keymap, &mut state, "K1", Edge::Down);
+        assert!(
+            matches!(second, Resolved::FireAndLayerChanged(_)),
+            "toggling back must still fire (otherwise the PC IME and the display desync)"
+        );
+        assert!(!state.toggled().contains(&3), "layer 3 must be toggled off again");
+    }
+
+    /// upでは何もしない（tgと同じ。二重発火を防ぐ）。
+    #[test]
+    fn t21_tg_fire_ignores_key_up() {
+        let (keymap, mut state) = tg_fire_keymap();
+        resolve(&keymap, &mut state, "K1", Edge::Down);
+        let up = resolve(&keymap, &mut state, "K1", Edge::Up);
+        assert_eq!(up, Resolved::Ignored, "tg.fire must not fire twice on release");
+        assert!(state.toggled().contains(&3), "release must not undo the toggle");
+    }
+
+    /// G5（決定性）: 同じ入力列は常に同じ結果列。tg.fireでも崩れないこと。
+    #[test]
+    fn t21_tg_fire_is_deterministic() {
+        let run = || {
+            let (keymap, mut state) = tg_fire_keymap();
+            let mut out = Vec::new();
+            for edge in [Edge::Down, Edge::Up, Edge::Down, Edge::Up] {
+                out.push(resolve(&keymap, &mut state, "K1", edge));
+            }
+            (out, state.toggled().iter().copied().collect::<Vec<_>>())
+        };
+        assert_eq!(run(), run());
+    }
+
+    /// 参照先レイヤーが無ければロード時に拒否（mo/tgと同じ強さ）。
+    #[test]
+    fn t21_tg_fire_referencing_missing_layer_is_rejected_at_load() {
+        let manifest = r#"{
+            "keymapId": "bad_tgfire",
+            "kind": "split",
+            "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+            "layerFiles": ["layer0.json"]
+        }"#;
+        let layer0 = r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "tg.fire", "layer": 9, "fire": { "t": "key", "vk": "A" } } } } }"#;
+        let error = load_test_keymap(manifest, &[("layer0.json", layer0)]).unwrap_err();
+        assert_eq!(error.code, LOAD_LAYER_REF_INVALID);
+        assert!(error.cause.contains("K1"));
+    }
+
+    /// fireにレイヤー系アクションを入れ子にするのは禁止（再帰・状態の二重変更を防ぐ）。
+    #[test]
+    fn t21_tg_fire_rejects_nested_layer_action() {
+        let manifest = r#"{
+            "keymapId": "nested_tgfire",
+            "kind": "split",
+            "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+            "layerFiles": ["layer0.json"]
+        }"#;
+        let layer0 = r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "tg.fire", "layer": 0, "fire": { "t": "tg", "layer": 0 } } } } }"#;
+        let error = load_test_keymap(manifest, &[("layer0.json", layer0)]).unwrap_err();
+        assert_eq!(error.code, LOAD_SCHEMA_INVALID);
+    }
+
+    /// fire内のvkも辞書検証の対象（外側と同じ強さで弾く）。
+    #[test]
+    fn t21_tg_fire_rejects_unknown_vk_inside_fire() {
+        let manifest = r#"{
+            "keymapId": "badvk_tgfire",
+            "kind": "split",
+            "halves": { "left": { "rows": [["K1"]] }, "right": { "rows": [[]] } },
+            "layerFiles": ["layer0.json"]
+        }"#;
+        let layer0 = r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "tg.fire", "layer": 0, "fire": { "t": "key", "vk": "NOT_A_KEY" } } } } }"#;
+        let error = load_test_keymap(manifest, &[("layer0.json", layer0)]).unwrap_err();
+        assert_eq!(error.code, LOAD_VK_UNKNOWN);
+        assert!(error.cause.contains("NOT_A_KEY"));
     }
 
     // 11. JSON構文エラー（マニフェスト側）→ LOAD_JSON_SYNTAX

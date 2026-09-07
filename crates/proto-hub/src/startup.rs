@@ -12,15 +12,20 @@ use std::path::{Path, PathBuf};
 use proto_keymap::{Action, Keymap};
 
 use crate::deck::DeckSetlist;
-use crate::state::{canonical_command_id, IPAD_KEYMAP_ID};
+use crate::state::{canonical_command_id, DEFAULT_DECK_ID, IPAD_KEYMAP_ID};
 
 #[derive(Debug)]
 pub struct StartupData {
     pub keymaps: BTreeMap<String, Keymap>,
-    pub deck: DeckSetlist,
+    /// P-005 段階A: Deckは複数ロードする（`decks/deck_*.json` をスキャン）。
+    /// キーは`deckId`。`DEFAULT_DECK_ID`は必ず含まれる（ロード時に検証）。
+    pub decks: BTreeMap<String, DeckSetlist>,
     pub command_registry: hub_core::CommandRegistry,
     /// T11（D28）: `surfaces/trackball.json`から構築したレジストリ。
     pub surfaces: crate::surface::SurfaceRegistry,
+    /// P-005 段階B: `layouts/layout_*.json`。キーは`layoutId`。0件でも起動する
+    /// （既存の面はレイアウトを使わないため）。
+    pub layouts: BTreeMap<String, crate::layout::Layout>,
 }
 
 /// `dir`直下（サブディレクトリは対象外＝`layers/`はここに含まれない）の
@@ -47,6 +52,34 @@ pub fn discover_keymap_paths(dir: &Path) -> Vec<PathBuf> {
     paths
 }
 
+/// `dir`直下の `<prefix>*.json` を名前順（決定的）に返す。読めないディレクトリは空扱い。
+/// P-005 段階A/BでDeckとレイアウトのスキャンに共用する。
+pub fn discover_prefixed_json(dir: &Path, prefix: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with(prefix) && name.ends_with(".json") {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    paths
+}
+
+/// P-005 段階A: Deck面・コピペリスト等を同時に出せるよう、Deckも`keymaps/`と同じ
+/// ディレクトリスキャン方式にする（`decks/deck_*.json`）。
+pub fn discover_deck_paths(dir: &Path) -> Vec<PathBuf> {
+    discover_prefixed_json(dir, "deck_")
+}
+
 /// 起動時（main.rs）／再読込時（ws.rsの`/api/reload`）で共有する検証手順。
 /// 順序: ①ディレクトリスキャンで発見した全keymapファイルのロード ②ipad面固定keymapId
 /// の存在確認 ③deckのロード ④deck内`keymap.switch`参照先の存在確認 ⑤surfaces/trackball.json
@@ -54,8 +87,9 @@ pub fn discover_keymap_paths(dir: &Path) -> Vec<PathBuf> {
 /// 1件でもエラーがあれば集約して`Err(Vec<String>)`を返す（部分適用はしない）。
 pub fn load_startup_data(
     keymaps_dir: &Path,
-    deck_path: &Path,
+    decks_dir: &Path,
     surfaces_dir: &Path,
+    layouts_dir: &Path,
 ) -> Result<StartupData, Vec<String>> {
     let mut errors: Vec<String> = Vec::new();
     let mut keymaps: BTreeMap<String, Keymap> = BTreeMap::new();
@@ -85,24 +119,49 @@ pub fn load_startup_data(
         ));
     }
 
-    let deck = match crate::deck::load_deck_from_path(deck_path) {
-        Ok(deck) => Some(deck),
-        Err(error) => {
-            errors.push(format!("{}: {error}", deck_path.display()));
-            None
+    // P-005 段階A: `decks/deck_*.json` を全ロードする（旧: deck_default.json 1枚固定）。
+    let mut decks: BTreeMap<String, DeckSetlist> = BTreeMap::new();
+    let deck_paths = discover_deck_paths(decks_dir);
+    if deck_paths.is_empty() {
+        errors.push(format!(
+            "[{}] no deck_*.json files found under {}",
+            proto_keymap::LOAD_SCHEMA_INVALID,
+            decks_dir.display()
+        ));
+    }
+    for path in &deck_paths {
+        match crate::deck::load_deck_from_path(path) {
+            Ok(deck) => {
+                if let Some(existing) = decks.insert(deck.deck_id.clone(), deck) {
+                    errors.push(format!(
+                        "[{}] duplicate deckId '{}' found while scanning {}",
+                        proto_keymap::LOAD_SCHEMA_INVALID,
+                        existing.deck_id,
+                        decks_dir.display()
+                    ));
+                }
+            }
+            Err(error) => errors.push(format!("{}: {error}", path.display())),
         }
-    };
+    }
 
-    if let Some(deck) = &deck {
-        if errors.is_empty() {
-            for action in all_actions(&keymaps, deck) {
-                if let Action::KeymapSwitch { id } = action {
-                    if !keymaps.contains_key(id) {
-                        errors.push(format!(
-                            "[{}] keymap.switch references unknown keymapId '{id}'",
-                            proto_keymap::LOAD_SCHEMA_INVALID
-                        ));
-                    }
+    // 既存面（/deck・/panel）はdeckId未指定時にDEFAULT_DECK_IDを開くため、必ず要る。
+    if errors.is_empty() && !decks.contains_key(DEFAULT_DECK_ID) {
+        errors.push(format!(
+            "[{}] deckId '{DEFAULT_DECK_ID}' is required but was not found under {}",
+            proto_keymap::LOAD_SCHEMA_INVALID,
+            decks_dir.display()
+        ));
+    }
+
+    if errors.is_empty() {
+        for action in all_actions(&keymaps, &decks) {
+            if let Action::KeymapSwitch { id } = action {
+                if !keymaps.contains_key(id) {
+                    errors.push(format!(
+                        "[{}] keymap.switch references unknown keymapId '{id}'",
+                        proto_keymap::LOAD_SCHEMA_INVALID
+                    ));
                 }
             }
         }
@@ -118,20 +177,64 @@ pub fn load_startup_data(
         }
     };
 
+    // P-005 段階B: `layouts/layout_*.json`。ディレクトリが無ければ0件で正常（既存面は使わない）。
+    let mut layouts: BTreeMap<String, crate::layout::Layout> = BTreeMap::new();
+    for path in discover_prefixed_json(layouts_dir, "layout_") {
+        match crate::layout::load_layout_from_path(&path) {
+            Ok(layout) => {
+                if let Some(existing) = layouts.insert(layout.layout_id.clone(), layout) {
+                    errors.push(format!(
+                        "[{}] duplicate layoutId '{}' found while scanning {}",
+                        crate::layout::LOAD_LAYOUT_INVALID,
+                        existing.layout_id,
+                        layouts_dir.display()
+                    ));
+                }
+            }
+            Err(error) => errors.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    // 参照先（keymapId / deckId / surfaceId）の実在確認。全部ロードし終えた今しかできない。
+    // ここで止めないと、実機で開いた瞬間に空の区画が出て原因が分からない形で壊れる。
+    if errors.is_empty() {
+        for layout in layouts.values() {
+            for section in &layout.sections {
+                let reference = &section.component.reference;
+                let found = match section.component.kind {
+                    crate::layout::ComponentKind::Keyboard => keymaps.contains_key(reference),
+                    crate::layout::ComponentKind::Deck => decks.contains_key(reference),
+                    crate::layout::ComponentKind::Trackball => surfaces
+                        .as_ref()
+                        .is_some_and(|registry| registry.get(reference).is_some()),
+                };
+                if !found {
+                    errors.push(format!(
+                        "[{}] layout '{}' section '{}': {:?} component references unknown id '{reference}'",
+                        crate::layout::LOAD_LAYOUT_REF_UNKNOWN,
+                        layout.layout_id,
+                        section.id,
+                        section.component.kind
+                    ));
+                }
+            }
+        }
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
 
-    let deck = deck.expect("deck load succeeded because errors is empty");
     let surfaces = surfaces.expect("surfaces load succeeded because errors is empty");
-    let command_ids: Vec<String> = all_actions(&keymaps, &deck)
+    let command_ids: Vec<String> = all_actions(&keymaps, &decks)
         .filter_map(canonical_command_id)
         .collect();
     let command_registry = hub_core::CommandRegistry::new(command_ids);
 
     Ok(StartupData {
         keymaps,
-        deck,
+        decks,
+        layouts,
         command_registry,
         surfaces,
     })
@@ -139,14 +242,14 @@ pub fn load_startup_data(
 
 fn all_actions<'a>(
     keymaps: &'a BTreeMap<String, Keymap>,
-    deck: &'a DeckSetlist,
+    decks: &'a BTreeMap<String, DeckSetlist>,
 ) -> impl Iterator<Item = &'a Action> {
     keymaps
         .values()
         .flat_map(|keymap| keymap.layers.iter())
         .flat_map(|layer| layer.keys.values())
         .map(|key_def| &key_def.action)
-        .chain(deck.actions())
+        .chain(decks.values().flat_map(|deck| deck.actions()))
 }
 
 #[cfg(test)]
@@ -174,8 +277,14 @@ mod tests {
             self.0.join("keymaps")
         }
 
-        fn deck_path(&self) -> PathBuf {
-            self.0.join("decks/deck_default.json")
+        /// P-005 段階A: Deckもディレクトリスキャンになったのでディレクトリを渡す。
+        fn decks_dir(&self) -> PathBuf {
+            self.0.join("decks")
+        }
+
+        /// P-005 段階B: レイアウトは0件でも起動するので、既定では作らない。
+        fn layouts_dir(&self) -> PathBuf {
+            self.0.join("layouts")
         }
 
         /// T11: 意図的に作成しない（未作成のまま渡すことで空レジストリ経路も一緒に確認する）。
@@ -216,7 +325,7 @@ mod tests {
     fn write_empty_deck(dir: &TempDir) {
         dir.write(
             "decks/deck_default.json",
-            r#"{ "deckId": "deck_default", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
+            r#"{ "deckId": "default", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
         );
     }
 
@@ -229,7 +338,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "brand_new_format_added_by_dropping_a_file");
         write_empty_deck(&dir);
 
-        let data = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir())
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
             .expect("both keymaps + empty deck must load");
         assert_eq!(data.keymaps.len(), 2);
         assert!(data.keymaps.contains_key("ipad01_vol12"));
@@ -253,7 +362,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "some_other_format");
         write_empty_deck(&dir);
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
         assert!(errors.iter().any(|e| e.contains(IPAD_KEYMAP_ID)));
     }
 
@@ -265,7 +374,7 @@ mod tests {
         dir.write("keymaps/keymap_broken.json", "{ this is not json");
         write_empty_deck(&dir);
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
         assert!(!errors.is_empty());
     }
 
@@ -274,7 +383,7 @@ mod tests {
     fn empty_keymaps_dir_is_rejected() {
         let dir = TempDir::new("empty_dir");
         write_empty_deck(&dir);
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
         assert!(!errors.is_empty());
     }
 
@@ -285,9 +394,82 @@ mod tests {
         write_minimal_single_keymap(&dir, "ipad01_vol12");
         write_empty_deck(&dir);
 
-        let data = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir())
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
             .expect("missing surfaces dir must not block startup");
         assert!(data.surfaces.is_empty());
+    }
+
+    /// T21: リポジトリの実データ（keymaps/・decks/）で起動し、「英数⇄日本語」が撃つ
+    /// ALT+GRAVEが許可リストに載っていることを確認する。単体テストだけだと
+    /// 「canonical_command_idは正しいが実データでは載っていない」を取り逃すため、
+    /// 実ファイル経由で確かめる。
+    #[test]
+    fn real_data_startup_allows_the_ime_toggle_chord_behind_tg_fire() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let data = load_startup_data(
+            &root.join("keymaps"),
+            &root.join("decks"),
+            &root.join("surfaces"),
+            &root.join("layouts"),
+        )
+        .expect("repository data must load");
+
+        assert!(
+            data.command_registry.is_allowed("chord:ALT+GRAVE"),
+            "the chord nested inside K511's tg.fire must be on the D5 allow-list,              otherwise the IME toggle is rejected at fire time"
+        );
+    }
+
+    /// P-005 段階A: `decks/`に置いたファイルは全部発見される（keymapsと同じ規則）。
+    /// これが無いと「Stream Deckとコピペリストを同時に出す」ができない。
+    #[test]
+    fn discovers_and_loads_every_deck_file() {
+        let dir = TempDir::new("multi_deck");
+        write_minimal_single_keymap(&dir, "ipad01_vol12");
+        write_empty_deck(&dir);
+        dir.write(
+            "decks/deck_story_paths.json",
+            r#"{ "deckId": "story_paths", "grid": { "cols": 1, "rows": 1 }, "render": "list",
+                 "pages": [ { "id": 1, "slots": [
+                   { "slotId": "S01", "label": "p", "action": { "t": "text", "string": "C:/x" } } ] } ] }"#,
+        );
+
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+            .expect("both decks must load");
+        assert_eq!(data.decks.len(), 2);
+        assert!(data.decks.contains_key("default"));
+        assert_eq!(data.decks["story_paths"].render, crate::deck::DeckRender::List);
+    }
+
+    /// `default`が無い構成は起動拒否（/deckと/panelがdeckId未指定で開くため）。
+    #[test]
+    fn missing_default_deck_is_rejected() {
+        let dir = TempDir::new("no_default_deck");
+        write_minimal_single_keymap(&dir, "ipad01_vol12");
+        dir.write(
+            "decks/deck_other.json",
+            r#"{ "deckId": "other", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
+        );
+
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+            .unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("default")), "errors: {errors:?}");
+    }
+
+    /// deckIdが重複する構成は起動拒否（どちらが勝つか不定になるのを防ぐ）。
+    #[test]
+    fn duplicate_deck_id_is_rejected() {
+        let dir = TempDir::new("dup_deck_id");
+        write_minimal_single_keymap(&dir, "ipad01_vol12");
+        write_empty_deck(&dir);
+        dir.write(
+            "decks/deck_copy.json",
+            r#"{ "deckId": "default", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
+        );
+
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+            .unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("duplicate deckId")), "errors: {errors:?}");
     }
 
     // T11-2: surfaces/trackball.jsonの検証失敗は、他が正常でも起動全体を同じ経路で拒否する
@@ -303,7 +485,7 @@ mod tests {
             r#"{ "surfaces": [ { "id": "tb01", "type": "trackball", "binding": { "t": "not.allowed" } } ] }"#,
         );
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.deck_path(), &dir.surfaces_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
         assert!(errors.iter().any(|e| e.contains("LOAD_SURFACE_BINDING_UNKNOWN")));
     }
 }
