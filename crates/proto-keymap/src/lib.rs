@@ -226,6 +226,12 @@ pub struct KeyDef {
 #[serde(deny_unknown_fields)]
 pub struct Layer {
     pub id: u8,
+    /// レイヤーの説明。**1行目を画面上の名前として使う。**
+    /// レイヤーは番号しか持たないため、これが無いと編集画面で
+    /// 「レイヤー2」としか出せず、どれが記号盤なのか分からない。
+    /// ファイル側には元から書かれており、これまで読み捨てていた。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     pub keys: BTreeMap<KeyId, KeyDef>,
 }
 
@@ -330,7 +336,6 @@ struct KeymapManifest {
 struct LayerFile {
     layer: u8,
     #[serde(default)]
-    #[allow(dead_code)]
     description: String,
     keys: BTreeMap<KeyId, KeyDef>,
 }
@@ -489,6 +494,7 @@ pub fn load_keymap_with(
 
         layers.push(Layer {
             id: layer_file.layer,
+            description: layer_file.description,
             keys: layer_file.keys,
         });
     }
@@ -834,7 +840,7 @@ mod tests {
                 },
             );
         }
-        Layer { id, keys }
+        Layer { id, description: String::new(), keys }
     }
 
     fn half(ids: &[&str]) -> Half {

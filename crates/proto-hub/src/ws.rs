@@ -54,6 +54,9 @@ pub fn router(state: SharedState) -> Router {
         // P-005 段階D: レイアウトの保存。**書き込みはこの1本だけ**。
         // 書き先は layouts/layout_<id>.json に固定され、idは厳格に検証される。
         .route("/api/layout/save", post(layout_save_handler))
+        // キー編集（P-007）: レイヤー1枚を書き戻す。書き先は keymaps/layers/ 配下で、
+        // ここは不変条件6が元から許している場所（D22）。
+        .route("/api/layer/save", post(layer_save_handler))
         .route("/ws", get(ws_handler))
         .route("/api/deck/export", get(deck_export))
         .route_service("/kb", ServeFile::new("static/kb.html"))
@@ -66,6 +69,8 @@ pub fn router(state: SharedState) -> Router {
         // P-005 段階B: レイアウト面。layouts/layout_*.json の区画割りをそのまま描く。
         .route_service("/layout", ServeFile::new("static/layout.html"))
         .route_service("/settings", ServeFile::new("static/settings.html"))
+        // P-007: キー編集。PCでもiPadでも同じURLで開ける
+        .route_service("/keys", ServeFile::new("static/keys.html"))
         // 部品の描画は static/components.js が唯一の実装。実機の面とエディタが
         // これを共有するので、プレビューと実機の絵がズレない。
         .route_service("/components.js", ServeFile::new("static/components.js"))
@@ -491,6 +496,208 @@ async fn layout_save_handler(
             "path": path.display().to_string(),
             "backup": if had_previous { Some(backup.display().to_string()) } else { None },
             "layoutsLoaded": layouts_loaded,
+        })),
+    )
+        .into_response()
+}
+
+/// 値を「空白入りの1行JSON」にする。
+///
+/// `serde_json::to_string` は `{"a":1}` と詰めて書くが、`keymaps/layers/` の
+/// 既存ファイルは `{ "a": 1 }` と空白を入れた手書きの体裁になっている。
+/// 書式が違うと、1キー直しただけで全行が差分に出て読めなくなる。
+/// **これらのファイルは人が手で編集しgitで差分を読む前提**なので、体裁を合わせる。
+fn one_line_json(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Object(map) => {
+            let inner: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("{}: {}", serde_json::Value::String(k.clone()), one_line_json(v)))
+                .collect();
+            if inner.is_empty() { "{}".to_string() } else { format!("{{ {} }}", inner.join(", ")) }
+        }
+        serde_json::Value::Array(items) => {
+            let inner: Vec<String> = items.iter().map(one_line_json).collect();
+            format!("[{}]", inner.join(", "))
+        }
+        // 文字列・数値・真偽・nullは serde に任せる（エスケープを自前でやらない）
+        other => other.to_string(),
+    }
+}
+
+/// キー編集の保存要求。**ファイル名になる値はクライアントから受け取らない。**
+/// `keymapId` と `layer` は「いま読み込まれているものの中に在るか」で検証し、
+/// 在るものだけを対象にする。これが任意パス書込を防ぐ関門。
+#[derive(Debug, Deserialize)]
+struct LayerSaveBody {
+    #[serde(rename = "keymapId")]
+    keymap_id: String,
+    layer: u8,
+    #[serde(default)]
+    description: String,
+    keys: std::collections::BTreeMap<String, proto_keymap::KeyDef>,
+}
+
+/// P-007: レイヤー1枚を `keymaps/layers/<keymapId>_layer<N>.json` へ保存する。
+///
+/// ■ 手順（layout保存と同じ考え方。壊れた構成をディスクに残さない）
+///   1. token検証
+///   2. **keymapId と layer が実在するか**を、いま読み込んでいる構成に照らして検証。
+///      実在しないものは書かない＝新しいファイルを勝手に作らせない
+///      （新レイヤーの追加はマニフェスト `keymaps/keymap_*.json` の書き換えを伴い、
+///       そこは不変条件6の許可外。だからここでは既存レイヤーの上書きだけを許す）
+///   3. `.bak` へ退避 → 書く
+///   4. 全体を読み直して検証。失敗したら巻き戻す
+///   5. 成功したら差し替えて全クライアントへ再配信
+async fn layer_save_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    Json(body): Json<LayerSaveBody>,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting layer save");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+
+    // ---- 実在確認。ここを通らないものはファイル名にしない ----
+    let known = {
+        let s = state.lock().unwrap();
+        s.keymaps.get(&body.keymap_id).map(|keymap| {
+            keymap.layers.iter().any(|l| l.id == body.layer)
+        })
+    };
+    let cause = match known {
+        None => Some(format!(
+            "unknown keymapId '{}' (only already-loaded keymaps can be edited)",
+            body.keymap_id
+        )),
+        Some(false) => Some(format!(
+            "keymap '{}' has no layer {} (adding a layer needs the manifest, which is not writable)",
+            body.keymap_id, body.layer
+        )),
+        Some(true) => None,
+    };
+    if let Some(cause) = cause {
+        tracing::error!(chk = "P007", code = LAYER_SAVE_REJECTED, cause = %cause, "layer save rejected");
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": LAYER_SAVE_REJECTED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    let dir = std::path::Path::new(crate::KEYMAPS_DIR).join("layers");
+    let name = format!("{}_layer{}.json", body.keymap_id, body.layer);
+    let path = dir.join(&name);
+    let backup = dir.join(format!("{name}.bak"));
+
+    let had_previous = path.exists();
+    if had_previous {
+        if let Err(error) = std::fs::copy(&path, &backup) {
+            let cause = format!("failed to back up {}: {error}", path.display());
+            tracing::error!(chk = "P007", code = LAYER_SAVE_FAILED, cause = %cause, "layer save failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "code": LAYER_SAVE_FAILED, "cause": cause })),
+            )
+                .into_response();
+        }
+    }
+
+    // ファイルの形はロード側と同じ（layer / description / keys）。
+    // 受け取ったものをそのまま書かず、こちらで組み直す。
+    //
+    // **キーは1行1個で書く。** to_string_pretty に丸ごと任せると1キーが5行に
+    // 展開され、1個直しただけで200行の差分になる。これらのファイルは人が手で
+    // 編集し、gitで差分を読む前提なので、読めなくなるのは実害。
+    let mut lines: Vec<String> = Vec::new();
+    for (key_id, def) in &body.keys {
+        // label を先に置く。serde_json の Value は連想配列を名前順に並べ替えるため、
+        // 任せると action が先に来て、既存ファイル（label が先）と読み味が変わる。
+        // ここだけ手で組んで順番を保つ。
+        let id = serde_json::to_string(key_id).unwrap_or_default();
+        let label = serde_json::to_string(&def.label).unwrap_or_default();
+        let action = serde_json::to_value(&def.action).unwrap_or(serde_json::Value::Null);
+        lines.push(format!(
+            "    {id}: {{ \"label\": {label}, \"action\": {} }}",
+            one_line_json(&action)
+        ));
+    }
+    let desc = serde_json::to_string(&body.description)
+        .unwrap_or_else(|_| String::from("\"\""));
+    let text = format!(
+        "{{\n  \"layer\": {},\n  \"description\": {},\n  \"keys\": {{\n{}\n  }}\n}}\n",
+        body.layer,
+        desc,
+        lines.join(",\n"),
+    );
+    if let Err(error) = std::fs::write(&path, &text) {
+        let cause = format!("failed to write {}: {error}", path.display());
+        tracing::error!(chk = "P007", code = LAYER_SAVE_FAILED, cause = %cause, "layer save failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": LAYER_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    // **書いた後に全体を読み直す。** 参照の壊れや許可リストの再構築はここでしか分からない。
+    let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
+    let decks_dir = std::path::Path::new(crate::DECKS_DIR);
+    let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
+    let layouts_dir = std::path::Path::new(crate::LAYOUTS_DIR);
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir) {
+        Ok(data) => data,
+        Err(errors) => {
+            let restored = if had_previous {
+                std::fs::copy(&backup, &path).is_ok()
+            } else {
+                std::fs::remove_file(&path).is_ok()
+            };
+            let cause = errors.join("; ");
+            tracing::error!(
+                chk = "P007", code = LAYER_SAVE_REJECTED, cause = %cause, restored,
+                "layer save rejected after reload; rolled back"
+            );
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "code": LAYER_SAVE_REJECTED, "cause": cause,
+                    "errors": errors, "rolledBack": restored,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let allowed = loaded.command_registry.allowed_command_ids().count();
+    {
+        let mut s = state.lock().unwrap();
+        s.keymaps = loaded.keymaps;
+        s.decks = loaded.decks;
+        s.command_registry = loaded.command_registry;
+        s.surfaces = loaded.surfaces;
+        s.layouts = loaded.layouts;
+        s.layer_state.reset();
+        s.ipad_layer_state.reset();
+        s.layer_states.clear();
+    }
+
+    tracing::info!(
+        chk = "P007", keymap_id = %body.keymap_id, layer = body.layer, allowed,
+        "layer saved; broadcasting surface.config"
+    );
+    broadcast_surface_config_for(&state, SurfaceKind::Split);
+    broadcast_surface_config_for(&state, SurfaceKind::Ipad);
+    broadcast_surface_config_for(&state, SurfaceKind::Layout);
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "keymapId": body.keymap_id,
+            "layer": body.layer,
+            "path": path.display().to_string(),
+            "allowedCommands": allowed,
         })),
     )
         .into_response()

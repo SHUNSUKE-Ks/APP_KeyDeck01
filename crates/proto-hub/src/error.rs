@@ -23,3 +23,8 @@ pub const LOAD_VK_UNKNOWN: &str = proto_keymap::LOAD_VK_UNKNOWN;
 pub const LAYOUT_SAVE_REJECTED: &str = "LAYOUT_SAVE_REJECTED";
 /// P-005 段階D: レイアウト保存の失敗（ファイル操作そのものが失敗した）。
 pub const LAYOUT_SAVE_FAILED: &str = "LAYOUT_SAVE_FAILED";
+
+/// P-007: レイヤー保存の拒否（keymapId/layerが実在しない、または検証に落ちた）。
+pub const LAYER_SAVE_REJECTED: &str = "LAYER_SAVE_REJECTED";
+/// P-007: レイヤー保存の失敗（ファイル操作そのものが失敗した）。
+pub const LAYER_SAVE_FAILED: &str = "LAYER_SAVE_FAILED";

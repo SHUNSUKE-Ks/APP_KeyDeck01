@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  keys.html — キー編集。URL: /keys?keymap=<id>&layer=<n>&token=…
+  素のHTML+JSのみ（D2）。PCでもiPadでも同じURLで開ける。
+
+  ■ この画面がやること / やらないこと
+    やる   … キーの「中身」を変える。ラベル・アクション・レイヤーへの割当
+    やらない … キーの「位置」を変える（並び替え）
+             位置は keymaps/keymap_*.json の board にあり、そこは
+             CLAUDE.md 不変条件6の書き込み許可外。裁定が要る。
+
+  ■ 触り方
+    ① 上の部品エリアで部品を選ぶ（選ぶと枠が光る）
+    ② 盤面のキーを押すと、その部品が入る
+    ③ 盤面のキーを上の部品エリアへ放り込むと、そのキーを空にする
+
+    「部品をキーへドラッグ」ではなく「選んでから押す」にしてある。
+    キーは小さく密なので、掴んで正確に落とすのは指では難しい。
+    消す操作だけドラッグなのは、誤って消えないようにするため
+    （区画エディタの「置ける部品へ戻す」と同じ考え方）。
+
+  ■ 継承の見え方
+    レイヤー2を編集していても、そこに定義の無いキーは下のレイヤーの
+    ものが見える（D3のtransフォールスルー）。**このレイヤーが自分で
+    決めているキー**だけを実線で、継承しているキーは薄く出す。
+    これが分からないと「消したのに残っている」と誤解する。
+
+  ■ 保存
+    POST /api/layer/save → keymaps/layers/<keymapId>_layer<N>.json
+    書き込み先は不変条件6が元から許している場所（D22）。
+    既存レイヤーの上書きのみ。新しいレイヤーの追加はマニフェストの
+    書き換えを伴うため、この画面からはできない。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — キー編集</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel2:#161c2e; --ink:#f4f7ff;
+      --ink-muted:#b7bfd6; --ink-dim:#6b7590; --empty:#161c30;
+      --accent:#2d67d9; --accent-soft:#24478f; --ok:#35c47a; --err:#e2555a;
+      --warn:#e8b44a; --line:#2d3550; --key-radius:10px; --key-gap:6px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); font-size: 13px;
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+
+    .head {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+    }
+    .head h1 { font-size: 14px; margin: 0; white-space: nowrap; }
+    .head .sp { flex: 1 1 auto; }
+    button, select {
+      min-height: 32px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel); color: var(--ink); font: inherit; font-size: 12px;
+      padding: 0 12px; cursor: pointer;
+    }
+    button:hover, select:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .45; cursor: default; }
+    a { color: var(--ink-muted); font-size: 12px; }
+    #conn { font-size: 11px; color: var(--ink-dim); }
+    #conn.bad { color: var(--err); }
+
+    #flash {
+      margin: 0; padding: 7px 14px; font-size: 12px; flex: 0 0 auto;
+      background: #3a2f14; color: var(--warn); border-bottom: 1px solid #6b4c17;
+    }
+    #flash[hidden] { display: none !important; }
+
+    /* ---- 部品エリア（上） ---- */
+    .parts {
+      flex: 0 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid var(--line);
+      background: var(--panel2); position: relative;
+    }
+    .tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .tab {
+      min-height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink-muted);
+    }
+    .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* 部品は四角いボタンで並べる（リストにしない） */
+    .partgrid {
+      display: grid; gap: 6px;
+      grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+      max-height: 132px; overflow-y: auto;
+    }
+    .part {
+      aspect-ratio: 1 / 1; min-height: 46px; padding: 2px;
+      border-radius: 9px; border: 1px solid var(--line); background: var(--panel);
+      color: var(--ink); font-size: 13px; line-height: 1.1;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      overflow: hidden; word-break: break-all;
+    }
+    .part.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 2px rgba(45,103,217,.45); }
+    .part small { font-size: 9px; color: var(--ink-dim); display: block; }
+
+    /* 放り込み口。キーを掴んでいる間だけ出す */
+    .dropveil {
+      position: absolute; inset: 0; z-index: 5; border-radius: 0;
+      background: rgba(226,85,90,.20); border: 2px dashed rgba(226,85,90,.72);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: #ffdfe0;
+      pointer-events: none;   /* 当たり判定は座標で行う */
+    }
+    .dropveil[hidden] { display: none !important; }
+    .dropveil.over { background: rgba(226,85,90,.46); border-style: solid; }
+
+    /* ---- 盤面（下・大きく） ---- */
+    .boardwrap {
+      flex: 1 1 auto; min-height: 0; padding: 12px 14px 14px;
+      display: flex; flex-direction: column;
+    }
+    .boardhint { font-size: 11px; color: var(--ink-dim); margin-bottom: 6px; flex: 0 0 auto; }
+    #board { flex: 1 1 auto; min-height: 0; touch-action: none; user-select: none; }
+
+    /* このレイヤーが自分で決めているキー / 下から継承しているキー */
+    #board .key { outline: 2px solid transparent; }
+    #board .key.own { outline-color: rgba(53,196,122,.85); }
+    #board .key.inherited { opacity: .45; }
+    #board .key.picked { outline-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <h1>KeyDeck — キー編集</h1>
+    <select id="keymapSel" aria-label="編集するキーボード"></select>
+    <select id="layerSel" aria-label="編集するレイヤー"></select>
+    <button id="revertBtn" type="button">元に戻す</button>
+    <button id="saveBtn" type="button" class="primary">保存</button>
+    <span class="sp"></span>
+    <span id="conn"></span>
+    <a href="/" class="navlink">← レイアウト編集</a>
+  </div>
+  <p id="flash" hidden></p>
+
+  <div class="parts">
+    <div class="dropveil" id="dropveil" hidden><span>ここへ放すと、そのキーを空にする</span></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="partgrid" id="parts"></div>
+  </div>
+
+  <div class="boardwrap">
+    <div class="boardhint" id="hint"></div>
+    <div id="board"></div>
+  </div>
+
+  <script src="/components.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") console.error(line, context ?? "");
+      else console.info(line, context ?? "");
+    }
+
+    // ================================================================
+    // 状態
+    //   CONFIG  … Hubから届いた構成そのもの
+    //   draft   … いま編集中のレイヤーの keys（保存するまでディスクには行かない）
+    //   picked  … 選んでいる部品
+    // ================================================================
+    let CONFIG = null;
+    let keymapId = params.get("keymap") || "";
+    let layerId = Number(params.get("layer") || 0);
+    let draft = {};
+    let picked = null;
+
+    const flashEl = document.getElementById("flash");
+    const connEl = document.getElementById("conn");
+    const boardEl = document.getElementById("board");
+    const dropVeil = document.getElementById("dropveil");
+
+    function flash(msg) { flashEl.hidden = false; flashEl.textContent = msg; }
+    function clearFlash() { flashEl.hidden = true; }
+    function setConn(text, bad) {
+      connEl.textContent = text;
+      connEl.className = bad ? "bad" : "";
+    }
+
+    // ================================================================
+    // 部品。**押した瞬間にHubへ送るものではなく、キーに入れる中身の見本**。
+    // 実行できるかどうかは、保存後にHubが全JSONから作り直す許可リストが決める。
+    // ================================================================
+    const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    const DIGITS = "0123456789".split("");
+    const NAMED = [
+      ["ENTER", "Enter"], ["SPACE", "Space"], ["BKSP", "Bksp"], ["TAB", "Tab"],
+      ["ESC", "Esc"], ["SHIFT", "Shift"], ["CTRL", "Ctrl"], ["ALT", "Alt"],
+      ["WIN", "Win"], ["UP", "↑"], ["DOWN", "↓"], ["LEFT", "←"], ["RIGHT", "→"],
+      ["HOME", "Home"], ["END", "End"], ["PGUP", "PgUp"], ["PGDN", "PgDn"],
+      ["DELETE", "Del"], ["F1", "F1"], ["F2", "F2"], ["F3", "F3"], ["F4", "F4"],
+      ["F5", "F5"], ["F6", "F6"], ["F7", "F7"], ["F8", "F8"], ["F9", "F9"],
+      ["F10", "F10"], ["F11", "F11"], ["F12", "F12"],
+    ];
+    const SYMBOLS = "、。・ー！？＃＠／＊＋－＝（）「」『』【】％＆＄＾～｜＜＞：；".split("");
+
+    /// 部品1つ = { label, action, tab }
+    function buildParts() {
+      const basic = [];
+      for (const c of LETTERS) basic.push({ label: c, action: { t: "key", vk: c } });
+      for (const d of DIGITS) basic.push({ label: d, action: { t: "key", vk: d } });
+      for (const [vk, label] of NAMED) basic.push({ label, action: { t: "key", vk } });
+
+      const symbols = SYMBOLS.map((c) => ({ label: c, action: { t: "text", string: c } }));
+
+      // マクロ = すでにDeckに登録されている操作。許可リストに入っているので確実に動く。
+      // 「Vol+ などのキーをそのまま使えるように」というご要望に対応。
+      const macros = [];
+      const seen = new Set();
+      for (const deck of Object.values((CONFIG && CONFIG.decks) || {})) {
+        for (const page of deck.pages || []) {
+          for (const slot of page.slots) {
+            if (!slot.action || slot.action.t === "none") continue;
+            const key = JSON.stringify(slot.action);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            macros.push({ label: slot.label || "?", action: slot.action, note: deck.deckId });
+          }
+        }
+      }
+
+      // レイヤー切替キー。**切替ボタンと盤の紐づけはここで行う。**
+      // いま読み込まれているレイヤーの数だけ自動で並ぶ。
+      const layers = [];
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      for (const layer of (keymap ? keymap.layers : [])) {
+        if (layer.id === 0) continue;   // 0は基盤なので切替先にしない
+        const name = layerName(layer);
+        layers.push({ label: name + "\n押す間", action: { t: "mo", layer: layer.id }, note: "mo" });
+        layers.push({ label: name + "\n固定", action: { t: "tg", layer: layer.id }, note: "tg" });
+      }
+
+      return { basic, symbols, macros, layers };
+    }
+
+    /// レイヤーの表示名。説明の1行目から「Vol1.3 」などの接頭辞を落として短くする。
+    function layerName(layer) {
+      const first = (layer.description || "").split("\n")[0].trim();
+      if (!first) return "レイヤー" + layer.id;
+      const m = first.match(/^\S+\s+(.+?)[。.]/);
+      return (m ? m[1] : first).slice(0, 12);
+    }
+
+    const TABS = [
+      { id: "recent", label: "最近" },
+      { id: "basic", label: "基本キー" },
+      { id: "symbols", label: "記号" },
+      { id: "layers", label: "レイヤー切替" },
+      { id: "macros", label: "マクロ" },
+    ];
+    let activeTab = "basic";
+
+    const RECENT_KEY = "keydeck.recentParts";
+    function loadRecent() {
+      try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
+    }
+    function pushRecent(part) {
+      const list = loadRecent().filter((p) => JSON.stringify(p.action) !== JSON.stringify(part.action));
+      list.unshift({ label: part.label, action: part.action });
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 24))); } catch { /* 保存できなくても動く */ }
+    }
+
+    // ================================================================
+    // 描画
+    // ================================================================
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    }
+
+    function renderTabs() {
+      const host = document.getElementById("tabs");
+      host.textContent = "";
+      for (const t of TABS) {
+        const b = el("button", "tab" + (t.id === activeTab ? " on" : ""), t.label);
+        b.type = "button";
+        b.addEventListener("click", () => { activeTab = t.id; renderTabs(); renderParts(); });
+        host.appendChild(b);
+      }
+    }
+
+    function currentParts() {
+      const all = buildParts();
+      if (activeTab === "recent") return loadRecent();
+      if (activeTab === "basic") return all.basic;
+      if (activeTab === "symbols") return all.symbols;
+      if (activeTab === "layers") return all.layers;
+      return all.macros;
+    }
+
+    function renderParts() {
+      const host = document.getElementById("parts");
+      host.textContent = "";
+      const list = currentParts();
+      if (list.length === 0) {
+        host.appendChild(el("p", null,
+          activeTab === "recent" ? "まだ使った部品がありません。" : "この分類にはまだ部品がありません。"));
+        return;
+      }
+      for (const part of list) {
+        const b = el("button", "part");
+        b.type = "button";
+        const lines = String(part.label).split("\n");
+        b.appendChild(document.createTextNode(lines[0]));
+        if (lines[1]) b.appendChild(el("small", null, lines[1]));
+        if (picked && JSON.stringify(picked.action) === JSON.stringify(part.action)) b.classList.add("on");
+        b.title = JSON.stringify(part.action);
+        b.addEventListener("click", () => {
+          picked = (picked && JSON.stringify(picked.action) === JSON.stringify(part.action)) ? null : part;
+          clearFlash();
+          renderParts();
+          renderHint();
+        });
+        host.appendChild(b);
+      }
+    }
+
+    function renderHint() {
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      const layer = keymap && keymap.layers.find((l) => l.id === layerId);
+      const own = Object.keys(draft).length;
+      const name = layer ? layerName(layer) : "?";
+      document.getElementById("hint").textContent =
+        picked
+          ? "「" + String(picked.label).split("\n")[0] + "」を選んでいます。入れたいキーを押してください。"
+          : "レイヤー " + layerId + "（" + name + "）を編集中。このレイヤーが決めているキー " + own + " 個（緑枠）。"
+            + "上の部品を選ぶと入れられます。キーを上へ放り込むと空にします。";
+    }
+
+    /// 盤面を描く。**編集中レイヤーが有効な状態**で描くので、
+    /// 実際に切り替えたときと同じ絵になる。
+    function renderBoard() {
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      boardEl.textContent = "";
+      if (!keymap || !keymap.board) {
+        boardEl.appendChild(el("p", null, "このキーボードには編集できる盤面がありません（分割キーボードは対象外）。"));
+        return;
+      }
+      // draftを反映した一時的なkeymapを作って描く。保存前でも見た目に出る。
+      const shown = JSON.parse(JSON.stringify(keymap));
+      const target = shown.layers.find((l) => l.id === layerId);
+      if (target) target.keys = draft;
+
+      const state = layerId === 0 ? { momentary: [], toggled: [] } : { momentary: [], toggled: [layerId] };
+      KDComponents.renderKeyboard(boardEl, shown, state, { interactive: false });
+
+      // 継承と自前を見分けられるようにする
+      for (const btn of boardEl.querySelectorAll(".key")) {
+        const id = btn.dataset.keyId;
+        btn.classList.add(draft[id] ? "own" : "inherited");
+        bindKeyEdit(btn, id);
+      }
+      renderHint();
+    }
+
+    // ================================================================
+    // キーへの操作
+    //   押す         … 選んでいる部品を入れる
+    //   上へ放り込む … そのキーを空にする（このレイヤーの定義を消す）
+    // ================================================================
+    function bindKeyEdit(btn, keyId) {
+      let dragging = false;
+      let overDrop = false;
+      let startY = 0;
+
+      btn.style.pointerEvents = "auto";   // プレビュー用に殺されているのを戻す
+
+      btn.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        dragging = true;
+        overDrop = false;
+        startY = event.clientY;
+        btn.classList.add("picked");
+        try { btn.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
+      });
+
+      btn.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        // 上へ動かし始めたら放り込み口を出す。押しただけでは出さない
+        if (!dropVeil.hidden || Math.abs(event.clientY - startY) > 12) {
+          dropVeil.hidden = false;
+          const z = dropVeil.getBoundingClientRect();
+          overDrop = event.clientX >= z.left && event.clientX <= z.right
+                  && event.clientY >= z.top && event.clientY <= z.bottom;
+          dropVeil.classList.toggle("over", overDrop);
+        }
+      });
+
+      const finish = () => {
+        if (!dragging) return;
+        dragging = false;
+        btn.classList.remove("picked");
+        dropVeil.hidden = true;
+        dropVeil.classList.remove("over");
+
+        if (overDrop) {
+          if (draft[keyId]) {
+            delete draft[keyId];
+            flash(keyId + " をこのレイヤーから外しました（下のレイヤーの内容が出ます）");
+          } else {
+            flash(keyId + " はこのレイヤーでは元から定義していません");
+          }
+          overDrop = false;
+          renderBoard();
+          return;
+        }
+
+        // その場で離した = 部品を入れる
+        if (!picked) {
+          flash("先に上の部品を選んでください");
+          return;
+        }
+        draft[keyId] = { label: String(picked.label).split("\n")[0], action: picked.action };
+        pushRecent(picked);
+        clearFlash();
+        renderBoard();
+      };
+
+      btn.addEventListener("pointerup", finish);
+      btn.addEventListener("pointercancel", finish);
+    }
+
+    // ================================================================
+    // 選択（キーボード / レイヤー）
+    // ================================================================
+    function fillSelectors() {
+      const keymapSel = document.getElementById("keymapSel");
+      const layerSel = document.getElementById("layerSel");
+
+      keymapSel.textContent = "";
+      for (const [id, km] of Object.entries(CONFIG.keymaps || {})) {
+        if (!km.board) continue;    // 分割キーボードはこの画面では扱わない
+        const o = document.createElement("option");
+        o.value = id; o.textContent = id;
+        if (id === keymapId) o.selected = true;
+        keymapSel.appendChild(o);
+      }
+      if (!keymapId && keymapSel.options.length) {
+        keymapId = keymapSel.options[0].value;
+        keymapSel.value = keymapId;
+      }
+
+      const km = CONFIG.keymaps[keymapId];
+      layerSel.textContent = "";
+      for (const layer of (km ? km.layers : [])) {
+        const o = document.createElement("option");
+        o.value = String(layer.id);
+        o.textContent = "L" + layer.id + " " + layerName(layer);
+        if (layer.id === layerId) o.selected = true;
+        layerSel.appendChild(o);
+      }
+      if (km && !km.layers.some((l) => l.id === layerId)) {
+        layerId = km.layers[0].id;
+        layerSel.value = String(layerId);
+      }
+    }
+
+    function loadDraft() {
+      const km = CONFIG.keymaps[keymapId];
+      const layer = km && km.layers.find((l) => l.id === layerId);
+      draft = layer ? JSON.parse(JSON.stringify(layer.keys)) : {};
+    }
+
+    function rememberUrl() {
+      const url = new URL(location.href);
+      url.searchParams.set("keymap", keymapId);
+      url.searchParams.set("layer", String(layerId));
+      history.replaceState(null, "", url);
+    }
+
+    document.getElementById("keymapSel").addEventListener("change", (e) => {
+      keymapId = e.target.value; picked = null;
+      fillSelectors(); loadDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
+    });
+    document.getElementById("layerSel").addEventListener("change", (e) => {
+      layerId = Number(e.target.value); picked = null;
+      loadDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
+    });
+    document.getElementById("revertBtn").addEventListener("click", () => {
+      loadDraft(); renderBoard(); flash("Hubが読み込んでいる内容へ戻しました（保存はしていません）");
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("saveBtn");
+      btn.disabled = true;
+      try {
+        const km = CONFIG.keymaps[keymapId];
+        const layer = km.layers.find((l) => l.id === layerId);
+        const res = await fetch("/api/layer/save?token=" + encodeURIComponent(token), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            keymapId, layer: layerId,
+            description: (layer && layer.description) || "",   // 説明文は消さない
+            keys: draft,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          log("P007", "OK", "layer saved", body);
+          flash("保存しました（" + body.path + "）。実行できる操作は " + body.allowedCommands + " 件になりました。繋がっている端末にも反映されます。");
+        } else {
+          log("ERR", body.code || String(res.status), body.cause || "save failed", body);
+          flash("保存できません: " + (body.code || res.status) + " — " + (body.cause || "詳細不明")
+                + (body.rolledBack ? "（ディスクは元へ戻しました）" : ""));
+        }
+      } catch (error) {
+        log("ERR", "INTERNAL", "save request failed: " + error);
+        flash("通信エラー: " + error);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ================================================================
+    // Hubとの接続。/layout と同じ入口なので構成が食い違わない。
+    // ================================================================
+    let socket = null;
+    function connect() {
+      if (!token) { setConn("トークンがありません", true); return; }
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      socket = new WebSocket(scheme + "://" + location.host + "/ws?surface=layout&token=" + encodeURIComponent(token));
+      socket.addEventListener("open", () => setConn("接続中"));
+      socket.addEventListener("message", (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        if (msg.type !== "surface.config") return;
+        CONFIG = msg;
+        fillSelectors();
+        loadDraft();
+        rememberUrl();
+        renderTabs();
+        renderParts();
+        renderBoard();
+        log("P007", "OK", "surface.config received",
+          { keymaps: Object.keys(msg.keymaps || {}).length });
+      });
+      socket.addEventListener("close", () => {
+        setConn("切断。再接続します…", true);
+        setTimeout(connect, 2000);
+      });
+    }
+
+    for (const a of document.querySelectorAll(".navlink")) {
+      a.href = a.getAttribute("href") + "?token=" + encodeURIComponent(token);
+    }
+    window.addEventListener("error", (e) => log("ERR", "INTERNAL", "uncaught: " + e.message, e.error));
+    window.addEventListener("unhandledrejection", (e) => log("ERR", "INTERNAL", "unhandled: " + e.reason));
+
+    setConn("接続中…");
+    connect();
+  </script>
+</body>
+</html>
