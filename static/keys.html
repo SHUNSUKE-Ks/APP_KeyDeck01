@@ -72,8 +72,11 @@
     #conn { font-size: 11px; color: var(--ink-dim); }
     #conn.bad { color: var(--err); }
 
+    /* 知らせは**盤面の上に重ねて**出す。1行を占めると、その分だけ
+       盤面が縮んでキーの高さが変わる（操作のたびに一瞬動いていた）。 */
     #flash {
-      margin: 0; padding: 7px 14px; font-size: 12px; flex: 0 0 auto;
+      position: absolute; left: 0; right: 0; top: 0; z-index: 20;
+      margin: 0; padding: 7px 14px; font-size: 12px;
       background: #3a2f14; color: var(--warn); border-bottom: 1px solid #6b4c17;
     }
     #flash[hidden] { display: none !important; }
@@ -127,9 +130,15 @@
     /* ---- 盤面（下・大きく） ---- */
     .boardwrap {
       flex: 1 1 auto; min-height: 0; padding: 12px 14px 14px;
-      display: flex; flex-direction: column;
+      display: flex; flex-direction: column; position: relative;
     }
-    .boardhint { font-size: 11px; color: var(--ink-dim); margin-bottom: 6px; flex: 0 0 auto; }
+    /* 説明文も**高さを固定**する。文の長短で行数が変わると、その分だけ
+       盤面が伸び縮みする。入りきらない分は … にし、全文は title に入れる。 */
+    .boardhint {
+      font-size: 11px; color: var(--ink-dim); margin-bottom: 6px; flex: 0 0 auto;
+      height: 15px; line-height: 15px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     #board { flex: 1 1 auto; min-height: 0; touch-action: none; user-select: none; }
 
     /* このレイヤーが自分で決めているキー / 下から継承しているキー */
@@ -157,14 +166,6 @@
       background: rgba(45,103,217,.12); pointer-events: none; z-index: 4;
     }
     .dropcell.blocked { border-color: var(--err); background: rgba(226,85,90,.14); }
-    /* 幅を変えるつまみ。位置編集のときだけ意味がある */
-    .kmhandle {
-      position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
-      border-right: 2px solid rgba(255,255,255,.55);
-      border-bottom: 2px solid rgba(255,255,255,.55);
-      border-radius: 0 0 4px 0; cursor: nwse-resize;
-    }
-    .kmhandle { display: block; }
   </style>
 </head>
 <body>
@@ -179,8 +180,6 @@
     <span id="conn"></span>
     <a href="/" class="navlink">← レイアウト編集</a>
   </div>
-  <p id="flash" hidden></p>
-
   <div class="parts">
     <div class="dropveil" id="dropveil" hidden><span>ここへ放すと、そのキーを空にする</span></div>
     <div class="tabs" id="tabs"></div>
@@ -190,6 +189,7 @@
   <div id="dragghost" hidden></div>
 
   <div class="boardwrap">
+    <p id="flash" hidden></p>
     <div class="boardhint" id="hint"></div>
     <div id="board"></div>
   </div>
@@ -507,13 +507,16 @@
       if (picked) {
         hint.textContent = "「" + String(picked.label).split("\n")[0] + "」を選んでいます。"
           + "入れたいキーを押すか、部品をキーへドラッグしてください。";
+        hint.title = hint.textContent;
         return;
       }
       hint.textContent = "レイヤー " + layerId + "（" + name + "）／このレイヤーが決めているキー "
         + own + " 個（緑枠）。"
         + "キーを空きへドラッグ＝位置を動かす、別のキーへドラッグ＝中身を入れ替える、"
-        + "上の部品エリアへ放り込む＝空にする。右下のつまみで幅。"
-        + "位置と幅はレイヤー共通、中身はこのレイヤーだけに効きます。";
+        + "部品を空きへドラッグ＝そこに新しいキーを作る、"
+        + "上の部品エリアへ放り込む＝空にする。"
+        + "位置はレイヤー共通、中身はこのレイヤーだけに効きます。";
+      hint.title = hint.textContent;
     }
 
     /// 盤面を描く。**編集中レイヤーが有効な状態**で描くので、
@@ -543,9 +546,8 @@
         // 1つの画面で両方できるようにする。
         //   空きへドラッグ … 位置を動かす（盤面）
         //   キーへドラッグ … 中身を入れ替える（レイヤー）
-        //   右下のつまみ   … 幅を変える（盤面）
+        //   部品を空きへ    … そこに新しいキーを作る
         bindKeyEdit(btn, id);
-        bindResize(btn, id);
       }
       paintConflicts();
       renderHint();
@@ -823,7 +825,7 @@
     // **互い違い（半キーずらし）**を表している。だから格子に吸着させたまま
     // 互い違いを保てる。吸着の単位は1列で、キーの幅の半分にあたる。
     //
-    // 掴んで動かす＝位置、右下のつまみ＝幅。重なりとはみ出しは
+    // 掴んで動かす＝位置。重なりとはみ出しは
     // その場で赤くし、指を離した時点で不正なら元へ戻す（区画エディタと同じ）。
     // ================================================================
     /// この盤面での**ふつうのキー1つ分**の大きさ。
@@ -916,56 +918,6 @@
         btn.classList.toggle("bad", bad.has(btn.dataset.keyId));
       }
       return bad;
-    }
-
-    /// 右下のつまみ。**幅（と高さ）だけ**を変える。移動は本体のドラッグが担う。
-    function bindResize(btn, keyId) {
-      let dragging = false, sx = 0, sy = 0, cellW = 1, cellH = 1, orig = null;
-      const handle = document.createElement("div");
-      handle.className = "kmhandle";
-      btn.appendChild(handle);
-
-      handle.addEventListener("pointerdown", (event) => {
-        event.preventDefault();
-        event.stopPropagation();      // 本体のドラッグ（移動）を始めさせない
-        const k = boardKey(keyId);
-        if (!k) return;
-        snapshot();
-        dragging = true;
-        const rect = boardEl.querySelector(".kbgrid").getBoundingClientRect();
-        cellW = rect.width / boardDraft.cols;
-        const rows = Math.max(...boardDraft.keys.map((x) => x.row + (x.rowSpan || 1) - 1));
-        cellH = rect.height / rows;
-        sx = event.clientX; sy = event.clientY;
-        orig = { colSpan: k.colSpan || 1, rowSpan: k.rowSpan || 1 };
-        try { handle.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
-      });
-
-      handle.addEventListener("pointermove", (event) => {
-        if (!dragging) return;
-        const k = boardKey(keyId);
-        k.colSpan = Math.max(1, Math.min(
-          orig.colSpan + Math.round((event.clientX - sx) / cellW),
-          boardDraft.cols - k.col + 1));
-        k.rowSpan = Math.max(1, orig.rowSpan + Math.round((event.clientY - sy) / cellH));
-        renderBoard();
-      });
-
-      const done = () => {
-        if (!dragging) return;
-        dragging = false;
-        const k = boardKey(keyId);
-        if (paintConflicts().has(keyId)) {
-          k.colSpan = orig.colSpan; k.rowSpan = orig.rowSpan;
-          undoStack.pop(); updateUndoBtn();   // 何も起きていないので1手に数えない
-          renderBoard();
-          flash(keyId + " はその大きさだと他のキーと重なります");
-          return;
-        }
-        flash(keyId + " の幅を " + (k.colSpan || 1) + " 列にしました");
-      };
-      handle.addEventListener("pointerup", done);
-      handle.addEventListener("pointercancel", done);
     }
 
     function loadBoardDraft() {
