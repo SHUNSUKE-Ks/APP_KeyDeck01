@@ -60,7 +60,16 @@
     ".kd-surface .key:not(.dual) small { position: absolute; top: 3px; right: 6px; line-height: 1; }",
     ".kd-surface .key.pressed { background: var(--kd-accent); }",
     '.kd-surface .key[data-empty="true"] { background: var(--kd-empty); color: var(--kd-ink-dim); }',
-    ".kd-surface .key.fn { background: var(--kd-accent-soft); }",
+    // レイヤーキーを常時色分けしない。**いま効いているかどうか**は
+    // 盤面全体の色で示す（下の .layer-on）。キーそのものは他と同じ色にする。
+    // 常時青いと「押していないのに効いているように見える」ため。
+    ".kd-surface .key.fn { background: var(--kd-panel); }",
+
+    // 押している間だけレイヤーが効く（mo）。効いている間は盤面全体を青く染める。
+    // どのキーを押したかではなく「いま盤面が別モードだ」を伝えるのが目的。
+    ".kd-surface .kbgrid.layer-on { background: rgba(45,103,217,.20); border-radius: 10px; }",
+    ".kd-surface .kbgrid.layer-on .key { background: var(--kd-accent-soft); }",
+    ".kd-surface .kbgrid.layer-on .key[data-empty=\"true\"] { background: var(--kd-empty); }",
     ".kd-surface .key.holding { background: var(--kd-ok); color: #06210f; transform: scale(.94); }",
 
     // ---- Deck ----
@@ -178,8 +187,15 @@
     }
 
     var doc = host.ownerDocument;
+    // 一時レイヤー（mo）が効いているか。効いている間だけ盤面を染める。
+    // toggle（tg）は含めない。押しっぱなしでない状態まで染めると、
+    // 「戻し忘れ」と「押している最中」が見分けられなくなる。
+    var momentaryOn = !!(state && state.momentary && state.momentary.length > 0);
+
     var grid = doc.createElement("div");
-    grid.className = "kbgrid" + (keymap.board.cols <= 4 ? " tiny" : "");
+    grid.className = "kbgrid"
+      + (keymap.board.cols <= 4 ? " tiny" : "")
+      + (momentaryOn ? " layer-on" : "");
     grid.dataset.keymapId = keymap.keymapId || "";
     grid.style.gridTemplateColumns = "repeat(" + keymap.board.cols + ", minmax(0, 1fr))";
 
