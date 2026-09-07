@@ -465,6 +465,26 @@ pub fn load_keymap_with(
                 ));
             }
         }
+
+        // キー同士の重なりを弾く。区画（layout）には元からある検証で、
+        // 盤面にも同じものが要る。画面からキーの位置を動かせるようにした以上、
+        // 重ねて置ける余地を残すと、押せないキーが黙って生まれる。
+        let mut occupied: BTreeMap<(u8, u8), &str> = BTreeMap::new();
+        for key in &board.keys {
+            for r in key.row..key.row.saturating_add(key.row_span) {
+                for c in key.col..key.col.saturating_add(key.col_span) {
+                    if let Some(other) = occupied.insert((r, c), key.id.as_str()) {
+                        return Err(KeymapError::new(
+                            LOAD_SCHEMA_INVALID,
+                            format!(
+                                "{source}: board keys '{}' and '{other}' both occupy (row {r}, col {c})",
+                                key.id
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     // レイヤーファイルの読込＋構文/形状検証。
@@ -1578,5 +1598,49 @@ mod tests {
         }"#;
         let error = load_test_keymap(manifest, &[]).unwrap_err();
         assert_eq!(error.code, LOAD_SCHEMA_INVALID);
+    }
+
+    /// **盤面のキーは重なってはいけない。**
+    ///
+    /// 区画（layout）には元からある検証だが、盤面には無かった。
+    /// 画面からキーの位置を動かせるようにした以上、重ねて置ける余地を残すと
+    /// 押せないキーが黙って生まれる。
+    #[test]
+    fn board_keys_may_not_overlap() {
+        let manifest = r#"{
+            "keymapId": "t_overlap",
+            "kind": "single",
+            "board": { "cols": 4, "keys": [
+                { "id": "K1", "row": 1, "col": 1, "colSpan": 2 },
+                { "id": "K2", "row": 1, "col": 2, "colSpan": 2 }
+            ]},
+            "layerFiles": ["l0.json"]
+        }"#;
+        let layer = r#"{ "layer": 0, "keys": {} }"#;
+        let error = load_test_keymap(manifest, &[("l0.json", layer)])
+            .expect_err("重なりは拒否されるべき");
+        assert_eq!(error.code, LOAD_SCHEMA_INVALID);
+        assert!(
+            error.cause.contains("K1") && error.cause.contains("K2"),
+            "衝突した2つのidを示すべき: {}",
+            error.cause
+        );
+    }
+
+    /// 隣り合っているだけ（重なっていない）なら通ること。
+    /// 検証を厳しくしすぎて正常な盤面まで弾いていないかの確認。
+    #[test]
+    fn board_keys_may_touch_without_overlapping() {
+        let manifest = r#"{
+            "keymapId": "t_touch",
+            "kind": "single",
+            "board": { "cols": 4, "keys": [
+                { "id": "K1", "row": 1, "col": 1, "colSpan": 2 },
+                { "id": "K2", "row": 1, "col": 3, "colSpan": 2 }
+            ]},
+            "layerFiles": ["l0.json"]
+        }"#;
+        let layer = r#"{ "layer": 0, "keys": {} }"#;
+        load_test_keymap(manifest, &[("l0.json", layer)]).expect("隣接は通るべき");
     }
 }

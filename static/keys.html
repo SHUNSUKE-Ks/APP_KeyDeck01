@@ -67,6 +67,10 @@
     button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     button:disabled { opacity: .45; cursor: default; }
     a { color: var(--ink-muted); font-size: 12px; }
+    .cap { font-size: 10px; color: var(--ink-dim); letter-spacing: .06em; }
+    /* 位置編集のときは部品エリアが要らないので畳む */
+    body.mode-position .parts { display: none; }
+    #board .key.moving { outline-color: var(--warn); z-index: 3; }
     #conn { font-size: 11px; color: var(--ink-dim); }
     #conn.bad { color: var(--err); }
 
@@ -132,6 +136,15 @@
     #board .key.own { outline-color: rgba(53,196,122,.85); }
     #board .key.inherited { opacity: .45; }
     #board .key.picked { outline-color: var(--accent); }
+    #board .key.bad { outline-color: var(--err); }
+    /* 幅を変えるつまみ。位置編集のときだけ意味がある */
+    .kmhandle {
+      position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
+      border-right: 2px solid rgba(255,255,255,.55);
+      border-bottom: 2px solid rgba(255,255,255,.55);
+      border-radius: 0 0 4px 0; cursor: nwse-resize; display: none;
+    }
+    body.mode-position .kmhandle { display: block; }
   </style>
 </head>
 <body>
@@ -139,6 +152,11 @@
     <h1>KeyDeck — キー編集</h1>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
+    <span class="cap">編集するもの</span>
+    <select id="modeSel" aria-label="編集する対象">
+      <option value="content">中身（ラベル・動作）</option>
+      <option value="position">位置と大きさ</option>
+    </select>
     <button id="revertBtn" type="button">元に戻す</button>
     <button id="saveBtn" type="button" class="primary">保存</button>
     <span class="sp"></span>
@@ -180,6 +198,9 @@
     let layerId = Number(params.get("layer") || 0);
     let draft = {};
     let picked = null;
+    let mode = "content";
+    // 位置編集用の下書き。board.keys を丸ごと持つ（保存するまでディスクへは行かない）
+    let boardDraft = null;
 
     const flashEl = document.getElementById("flash");
     const connEl = document.getElementById("conn");
@@ -338,11 +359,19 @@
       const layer = keymap && keymap.layers.find((l) => l.id === layerId);
       const own = Object.keys(draft).length;
       const name = layer ? layerName(layer) : "?";
-      document.getElementById("hint").textContent =
-        picked
-          ? "「" + String(picked.label).split("\n")[0] + "」を選んでいます。入れたいキーを押してください。"
-          : "レイヤー " + layerId + "（" + name + "）を編集中。このレイヤーが決めているキー " + own + " 個（緑枠）。"
-            + "上の部品を選ぶと入れられます。キーを上へ放り込むと空にします。";
+      const hint = document.getElementById("hint");
+      if (mode === "position") {
+        hint.textContent = "位置と大きさを編集中（" + keymapId + "）。"
+          + "キーを掴んで動かす／右下のつまみで幅を変える。"
+          + "吸着は1列ずつ（盤面 " + (boardDraft ? boardDraft.cols : "?") + " 列＝キー1つが2列なので、"
+          + "半キーずらしを保ったまま格子に合わせられます）。"
+          + "レイヤーは関係ありません（位置は全レイヤー共通）。";
+        return;
+      }
+      hint.textContent = picked
+        ? "「" + String(picked.label).split("\n")[0] + "」を選んでいます。入れたいキーを押してください。"
+        : "レイヤー " + layerId + "（" + name + "）を編集中。このレイヤーが決めているキー " + own + " 個（緑枠）。"
+          + "上の部品を選ぶと入れられます。キーを上へ放り込むと空にします。";
     }
 
     /// 盤面を描く。**編集中レイヤーが有効な状態**で描くので、
@@ -358,15 +387,20 @@
       const shown = JSON.parse(JSON.stringify(keymap));
       const target = shown.layers.find((l) => l.id === layerId);
       if (target) target.keys = draft;
+      if (boardDraft) shown.board = JSON.parse(JSON.stringify(boardDraft));
 
       const state = layerId === 0 ? { momentary: [], toggled: [] } : { momentary: [], toggled: [layerId] };
       KDComponents.renderKeyboard(boardEl, shown, state, { interactive: false });
 
-      // 継承と自前を見分けられるようにする
       for (const btn of boardEl.querySelectorAll(".key")) {
         const id = btn.dataset.keyId;
-        btn.classList.add(draft[id] ? "own" : "inherited");
-        bindKeyEdit(btn, id);
+        if (mode === "position") {
+          bindKeyMove(btn, id);
+        } else {
+          // 継承と自前を見分けられるようにする
+          btn.classList.add(draft[id] ? "own" : "inherited");
+          bindKeyEdit(btn, id);
+        }
       }
       renderHint();
     }
@@ -439,6 +473,128 @@
     }
 
     // ================================================================
+    // 位置編集。
+    //
+    // 盤面は22列のような細かい格子で、1キーが2列を占めることで
+    // **互い違い（半キーずらし）**を表している。だから格子に吸着させたまま
+    // 互い違いを保てる。吸着の単位は1列で、キーの幅の半分にあたる。
+    //
+    // 掴んで動かす＝位置、右下のつまみ＝幅。重なりとはみ出しは
+    // その場で赤くし、指を離した時点で不正なら元へ戻す（区画エディタと同じ）。
+    // ================================================================
+    function boardKey(id) {
+      return boardDraft.keys.find((k) => k.id === id);
+    }
+
+    /// いまの下書きが成立しているか。Hub側と同じ条件を先に見る。
+    function boardConflicts() {
+      const occupied = new Map();
+      const bad = new Set();
+      for (const k of boardDraft.keys) {
+        const cs = k.colSpan || 1, rs = k.rowSpan || 1;
+        if (k.col + cs - 1 > boardDraft.cols) bad.add(k.id);
+        for (let r = k.row; r < k.row + rs; r += 1) {
+          for (let c = k.col; c < k.col + cs; c += 1) {
+            const cell = r + ":" + c;
+            if (occupied.has(cell)) { bad.add(k.id); bad.add(occupied.get(cell)); }
+            else occupied.set(cell, k.id);
+          }
+        }
+      }
+      return bad;
+    }
+
+    function paintConflicts() {
+      const bad = boardConflicts();
+      for (const btn of boardEl.querySelectorAll(".key")) {
+        btn.classList.toggle("bad", bad.has(btn.dataset.keyId));
+      }
+      return bad;
+    }
+
+    function bindKeyMove(btn, keyId) {
+      let mode2 = null, sx = 0, sy = 0, cellW = 1, cellH = 1, orig = null;
+      const handle = document.createElement("div");
+      handle.className = "kmhandle";
+      btn.appendChild(handle);
+
+      function begin(event, kind) {
+        event.preventDefault();
+        event.stopPropagation();
+        const k = boardKey(keyId);
+        if (!k) return;
+        mode2 = kind;
+        const rect = boardEl.querySelector(".kbgrid").getBoundingClientRect();
+        // 1列＝盤面の幅 / 列数。ここが吸着の単位
+        cellW = rect.width / boardDraft.cols;
+        const rows = Math.max(...boardDraft.keys.map((x) => x.row + (x.rowSpan || 1) - 1));
+        cellH = rect.height / rows;
+        sx = event.clientX; sy = event.clientY;
+        orig = { row: k.row, col: k.col, colSpan: k.colSpan || 1, rowSpan: k.rowSpan || 1 };
+        btn.classList.add("moving");
+        try { btn.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
+      }
+
+      function move(event) {
+        if (!mode2) return;
+        const k = boardKey(keyId);
+        const dc = Math.round((event.clientX - sx) / cellW);
+        const dr = Math.round((event.clientY - sy) / cellH);
+        if (mode2 === "move") {
+          k.col = Math.max(1, Math.min(orig.col + dc, boardDraft.cols - (k.colSpan || 1) + 1));
+          k.row = Math.max(1, orig.row + dr);
+        } else {
+          k.colSpan = Math.max(1, Math.min(orig.colSpan + dc, boardDraft.cols - k.col + 1));
+          k.rowSpan = Math.max(1, orig.rowSpan + dr);
+        }
+        renderBoard();
+        paintConflicts();
+        const again = boardEl.querySelector('.key[data-key-id="' + keyId + '"]');
+        if (again) again.classList.add("moving");
+      }
+
+      function end() {
+        if (!mode2) return;
+        mode2 = null;
+        const k = boardKey(keyId);
+        // 不正なまま確定させない。区画エディタと同じ扱い
+        if (paintConflicts().has(keyId)) {
+          Object.assign(k, orig);
+          renderBoard();
+          paintConflicts();
+          flash(keyId + " は他のキーと重なるため、元へ戻しました");
+          return;
+        }
+        renderBoard();
+        paintConflicts();
+        flash(keyId + " → 行" + k.row + " 列" + k.col + " 幅" + (k.colSpan || 1) + "列");
+      }
+
+      btn.addEventListener("pointerdown", (event) => {
+        if (event.target === handle) return;
+        begin(event, "move");
+      });
+      handle.addEventListener("pointerdown", (event) => begin(event, "resize"));
+      btn.addEventListener("pointermove", move);
+      btn.addEventListener("pointerup", end);
+      btn.addEventListener("pointercancel", end);
+    }
+
+    document.getElementById("modeSel").addEventListener("change", (event) => {
+      mode = event.target.value;
+      document.body.classList.toggle("mode-position", mode === "position");
+      picked = null;
+      loadBoardDraft();
+      renderBoard();
+      clearFlash();
+    });
+
+    function loadBoardDraft() {
+      const km = CONFIG && CONFIG.keymaps[keymapId];
+      boardDraft = km && km.board ? JSON.parse(JSON.stringify(km.board)) : null;
+    }
+
+    // ================================================================
     // 選択（キーボード / レイヤー）
     // ================================================================
     function fillSelectors() {
@@ -488,20 +644,42 @@
 
     document.getElementById("keymapSel").addEventListener("change", (e) => {
       keymapId = e.target.value; picked = null;
-      fillSelectors(); loadDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
+      fillSelectors(); loadDraft(); loadBoardDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
     document.getElementById("layerSel").addEventListener("change", (e) => {
       layerId = Number(e.target.value); picked = null;
       loadDraft(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
     document.getElementById("revertBtn").addEventListener("click", () => {
-      loadDraft(); renderBoard(); flash("Hubが読み込んでいる内容へ戻しました（保存はしていません）");
+      loadDraft(); loadBoardDraft(); renderBoard();
+      flash("Hubが読み込んでいる内容へ戻しました（保存はしていません）");
     });
 
     document.getElementById("saveBtn").addEventListener("click", async () => {
       const btn = document.getElementById("saveBtn");
       btn.disabled = true;
       try {
+        if (mode === "position") {
+          const bad = paintConflicts();
+          if (bad.size > 0) {
+            flash("重なっているキーがあります: " + [...bad].join(", "));
+            return;
+          }
+          const res = await fetch("/api/keymap/board/save?token=" + encodeURIComponent(token), {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ keymapId, board: boardDraft }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (res.ok) {
+            log("P007B", "OK", "board saved", body);
+            flash("位置を保存しました（" + body.path + "・" + body.keys + "キー）。繋がっている端末にも反映されます。");
+          } else {
+            log("ERR", body.code || String(res.status), body.cause || "board save failed", body);
+            flash("保存できません: " + (body.code || res.status) + " — " + (body.cause || "詳細不明")
+                  + (body.rolledBack ? "（ディスクは元へ戻しました）" : ""));
+          }
+          return;
+        }
         const km = CONFIG.keymaps[keymapId];
         const layer = km.layers.find((l) => l.id === layerId);
         const res = await fetch("/api/layer/save?token=" + encodeURIComponent(token), {
@@ -550,6 +728,7 @@
         CONFIG = msg;
         fillSelectors();
         loadDraft();
+        loadBoardDraft();
         rememberUrl();
         renderTabs();
         renderParts();

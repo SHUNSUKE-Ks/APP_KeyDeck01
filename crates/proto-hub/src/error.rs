@@ -28,3 +28,8 @@ pub const LAYOUT_SAVE_FAILED: &str = "LAYOUT_SAVE_FAILED";
 pub const LAYER_SAVE_REJECTED: &str = "LAYER_SAVE_REJECTED";
 /// P-007: レイヤー保存の失敗（ファイル操作そのものが失敗した）。
 pub const LAYER_SAVE_FAILED: &str = "LAYER_SAVE_FAILED";
+
+/// P-007 段階B: 盤面保存の拒否（keymapIdが実在しない／検証に落ちた）。
+pub const BOARD_SAVE_REJECTED: &str = "BOARD_SAVE_REJECTED";
+/// P-007 段階B: 盤面保存の失敗（ファイル操作そのものが失敗した）。
+pub const BOARD_SAVE_FAILED: &str = "BOARD_SAVE_FAILED";

@@ -57,6 +57,9 @@ pub fn router(state: SharedState) -> Router {
         // キー編集（P-007）: レイヤー1枚を書き戻す。書き先は keymaps/layers/ 配下で、
         // ここは不変条件6が元から許している場所（D22）。
         .route("/api/layer/save", post(layer_save_handler))
+        // キーの位置編集（P-007 段階B）: 盤面（board）だけを書き戻す。
+        // 不変条件6の keymaps/keymap_<id>.json 追加ぶん（2026-09-07 裁定）。
+        .route("/api/keymap/board/save", post(board_save_handler))
         .route("/ws", get(ws_handler))
         .route("/api/deck/export", get(deck_export))
         .route_service("/kb", ServeFile::new("static/kb.html"))
@@ -701,6 +704,237 @@ async fn layer_save_handler(
         })),
     )
         .into_response()
+}
+
+/// 盤面の保存要求。**受け取るのは board だけ。**
+///
+/// `kind` / `layerFiles` / `description` は受け取らない。とくに `layerFiles` は
+/// ファイルパスの配列であり、クライアントから受け取ると任意パス読み取りになる。
+/// これらは既存ファイルから読んでそのまま残す。
+#[derive(Debug, Deserialize)]
+struct BoardSaveBody {
+    #[serde(rename = "keymapId")]
+    keymap_id: String,
+    board: proto_keymap::Board,
+}
+
+/// P-007 段階B: 盤面（キーの位置と大きさ）を保存する。
+///
+/// ■ 手順（layout / layer の保存と同じ考え方）
+///   1. token検証
+///   2. `keymapId` が**いま読み込まれているキーマップに実在するか**を確認。
+///      実在するものだけがファイル名になる（クライアントは名前を決められない）
+///   3. 既存マニフェストを読み、**`board` だけを差し替える**
+///   4. `.bak` へ退避 → 書く
+///   5. 全体を読み直して検証。失敗したら巻き戻す
+///   6. 成功したら差し替えて全クライアントへ再配信
+async fn board_save_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    Json(body): Json<BoardSaveBody>,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting board save");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+
+    // ---- 実在確認。ここを通らないものはファイル名にしない ----
+    let exists = {
+        let s = state.lock().unwrap();
+        s.keymaps.get(&body.keymap_id).map(|k| k.board.is_some())
+    };
+    let cause = match exists {
+        None => Some(format!(
+            "unknown keymapId '{}' (only already-loaded keymaps can be edited)",
+            body.keymap_id
+        )),
+        // 分割キーボードは board を持たない（halves で持つ）。この口では扱えない
+        Some(false) => Some(format!(
+            "keymap '{}' has no board (split keyboards are not editable here)",
+            body.keymap_id
+        )),
+        Some(true) => None,
+    };
+    if let Some(cause) = cause {
+        tracing::error!(chk = "P007B", code = BOARD_SAVE_REJECTED, cause = %cause, "board save rejected");
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": BOARD_SAVE_REJECTED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    let path = std::path::Path::new(crate::KEYMAPS_DIR)
+        .join(format!("keymap_{}.json", body.keymap_id));
+    let backup = path.with_extension("json.bak");
+
+    // ---- 既存マニフェストを読み、board だけ差し替える ----
+    // 丸ごと組み直すと layerFiles などを失う（あるいはクライアント任せになる）。
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            let cause = format!("failed to read {}: {error}", path.display());
+            tracing::error!(chk = "P007B", code = BOARD_SAVE_FAILED, cause = %cause, "board save failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+            )
+                .into_response();
+        }
+    };
+    let mut doc: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(doc) => doc,
+        Err(error) => {
+            let cause = format!("{} is not valid JSON: {error}", path.display());
+            tracing::error!(chk = "P007B", code = BOARD_SAVE_FAILED, cause = %cause, "board save failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+            )
+                .into_response();
+        }
+    };
+    match serde_json::to_value(&body.board) {
+        Ok(board) => { doc["board"] = board; }
+        Err(error) => {
+            let cause = format!("failed to serialize board: {error}");
+            tracing::error!(chk = "P007B", code = BOARD_SAVE_FAILED, cause = %cause, "board save failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+            )
+                .into_response();
+        }
+    }
+
+    if let Err(error) = std::fs::copy(&path, &backup) {
+        let cause = format!("failed to back up {}: {error}", path.display());
+        tracing::error!(chk = "P007B", code = BOARD_SAVE_FAILED, cause = %cause, "board save failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    // 盤面のキーも1行1個で書く（レイヤーと同じ理由。手で読める差分を保つ）
+    let out = format_keymap_manifest(&doc);
+    if let Err(error) = std::fs::write(&path, &out) {
+        let cause = format!("failed to write {}: {error}", path.display());
+        tracing::error!(chk = "P007B", code = BOARD_SAVE_FAILED, cause = %cause, "board save failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    // **書いた後に全体を読み直す。** キーの重なり・列はみ出し・id重複は
+    // ここ（proto-keymap の検証）でまとめて弾かれる。
+    let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
+    let decks_dir = std::path::Path::new(crate::DECKS_DIR);
+    let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
+    let layouts_dir = std::path::Path::new(crate::LAYOUTS_DIR);
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir) {
+        Ok(data) => data,
+        Err(errors) => {
+            let restored = std::fs::copy(&backup, &path).is_ok();
+            let cause = errors.join("; ");
+            tracing::error!(
+                chk = "P007B", code = BOARD_SAVE_REJECTED, cause = %cause, restored,
+                "board save rejected after reload; rolled back"
+            );
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "code": BOARD_SAVE_REJECTED, "cause": cause,
+                    "errors": errors, "rolledBack": restored,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let keys = body.board.keys.len();
+    {
+        let mut s = state.lock().unwrap();
+        s.keymaps = loaded.keymaps;
+        s.decks = loaded.decks;
+        s.command_registry = loaded.command_registry;
+        s.surfaces = loaded.surfaces;
+        s.layouts = loaded.layouts;
+        s.layer_state.reset();
+        s.ipad_layer_state.reset();
+        s.layer_states.clear();
+    }
+
+    tracing::info!(
+        chk = "P007B", keymap_id = %body.keymap_id, keys,
+        "board saved; broadcasting surface.config"
+    );
+    broadcast_surface_config_for(&state, SurfaceKind::Split);
+    broadcast_surface_config_for(&state, SurfaceKind::Ipad);
+    broadcast_surface_config_for(&state, SurfaceKind::Layout);
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "keymapId": body.keymap_id,
+            "path": path.display().to_string(),
+            "keys": keys,
+        })),
+    )
+        .into_response()
+}
+
+/// マニフェストを書き出す。board.keys は1行1個にする。
+/// 既存ファイルが手書きでその体裁なので、揃えないと差分が読めなくなる。
+fn format_keymap_manifest(doc: &serde_json::Value) -> String {
+    let mut out = String::from("{\n");
+    let obj = match doc.as_object() {
+        Some(obj) => obj,
+        None => return serde_json::to_string_pretty(doc).unwrap_or_default() + "\n",
+    };
+    // serde_json の Value は連想配列を名前順に並べ替えるため、そのまま回すと
+    // board が先頭に来て keymapId が中ほどへ行く。既存ファイルの読み味を保つため、
+    // 意味の順（何のキーマップか → どんな種類か → 説明 → 盤面 → レイヤー）に固定する。
+    // ここに無いキーは後ろへ回す（将来フィールドが増えても落とさない）。
+    const ORDER: [&str; 5] = ["keymapId", "kind", "description", "board", "layerFiles"];
+    let mut ordered: Vec<(&String, &serde_json::Value)> = Vec::new();
+    for name in ORDER {
+        if let Some((k, v)) = obj.get_key_value(name) {
+            ordered.push((k, v));
+        }
+    }
+    for (k, v) in obj.iter() {
+        if !ORDER.contains(&k.as_str()) {
+            ordered.push((k, v));
+        }
+    }
+
+    let last = ordered.len().saturating_sub(1);
+    for (i, (key, value)) in ordered.into_iter().enumerate() {
+        let comma = if i == last { "" } else { "," };
+        if key == "board" {
+            let cols = value.get("cols").cloned().unwrap_or(serde_json::Value::Null);
+            out.push_str(&format!("  \"board\": {{\n    \"cols\": {cols},\n    \"keys\": [\n"));
+            let empty = Vec::new();
+            let keys = value.get("keys").and_then(|k| k.as_array()).unwrap_or(&empty);
+            let key_last = keys.len().saturating_sub(1);
+            for (j, k) in keys.iter().enumerate() {
+                let tail = if j == key_last { "" } else { "," };
+                out.push_str(&format!("      {}{tail}\n", one_line_json(k)));
+            }
+            out.push_str(&format!("    ]\n  }}{comma}\n"));
+        } else {
+            let rendered = serde_json::to_string_pretty(value).unwrap_or_default();
+            let indented = rendered.replace('\n', "\n  ");
+            out.push_str(&format!("  {}: {indented}{comma}\n",
+                serde_json::to_string(key).unwrap_or_default()));
+        }
+    }
+    out.push_str("}\n");
+    out
 }
 
 async fn deck_export(State(state): State<SharedState>, Query(query): Query<DeckExportQuery>) -> Response {
