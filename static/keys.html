@@ -136,6 +136,19 @@
     #board .key.own { outline-color: rgba(53,196,122,.85); }
     #board .key.inherited { opacity: .45; }
     #board .key.picked { outline-color: var(--accent); }
+    /* ドラッグで持っているキー／落とす先のキー */
+    #board .key.dragsrc { opacity: .35; }
+    #board .key.dragover { outline-color: var(--warn); outline-width: 3px; }
+    /* 指の下についてくる影。どれを持っているかが分かる */
+    #dragghost {
+      position: fixed; z-index: 500; pointer-events: none;
+      min-width: 48px; min-height: 40px; padding: 6px 10px;
+      border-radius: 9px; background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+      transform: translate(-50%, -50%);
+    }
+    #dragghost[hidden] { display: none !important; }
     #board .key.bad { outline-color: var(--err); }
     /* 幅を変えるつまみ。位置編集のときだけ意味がある */
     .kmhandle {
@@ -170,6 +183,8 @@
     <div class="tabs" id="tabs"></div>
     <div class="partgrid" id="parts"></div>
   </div>
+
+  <div id="dragghost" hidden></div>
 
   <div class="boardwrap">
     <div class="boardhint" id="hint"></div>
@@ -350,8 +365,47 @@
           renderParts();
           renderHint();
         });
+        // **部品をキーへドラッグして落とせる。**
+        // 「選んでから押す」も残してあるので、やりやすい方を使える。
+        bindPartDrag(b, part);
         host.appendChild(b);
       }
+    }
+
+    /// 部品をキーへドラッグして入れる。
+    function bindPartDrag(el, part) {
+      let dragging = false, moved = false, sx = 0, sy = 0;
+      el.addEventListener("pointerdown", (event) => {
+        dragging = true; moved = false;
+        sx = event.clientX; sy = event.clientY;
+        try { el.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
+      });
+      el.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        if (!moved && Math.hypot(event.clientX - sx, event.clientY - sy) < 8) return;
+        if (!moved) { moved = true; showGhost(String(part.label).split("\n")[0], event); }
+        moveGhost(event);
+        clearDragMarks();
+        const target = keyUnder(event, null);
+        if (target) target.classList.add("dragover");
+      });
+      const done = (event) => {
+        if (!dragging) return;
+        dragging = false;
+        if (!moved) return;          // 動いていなければ click 側に任せる
+        moved = false;
+        hideGhost();
+        const target = keyUnder(event, null);
+        clearDragMarks();
+        if (!target) return;
+        const keyId = target.dataset.keyId;
+        draft[keyId] = { label: String(part.label).split("\n")[0], action: part.action };
+        pushRecent(part);
+        flash(keyId + " に「" + String(part.label).split("\n")[0] + "」を入れました");
+        renderBoard();
+      };
+      el.addEventListener("pointerup", done);
+      el.addEventListener("pointercancel", done);
     }
 
     function renderHint() {
@@ -390,7 +444,9 @@
       if (boardDraft) shown.board = JSON.parse(JSON.stringify(boardDraft));
 
       const state = layerId === 0 ? { momentary: [], toggled: [] } : { momentary: [], toggled: [layerId] };
-      KDComponents.renderKeyboard(boardEl, shown, state, { interactive: false });
+      // editable: Hubへは送らないが触れる。interactive:false だけにすると盤面全体が
+      // pointer-events:none になり、ドラッグも押下も一切届かない。
+      KDComponents.renderKeyboard(boardEl, shown, state, { interactive: false, editable: true });
 
       for (const btn of boardEl.querySelectorAll(".key")) {
         const id = btn.dataset.keyId;
@@ -406,21 +462,67 @@
     }
 
     // ================================================================
+    // ドラッグ＆ドロップの共通部分。
+    //
+    // 指の下に影（ghost）を出し、落とす先のキーを枠で示す。
+    // ポインタは掴んだ要素にキャプチャされるので、落とす先は
+    // **座標から elementFromPoint で引く**（相手側にイベントは飛ばない）。
+    // ================================================================
+    const ghostEl = document.getElementById("dragghost");
+
+    function showGhost(text, event) {
+      ghostEl.hidden = false;
+      ghostEl.textContent = text;
+      moveGhost(event);
+    }
+    function moveGhost(event) {
+      ghostEl.style.left = event.clientX + "px";
+      ghostEl.style.top = (event.clientY - 34) + "px";
+    }
+    function hideGhost() { ghostEl.hidden = true; }
+
+    /// いま指の下にあるキー（自分自身は除く）
+    function keyUnder(event, exceptId) {
+      // 影が当たり判定を横取りするので一瞬どける。
+      // **元の表示状態へ戻す**こと。ここで無条件に出すと、
+      // 指を離した後（hideGhost の後）に影が復活して残る。
+      const wasHidden = ghostEl.hidden;
+      ghostEl.hidden = true;
+      const el = document.elementFromPoint(event.clientX, event.clientY);
+      ghostEl.hidden = wasHidden;
+      const key = el && el.closest ? el.closest("#board .key") : null;
+      if (!key) return null;
+      if (exceptId && key.dataset.keyId === exceptId) return null;
+      return key;
+    }
+
+    function clearDragMarks() {
+      for (const el of boardEl.querySelectorAll(".dragover, .dragsrc")) {
+        el.classList.remove("dragover", "dragsrc");
+      }
+    }
+
+    // ================================================================
     // キーへの操作
     //   押す         … 選んでいる部品を入れる
     //   上へ放り込む … そのキーを空にする（このレイヤーの定義を消す）
     // ================================================================
+    /// 中身モードのキー操作。
+    ///   キーを別のキーへドラッグ … **2つの中身を入れ替える**
+    ///   キーを上の部品エリアへ    … このレイヤーの定義を外す
+    ///   その場で離す（部品を選んでいるとき）… その部品を入れる
     function bindKeyEdit(btn, keyId) {
       let dragging = false;
+      let moved = false;
       let overDrop = false;
-      let startY = 0;
-
-      btn.style.pointerEvents = "auto";   // プレビュー用に殺されているのを戻す
+      let startX = 0, startY = 0;
 
       btn.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         dragging = true;
+        moved = false;
         overDrop = false;
+        startX = event.clientX;
         startY = event.clientY;
         btn.classList.add("picked");
         try { btn.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
@@ -428,38 +530,77 @@
 
       btn.addEventListener("pointermove", (event) => {
         if (!dragging) return;
-        // 上へ動かし始めたら放り込み口を出す。押しただけでは出さない
-        if (!dropVeil.hidden || Math.abs(event.clientY - startY) > 12) {
+        // 少し動かして初めて「ドラッグ」とみなす。押しただけでは影を出さない
+        if (!moved && Math.hypot(event.clientX - startX, event.clientY - startY) < 8) return;
+        if (!moved) {
+          moved = true;
+          btn.classList.add("dragsrc");
+          showGhost(btn.textContent.trim() || keyId, event);
           dropVeil.hidden = false;
-          const z = dropVeil.getBoundingClientRect();
-          overDrop = event.clientX >= z.left && event.clientX <= z.right
-                  && event.clientY >= z.top && event.clientY <= z.bottom;
-          dropVeil.classList.toggle("over", overDrop);
+        }
+        moveGhost(event);
+
+        const z = dropVeil.getBoundingClientRect();
+        overDrop = event.clientX >= z.left && event.clientX <= z.right
+                && event.clientY >= z.top && event.clientY <= z.bottom;
+        dropVeil.classList.toggle("over", overDrop);
+
+        clearDragMarks();
+        btn.classList.add("dragsrc");
+        if (!overDrop) {
+          const target = keyUnder(event, keyId);
+          if (target) target.classList.add("dragover");
         }
       });
 
-      const finish = () => {
+      const finish = (event) => {
         if (!dragging) return;
         dragging = false;
         btn.classList.remove("picked");
         dropVeil.hidden = true;
         dropVeil.classList.remove("over");
+        hideGhost();
 
-        if (overDrop) {
-          if (draft[keyId]) {
-            delete draft[keyId];
-            flash(keyId + " をこのレイヤーから外しました（下のレイヤーの内容が出ます）");
-          } else {
-            flash(keyId + " はこのレイヤーでは元から定義していません");
-          }
+        if (moved) {
+          const wasOverDrop = overDrop;
+          const target = wasOverDrop ? null : keyUnder(event, keyId);
+          clearDragMarks();
+          moved = false;
           overDrop = false;
+
+          if (wasOverDrop) {
+            if (draft[keyId]) {
+              delete draft[keyId];
+              flash(keyId + " をこのレイヤーから外しました（下のレイヤーの内容が出ます）");
+            } else {
+              flash(keyId + " はこのレイヤーでは元から定義していません");
+            }
+            renderBoard();
+            return;
+          }
+
+          if (target) {
+            // **中身を入れ替える。** どちらかが未定義（下から継承）なら、
+            // 見えている内容を写してから入れ替える。そうしないと
+            // 「空と入れ替えたら片方が消えた」ように見える。
+            const otherId = target.dataset.keyId;
+            const a = draft[keyId] || shownDef(keyId);
+            const b = draft[otherId] || shownDef(otherId);
+            if (b) draft[keyId] = JSON.parse(JSON.stringify(b)); else delete draft[keyId];
+            if (a) draft[otherId] = JSON.parse(JSON.stringify(a)); else delete draft[otherId];
+            flash(keyId + " と " + otherId + " の中身を入れ替えました");
+            renderBoard();
+            return;
+          }
+          // どこでもない場所で離した = 何もしない
           renderBoard();
           return;
         }
 
-        // その場で離した = 部品を入れる
+        // 動かさずに離した = 選んでいる部品を入れる
+        clearDragMarks();
         if (!picked) {
-          flash("先に上の部品を選んでください");
+          flash("キーを別のキーへドラッグすると入れ替わります。部品を入れるときは上の部品を選んでから押してください。");
           return;
         }
         draft[keyId] = { label: String(picked.label).split("\n")[0], action: picked.action };
@@ -470,6 +611,19 @@
 
       btn.addEventListener("pointerup", finish);
       btn.addEventListener("pointercancel", finish);
+    }
+
+    /// いま画面に出ている内容（このレイヤーの定義、無ければ下から継承したもの）。
+    /// 入れ替えのときに「見えているもの」を動かすために使う。
+    function shownDef(keyId) {
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      if (!keymap) return null;
+      const state = layerId === 0 ? { momentary: [], toggled: [] } : { momentary: [], toggled: [layerId] };
+      const shown = JSON.parse(JSON.stringify(keymap));
+      const target = shown.layers.find((l) => l.id === layerId);
+      if (target) target.keys = draft;
+      const def = KDComponents.resolveDisplay(shown, state, keyId);
+      return def ? JSON.parse(JSON.stringify(def)) : null;
     }
 
     // ================================================================
@@ -484,6 +638,23 @@
     // ================================================================
     function boardKey(id) {
       return boardDraft.keys.find((k) => k.id === id);
+    }
+
+    /// 指の位置が盤面のどのマスかを出し、そこを占めているキーを返す。
+    /// DOMの当たり判定を使わないのは、位置編集では動かした本人が
+    /// その場所へ既に移っていて、相手の上に乗ってしまうため。
+    function keyAtPoint(event, exceptId) {
+      const grid = boardEl.querySelector(".kbgrid");
+      if (!grid || !boardDraft) return null;
+      const rect = grid.getBoundingClientRect();
+      const rows = Math.max(...boardDraft.keys.map((k) => k.row + (k.rowSpan || 1) - 1));
+      const col = Math.floor((event.clientX - rect.left) / (rect.width / boardDraft.cols)) + 1;
+      const row = Math.floor((event.clientY - rect.top) / (rect.height / rows)) + 1;
+      return boardDraft.keys.find((k) => {
+        if (k.id === exceptId) return false;
+        const cs = k.colSpan || 1, rs = k.rowSpan || 1;
+        return col >= k.col && col < k.col + cs && row >= k.row && row < k.row + rs;
+      }) || null;
     }
 
     /// いまの下書きが成立しているか。Hub側と同じ条件を先に見る。
@@ -532,6 +703,7 @@
         sx = event.clientX; sy = event.clientY;
         orig = { row: k.row, col: k.col, colSpan: k.colSpan || 1, rowSpan: k.rowSpan || 1 };
         btn.classList.add("moving");
+        if (kind === "move") showGhost(btn.textContent.trim() || keyId, event);
         try { btn.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
       }
 
@@ -547,16 +719,55 @@
           k.colSpan = Math.max(1, Math.min(orig.colSpan + dc, boardDraft.cols - k.col + 1));
           k.rowSpan = Math.max(1, orig.rowSpan + dr);
         }
+        moveGhost(event);
         renderBoard();
         paintConflicts();
         const again = boardEl.querySelector('.key[data-key-id="' + keyId + '"]');
         if (again) again.classList.add("moving");
+        if (mode2 === "move") {
+          const target = keyUnder(event, keyId);
+          if (target) target.classList.add("dragover");
+        }
       }
 
-      function end() {
+      function end(event) {
         if (!mode2) return;
+        const wasMove = mode2 === "move";
         mode2 = null;
         const k = boardKey(keyId);
+        hideGhost();
+
+        // 別のキーの上で離した = **位置を入れ替える**。
+        // 重なりを避けて空きへ運ぶより、入れ替えのほうが並べ替えは速い。
+        if (wasMove) {
+          // 相手はDOMの当たり判定では取れない。動かした本人が既にその場所へ
+          // 移っていて上に乗っているため。**格子の座標から引く**。
+          // 動いたのは本人だけなので、下書きの他のキーはまだ元の位置にある。
+          const other = keyAtPoint(event, keyId);
+          clearDragMarks();
+          if (other) {
+              Object.assign(k, orig);        // まず自分を元へ戻してから交換する
+              const tmp = { row: k.row, col: k.col, colSpan: k.colSpan || 1, rowSpan: k.rowSpan || 1 };
+              k.row = other.row; k.col = other.col;
+              k.colSpan = other.colSpan || 1; k.rowSpan = other.rowSpan || 1;
+              other.row = tmp.row; other.col = tmp.col;
+              other.colSpan = tmp.colSpan; other.rowSpan = tmp.rowSpan;
+              renderBoard();
+              if (paintConflicts().size > 0) {
+                flash(keyId + " と " + other.id + " は大きさが違うため入れ替えられません");
+                // 入れ替えを取り消す
+                other.row = k.row; other.col = k.col;
+                other.colSpan = k.colSpan; other.rowSpan = k.rowSpan;
+                Object.assign(k, orig);
+                renderBoard(); paintConflicts();
+                return;
+              }
+              flash(keyId + " と " + other.id + " の位置を入れ替えました");
+              return;
+          }
+        }
+        clearDragMarks();
+
         // 不正なまま確定させない。区画エディタと同じ扱い
         if (paintConflicts().has(keyId)) {
           Object.assign(k, orig);

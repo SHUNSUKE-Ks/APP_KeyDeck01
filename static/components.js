@@ -14,7 +14,12 @@
 //
 // ■ 2つのモード
 //   interactive: true  … 実機の面。押下でHubへ送る（送信はホスト側のコールバック）
-//   interactive: false … エディタのプレビュー。押せない。見た目だけ
+//   interactive: false … Hubへは送らない
+//   editable: true     … Hubへは送らないが、**触れる**（編集画面用）
+//
+//   「Hubへ送らない」と「触れない」は別のこと。まとめて扱うと、編集画面の盤面まで
+//   pointer-events: none になり、指でもマウスでも一切反応しなくなる。
+//   実際にそうなっていた。合成イベントでの確認は当たり判定を素通りするので気づけない。
 //
 //   **送信そのものはここに書かない。** 何を送るかはホストが決める（不変条件1）。
 //   ここが持つのは「JSONをDOMにする」ところまで。
@@ -179,7 +184,7 @@
     var opt = options || {};
     injectStyles(host.ownerDocument);
     host.classList.add("kd-surface");
-    if (!opt.interactive) host.classList.add("kd-preview");
+    if (!opt.interactive && !opt.editable) host.classList.add("kd-preview");
 
     if (!keymap || !keymap.board) {
       oops(host, "キーボードが見つかりません");
@@ -254,7 +259,7 @@
     var opt = options || {};
     injectStyles(host.ownerDocument);
     host.classList.add("kd-surface");
-    if (!opt.interactive) host.classList.add("kd-preview");
+    if (!opt.interactive && !opt.editable) host.classList.add("kd-preview");
 
     if (!deck) {
       oops(host, "Deckが見つかりません");
