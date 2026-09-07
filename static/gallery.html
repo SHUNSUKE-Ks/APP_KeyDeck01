@@ -123,6 +123,7 @@
   </p>
   <div class="cards" id="cards"></div>
 
+  <script src="/components.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
@@ -289,6 +290,7 @@
 
     async function load() {
       const host = document.getElementById("cards");
+      if (!token) { KDComponents.showTokenNotice(); return; }
       const response = await fetch("/api/formats?token=" + encodeURIComponent(token));
       if (!response.ok) {
         const text = await response.text().catch(() => "");

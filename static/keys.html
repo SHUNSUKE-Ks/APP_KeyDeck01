@@ -531,7 +531,11 @@
     // ================================================================
     let socket = null;
     function connect() {
-      if (!token) { setConn("トークンがありません", true); return; }
+      if (!token) {
+        setConn("トークンがありません", true);
+        KDComponents.showTokenNotice();
+        return;
+      }
       const scheme = location.protocol === "https:" ? "wss" : "ws";
       socket = new WebSocket(scheme + "://" + location.host + "/ws?surface=layout&token=" + encodeURIComponent(token));
       socket.addEventListener("open", () => setConn("接続中"));

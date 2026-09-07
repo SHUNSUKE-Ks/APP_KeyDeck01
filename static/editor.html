@@ -1283,7 +1283,8 @@ async function diagnose() {
 
 function connect() {
   if (!token) {
-    setConn("トークンがありません。Hubのコンソールに出ているURLを開いてください", "bad");
+    setConn("トークンがありません", "bad");
+    KDComponents.showTokenNotice();   // 小さな行だと気づかれないので画面いっぱいに出す
     return;
   }
   const scheme = location.protocol === "https:" ? "wss" : "ws";

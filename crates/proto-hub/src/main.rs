@@ -134,6 +134,30 @@ async fn main() {
     }
 
 
+    // ================================================================
+    // 起動したらブラウザを開く。
+    //
+    // トークンは起動のたびに変わる（D8）ため、URLを手で打つ運用が成立しない。
+    // 以前はトップがQR一覧でトークン不要だったが、トップを編集画面にした結果、
+    // **トークン無しで入れる入口が無くなった**（コンソールからURLを写すしかない）。
+    // 開く側をこちらが用意すれば、写す作業ごと無くなる。
+    //
+    // トークンをページに埋め込むのではなく、URLとして渡すだけなので
+    // 認証の強さは変わらない。開いてほしくないときは KEYDECK_NO_OPEN=1。
+    if std::env::var_os("KEYDECK_NO_OPEN").is_none() {
+        let url = format!("http://localhost:{PORT}/?token={}", token.value());
+        // `start` は cmd の内部コマンドなので cmd 経由で呼ぶ。
+        // 第1引数の "" はウィンドウタイトル（URLがタイトルと誤解されるのを防ぐ）。
+        match std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+        {
+            Ok(_) => println!("  （ブラウザを開きました。開かない場合は上のURLをコピーしてください）"),
+            // 開けなくても起動は続ける。URLは上に出ているので手で開けば済む
+            Err(error) => tracing::warn!(cause = %error, "failed to open the browser"),
+        }
+    }
+
     if let Err(error) = axum::serve(listener, router).await {
         eprintln!("proto-hub: server error: {error}");
         std::process::exit(1);

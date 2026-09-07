@@ -140,6 +140,7 @@
     </div>
   </div>
 
+  <script src="/components.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
@@ -214,6 +215,7 @@
 
     // ---- 一覧の読み込み -----------------------------------------------
     async function loadFormats() {
+      if (!token) { KDComponents.showTokenNotice(); return; }
       const response = await fetch("/api/formats?token=" + encodeURIComponent(token));
       if (!response.ok) {
         const text = await response.text().catch(() => "");

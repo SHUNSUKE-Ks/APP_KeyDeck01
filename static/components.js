@@ -325,7 +325,57 @@
     grid.style.maxWidth = (cell * cols + gap * (cols - 1)) + "px";
   }
 
+  // ================================================================
+  // トークン無しで開かれたときの案内。
+  //
+  // トークンは起動のたびに変わる（D8）ので、URLを覚えて開く運用ができない。
+  // 通常はHubが起動時にブラウザを開くが、それが失敗した場合や、
+  // 古いURLをブックマークしていた場合にここへ来る。
+  // **何が起きたか・どうすれば入れるか**を画面いっぱいに出す。
+  // 小さなステータス行だと気づかれず「壊れている」と誤解される。
+  // ================================================================
+  function showTokenNotice(doc) {
+    var d = doc || document;
+    if (d.getElementById("kd-token-notice")) return;
+    var box = d.createElement("div");
+    box.id = "kd-token-notice";
+    box.setAttribute("style", [
+      "position:fixed", "inset:0", "z-index:9999",
+      "background:#101526", "color:#f4f7ff",
+      "font-family:system-ui,-apple-system,'Segoe UI',sans-serif",
+      "display:flex", "align-items:center", "justify-content:center",
+      "padding:24px", "text-align:center",
+    ].join(";"));
+    var card = d.createElement("div");
+    card.setAttribute("style", "max-width:520px;line-height:1.9");
+
+    var h = d.createElement("div");
+    h.setAttribute("style", "font-size:17px;font-weight:700;margin-bottom:14px");
+    h.textContent = "接続用のトークンがありません";
+    card.appendChild(h);
+
+    var p1 = d.createElement("p");
+    p1.setAttribute("style", "font-size:13px;color:#b7bfd6;margin:0 0 14px");
+    p1.textContent = "トークンはHubを起動するたびに新しく作られます。"
+      + "そのため、URLだけを覚えて開くことはできません。";
+    card.appendChild(p1);
+
+    var p2 = d.createElement("p");
+    p2.setAttribute("style", "font-size:13px;color:#b7bfd6;margin:0 0 6px");
+    p2.textContent = "Hubの黒い画面（コンソール）に出ているURLを開いてください。";
+    card.appendChild(p2);
+
+    var p3 = d.createElement("p");
+    p3.setAttribute("style", "font-size:12px;color:#6b7590;margin:0");
+    p3.textContent = "端末から使うときは、PCで「QRギャラリー」を開いてQRを読み取ります。";
+    card.appendChild(p3);
+
+    box.appendChild(card);
+    d.body.appendChild(box);
+  }
+
   global.KDComponents = {
+    showTokenNotice: showTokenNotice,
     injectStyles: injectStyles,
     resolveDisplay: resolveDisplay,
     renderLabel: renderLabel,
