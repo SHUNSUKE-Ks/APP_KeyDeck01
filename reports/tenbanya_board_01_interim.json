@@ -1,0 +1,112 @@
+{
+  "productId": "tenbanya-board-01",
+  "productName": "KeyDeck Board（未確定。候補は ipad_v13 / ipad_main。§nextDecision 参照）",
+
+  "currentState": "開発中。Hub本体は動作し、PCのレイアウト編集画面から区画を並べ替えて保存し、接続中の端末へ再読込なしで反映するところまでブラウザ間で実測済み。ただし『Boardだけを配布する』ための形態は未整備で、現状のBoardはHubが無いと表示も動作もしない（layouts/*.json は配置の宣言でしかなく、描画データはHubがWebSocketで配る）。",
+
+  "projectRoot": "C:\\00_master\\DevApps\\APP_KeyDeck01",
+
+  "artifactPaths": [
+    "layouts/layout_ipad_v13.json （Board本体＝区画割り。1,673バイト）",
+    "keymaps/keymap_ipad01_vol13.json （参照される盤面。4,100バイト）",
+    "keymaps/layers/ipad01_vol13_layer0.json",
+    "keymaps/layers/ipad01_vol13_layer2.json",
+    "keymaps/layers/ipad01_vol13_layer3.json",
+    "decks/deck_default.json （Stream Deck。15スロット）",
+    "decks/deck_story_paths.json （コピペリスト。2件）",
+    "surfaces/trackball.json （トラックボール tb01）",
+    "--- 以下はBoardではないがBoardの表示に必須（Hub側） ---",
+    "static/layout.html （端末が開く面）",
+    "static/components.js （部品の描画。唯一の実装）",
+    "crates/proto-hub/ （Rust製Hub本体）"
+  ],
+
+  "technologyStack": [
+    "Rust 2021 / axum 0.8.9 / tokio 1.53 / tower-http 0.7",
+    "proto-adapter-win（Windows SendInput。キー送出はWindows専用）",
+    "クライアントは素のHTML+JavaScript（フレームワーク・ビルドツール・CDN不使用。設計制約D2）",
+    "データはすべてJSON（keymaps / decks / layouts / surfaces）"
+  ],
+
+  "runCommand": "cargo run -p proto-hub  （リポジトリ直下で実行。起動後コンソールにトークン付きURLが出る）",
+  "buildCommand": "cargo build  （--release は未検証のため記載しない）",
+
+  "currentDistributionFormat": "無し。配布形態は未整備。現状はリポジトリを丸ごと持ち、各自の環境で cargo run するしかない。単体Boardを取り出して渡す仕組みは存在しない。",
+
+  "supportedTargets": [
+    "Windows 11（Hub本体。キー送出がSendInput依存のためWindows専用）",
+    "デスクトップChrome（プレビュー環境で編集画面・端末面ともに実測）"
+  ],
+
+  "unverifiedTargets": [
+    "iPad Pro 12.9 Safari — 2026-09-05に旧版で実機確認済みだが、2026-09-07に描画コードを components.js へ入れ替えたため再確認が必要。現時点では『対応済み』とは言えない",
+    "iPhone / Android / その他のiPad",
+    "Chrome以外のデスクトップブラウザ（Safari・Firefox・Edge）",
+    "macOS / Linux（Hubがビルドできるかも未検証。キー送出は確実に動かない）"
+  ],
+
+  "fixedByOperator": [
+    "格子の寸法 12×9（レイアウト編集画面では変更不可）",
+    "基準端末 iPad Pro 12.9 横（1366×1024）とタップ下限44px。最小サイズ計算の根拠",
+    "部品ごとの最小サイズ（実データから自動計算。実体型は計算値より小さくできない）",
+    "区画の重なり・格子からのはみ出しの禁止（layout.rs がロード時に弾き、編集画面も確定させない）",
+    "使用できる部品はHubが読み込み済みのものだけ（パレットに出るものが全て）",
+    "保存先は layouts/layout_<layoutId>.json 固定。layoutId は [a-z0-9_]{1,64} のみ",
+    "実行できるコマンドは起動時にJSONから作る許可リストの範囲内のみ（D5）",
+    "トークンはHub起動のたびに再生成（D8）"
+  ],
+
+  "editableInsideBoard": [
+    "区画の位置（行・列）と大きさ（幅・高さ）",
+    "区画の追加・削除（パレットにある部品の範囲で）",
+    "部品ごとの最小サイズの引き上げ（計算値より下げることはできない）",
+    "表示するレイアウトの選択（複数レイアウトがある場合）",
+    "端末側でのキーボード配列の切り替え（ヘッダのセレクタ）"
+  ],
+
+  "hubDependencies": [
+    "WebSocket /ws?surface=layout — 盤面・Deck・区画割りの実データはここでしか届かない。Board単体では何も描けない",
+    "GET /api/formats — 構成一覧（編集画面とギャラリーが使う）",
+    "GET /api/qr — 接続用QRの生成",
+    "POST /api/layout/save — Boardの保存（唯一の書き込み口）",
+    "POST /api/reload — JSONの再読込と全クライアントへの再配信",
+    "静的配信 /layout /components.js /connect /settings",
+    "proto-adapter-win — キー送出の実行主体。これが無いと押しても何も起きない"
+  ],
+
+  "knownIssues": [
+    "【重大】Boardだけを配布する形態が存在しない。layouts/*.json は『どこに何を置くか』の宣言でしかなく、盤面・スロットの実体は keymaps/ decks/ surfaces/ にあり、それを配るのはHubである。配布物からHubを外すと、Boardは表示すらされない",
+    "【重大】Board単位の権限モデルが無い。許可リストは『Hubが読み込んだ全JSON』から作られるため、Boardごとに『ここまで触ってよい』を絞る仕組みが無い。受け手が別のJSONを置けば、その分だけ実行できる範囲が広がる",
+    "部品を入れ替えると区画idが SEC-NEW1 のような自動採番になり、元の名前（SEC-RIGHT等）が失われる",
+    "編集の取り消し（Undo）が無い。『元に戻す』はレイアウト全体を保存時点へ戻す粗さ",
+    "区画idの改名ができない",
+    "部品の中身（キー配列・スロット）を編集する画面が無い。JSONを直接編集する必要がある",
+    "守護エージェント keydeck-guardian（CLAUDE.mdが要求するレビュー）を一度も実行していない",
+    "SR-004（設計書v0.3のD15とトップ画面の食い違い）が裁定待ち"
+  ],
+
+  "testsAlreadyPassed": [
+    "cargo test --workspace: 126 passed / 0 failed",
+    "cargo build: 成功（--release は未実施）",
+    "保存の防御4種を実測: layoutIdにパス区切り→422 / 親ディレクトリ→422 / 区画の重なり→422 / 存在しない参照→書いた後に検証で落ちて巻き戻し（rolledBack: true）。4回の不正保存後に layouts/ へ残骸ゼロ",
+    "保存→実機反映: /layout を開いたまま区画を変更して保存し、端末が再読込なしで追従することを実測（grid-row 1/5→1/4、ナビゲーション回数1のまま）",
+    "説明文の保全: 保存で description 373文字が失われる欠陥を検出・修正し、再実測で保持を確認。再発防止テスト2件を追加",
+    "描画の1本化: layout.html を components.js へ移行し、移行前後でキー41・スロット17・背景色・角丸・列数がすべて一致することを実測",
+    "編集画面のプレビューが実機と同数の要素を描くことを実測（ipad_v13でキー41/スロット17、ipad_trackballでキー59/スロット17）",
+    "QRモーダル: 編集中レイアウトのQRが出る／カード内クリックで閉じない／画面外クリックとEscで閉じる／レイアウト切替でQRも切り替わる"
+  ],
+
+  "testsStillRequired": [
+    "iPad Pro 12.9 実機での再確認（2026-09-07の描画コード入れ替え後は未実施。これが済むまで supportedTargets に載せない）",
+    "実機でのタップ精度・打鍵感（最小サイズ44pxの妥当性）",
+    "コピペリストの text が狙った入力欄へ着地するか（プレビュー環境では検証不能）",
+    "トラックボール区画の操作性（iframeが2本目のWSを張る構成の体感）",
+    "Hub再起動をまたいだ運用（トークン再生成後にQRを読み直す流れ）",
+    "受け手の環境での起動確認（Rustツールチェーンの有無、Windowsバージョン差）",
+    "長時間運用（メモリ・接続の安定性）は一度も測っていない"
+  ],
+
+  "recommendedDeliveryMethod": "現時点では『Board定義一式（上記8ファイル・計17,891バイト）＋導入手順書』を渡し、受け手が自分のHubへ入れて cargo run する形しか成立しない。ただしこれは受け手がHubを持っている前提であり、『Hub全体は配布しない』という境界と正面から衝突する。境界を守るなら、Board専用の縮小Hub（1レイアウトのみ・書き込み不可・許可リストをBoardの参照範囲に限定）を新規に作る必要があり、これは新規開発になる。作り直さない前提では、まず配布境界の再定義が要る。",
+
+  "nextDecision": "3点の決定を求める。(1)【最優先】配布境界の矛盾をどう解くか — 案A: Board定義だけ渡し受け手のHub前提とする（Hub非配布は守れるが、受け手にHubが要る）／案B: 実行に必要な最小構成をHubごと同梱する（境界の見直しが必要）／案C: Board専用の縮小Hubを新規に作る（新規開発。今回の『作り直さない』方針と衝突）。(2) どのBoardを納品するか — ipad_v13（Vol1.3キーボード＋Stream Deck＋コピペリスト＋トラックボール。最新だが実機再確認が未了）か ipad_main（Vol1.2。9/5に実機確認済みだが描画コード入れ替え後は同じく未再確認）か。会話の中でBoardの特定はまだ行われていない。(3) Board単位の権限モデルを今回のスコープに含めるか — 『許可された要素だけを利用者が変更できるようにする』という要件は、現在の許可リスト（Hubが読み込んだ全JSONから生成）では満たせず、Board単位の制約という新しい概念が要る。"
+}
