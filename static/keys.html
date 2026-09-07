@@ -89,10 +89,14 @@
     .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
     /* 部品は四角いボタンで並べる（リストにしない） */
+    /* **高さを固定する。** タブによって部品の数が違うため、内容に高さを
+       任せると部品エリアが伸び縮みし、そのぶん下の盤面が拡大縮小してしまう。
+       盤面の大きさが操作のたびに変わるのは、キーの位置を覚える妨げになる。
+       中身が多いときはこの中でスクロールさせる。 */
     .partgrid {
-      display: grid; gap: 6px;
+      display: grid; gap: 6px; align-content: start;
       grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
-      max-height: 132px; overflow-y: auto;
+      height: 116px; overflow-y: auto;
     }
     .part {
       aspect-ratio: 1 / 1; min-height: 46px; padding: 2px;

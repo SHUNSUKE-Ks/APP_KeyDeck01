@@ -161,6 +161,8 @@
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .sec .sref { font-size: 9px; display: flex; align-items: center; gap: 6px; }
+  /* 区画idは添え物。部品名より小さく、目立たせない */
+  .secid { font-size: 9px; font-weight: 400; color: rgba(255,255,255,.55); margin-left: 2px; }
   /* 部品名の右の「編集」。プレビューは pointer-events を殺してあるので、
      ここだけ戻して押せるようにする。 */
   .seclink {
@@ -185,6 +187,7 @@
   .note { font-size: 11px; color: var(--ink-dim); margin: 8px 0 0; }
   .targetinfo { font-size: 11px; color: var(--ink-dim); }
   .navlink { color: var(--ink-muted); font-size: 12px; }
+  .cap { font-size: 10px; color: var(--ink-dim); letter-spacing: .06em; text-transform: uppercase; }
 
   /* QRモーダル。画面中央に1枚だけ大きく出す（設定画面と同じ作法）。 */
   #qrmodal {
@@ -290,7 +293,9 @@
 <div class="head">
   <h1>KeyDeck — レイアウト編集</h1>
 
-  <select id="layoutSel"></select>
+  <span class="cap">board</span>
+  <select id="layoutSel" aria-label="表示するboard"></select>
+  <button id="newBtn" type="button">＋ 新規</button>
   <!-- **いま編集しているレイアウトの**QR。ここに置くのが要点で、
        ギャラリーから別のレイアウトのQRを読んでしまう取り違えを防ぐ
        （実際に ipad_v13 を編集して ipad_main のQRを読む事故が起きた）。 -->
@@ -678,13 +683,21 @@ function render() {
     box.appendChild(preview);
     renderPreview(preview, sec);
 
+    // 見出しは**部品名**。区画id（SEC-LEFT等）は中身を表さないので、
+    // 主役から外して小さく添えるだけにする。
+    // idを消さないのは、同じ部品を2区画に置いたときの区別と、
+    // 実機側が data-section-id で描き直す先を引くのに使われているため。
     const sid = document.createElement("div");
     sid.className = "sid";
     sid.appendChild(iconFor(sec.component.kind));
-    sid.appendChild(document.createTextNode(sec.id));
+    sid.appendChild(document.createTextNode(sec.component.ref));
+    const tag = document.createElement("span");
+    tag.className = "secid";
+    tag.textContent = sec.id;
+    sid.appendChild(tag);
     const sref = document.createElement("div");
     sref.className = "sref";
-    sref.appendChild(document.createTextNode(sec.component.kind + " · " + sec.component.ref));
+    sref.appendChild(document.createTextNode(sec.component.kind));
 
     // 部品名の右に編集画面への入口を出す。
     // **編集画面があるのはキーボードだけ**。Deckとトラックボールは
@@ -822,6 +835,48 @@ function renderProps() {
     }
     f.appendChild(l); f.appendChild(v); host.appendChild(f);
   }
+
+  // ---- 部品の差し替え ----
+  // 区画の位置と大きさを保ったまま中身だけ替える。
+  // 外して置き直すと区画idが変わり（SEC-NEW1 等）、履歴も名前も失われる。
+  // 同じ種別のものだけを候補にする（キーボードの枠にDeckは入らない）。
+  const swapWrap = document.createElement("div");
+  swapWrap.className = "field";
+  const swapLabel = document.createElement("label");
+  swapLabel.textContent = "この区画の中身を差し替える";
+  swapWrap.appendChild(swapLabel);
+  const swapSel = document.createElement("select");
+  swapSel.style.cssText = "width:100%;min-height:30px";
+  for (const item of PALETTE) {
+    if (item.kind !== sec.component.kind) continue;
+    const option = document.createElement("option");
+    option.value = item.ref;
+    option.textContent = item.ref;
+    if (item.ref === sec.component.ref) option.selected = true;
+    swapSel.appendChild(option);
+  }
+  swapSel.disabled = swapSel.options.length <= 1;
+  swapSel.addEventListener("change", (event) => {
+    const before = { row: sec.row, col: sec.col, colSpan: sec.colSpan, rowSpan: sec.rowSpan };
+    const prev = sec.component.ref;
+    sec.component = { kind: sec.component.kind, ref: event.target.value };
+    // 差し替え先の最小サイズが今より大きいことがある。足りなければ押し広げ、
+    // それで他とぶつかるなら差し替えごと取り消す（中途半端な形を残さない）。
+    const lim = effectiveMin(sec, model.grid);
+    sec.colSpan = Math.max(sec.colSpan, lim.cols);
+    sec.rowSpan = Math.max(sec.rowSpan, lim.rows);
+    if (isConflicting(sec)) {
+      Object.assign(sec, before);
+      sec.component = { kind: sec.component.kind, ref: prev };
+      refresh();
+      notifyReverted(event.target.value + " は最小 " + lim.cols + "×" + lim.rows
+        + " が要るため、この場所では入れ替えられません");
+      return;
+    }
+    refresh();
+  });
+  swapWrap.appendChild(swapSel);
+  host.appendChild(swapWrap);
 
   // ---- 位置と大きさを数値で直接打つ（つまみのドラッグは1マス単位で狙いにくい） ----
   const edit = document.createElement("div"); edit.className = "numedit";
@@ -1217,6 +1272,55 @@ function openQr() {
 }
 
 function closeQr() { qrModal.hidden = true; }
+
+// ================================================================
+// boardの新規作成。
+// 中身は空の12×9で作る。部品はあとから置く。
+// 保存まで一度に行うのは、作っただけで保存し忘れると
+// 「作ったのに次に開いたら無い」ことになるため。
+// ================================================================
+document.getElementById("newBtn").addEventListener("click", async () => {
+  const raw = prompt("新しいboardの名前（英小文字・数字・_ のみ）", "");
+  if (raw === null) return;
+  const id = raw.trim();
+  if (!/^[a-z0-9_]{1,64}$/.test(id)) {
+    notifyReverted("名前に使えるのは英小文字・数字・_ だけです（1〜64文字）");
+    return;
+  }
+  if (SOURCE[id]) { notifyReverted(id + " は既にあります"); return; }
+
+  // 空のboardはHub側の検証に落ちる（区画が0件）ので、
+  // 置ける部品の中から最小の1つを仮に置いて成立させる。
+  const seed = PALETTE[0];
+  if (!seed) { notifyReverted("置ける部品がありません"); return; }
+  const lim = minCells(seed.ref, { cols: 12, rows: 9 });
+  const payload = {
+    layoutId: id,
+    description: "",
+    grid: { cols: 12, rows: 9 },
+    sections: [{
+      id: "SEC-1", row: 1, col: 1,
+      colSpan: lim.cols, rowSpan: lim.rows,
+      component: { kind: seed.kind, ref: seed.ref },
+    }],
+  };
+  try {
+    const res = await fetch("/api/layout/save?token=" + encodeURIComponent(token), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      notifyReverted("作れません: " + (body.code || res.status) + " — " + (body.cause || ""));
+      return;
+    }
+    // 保存の再配信で SOURCE が更新される。そこへ切り替える
+    layoutId = id;
+    notifyReverted(id + " を作りました（" + seed.ref + " を1つ置いてあります）");
+  } catch (error) {
+    notifyReverted("通信エラー: " + error);
+  }
+});
 
 document.getElementById("qrBtn").addEventListener("click", openQr);
 // 画面外（覆いそのもの）を押したら閉じる。カードの中を押しても閉じない
