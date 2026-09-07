@@ -114,6 +114,11 @@
     <h1>KeyDeck — 接続</h1>
     <a href="/">← トップ（レイアウト編集）</a>
     <a href="/settings">設定</a>
+    <span style="flex:1"></span>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px">
+      <span style="color:var(--ink-dim)">つなぎ先</span>
+      <select id="hostSel" aria-label="QRに載せるこのPCのアドレス"></select>
+    </label>
   </div>
   <p class="note">
     カード右上の <strong>QR</strong> を押すと、そのカードがQRに切り替わります。端末のカメラで読み取ってください。<br>
@@ -288,6 +293,42 @@
       return card;
     }
 
+    /// **QRに載せるアドレスを選ぶ。**
+    /// 家のWiFiに繋いだままPCをアクセスポイントにすると、PCは2つのIPv4を持つ。
+    /// QRに載るのは既定の経路の側なので、アクセスポイント側に繋いだ端末からは
+    /// 開けない。ここで切り替えると、以降のQRとURLがそのアドレスになる。
+    /// 候補はHubがこのPC上で実際に見つけたものだけで、手で足すことはできない。
+    async function loadHosts() {
+      const sel = document.getElementById("hostSel");
+      const res = await fetch("/api/hosts?token=" + encodeURIComponent(token));
+      if (!res.ok) { sel.parentElement.hidden = true; return; }
+      const data = await res.json();
+      sel.textContent = "";
+      for (const h of data.hosts) {
+        const o = document.createElement("option");
+        o.value = h.ip;
+        o.textContent = h.ip + "（" + h.name + "）";
+        if (h.ip === data.current) o.selected = true;
+        sel.appendChild(o);
+      }
+      // 1つしかないなら選ぶ意味がない
+      sel.parentElement.hidden = data.hosts.length <= 1;
+      sel.addEventListener("change", async () => {
+        const r = await fetch("/api/host?token=" + encodeURIComponent(token), {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ip: sel.value }),
+        });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          log("ERR", body.code || String(r.status), body.cause || "host change failed");
+          return;
+        }
+        log("D12", "OK", "host changed", body);
+        // QRは組み立て直しになるので、カードごと描き直す
+        await load();
+      });
+    }
+
     async function load() {
       const host = document.getElementById("cards");
       if (!token) { KDComponents.showTokenNotice(); return; }
@@ -313,6 +354,7 @@
       log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
     });
 
+    loadHosts().catch(() => {});
     load().catch((error) => {
       log("ERR", "INTERNAL", "initial load failed: " + error);
       document.getElementById("cards").appendChild(el("p", "err", "読み込みに失敗しました: " + error));

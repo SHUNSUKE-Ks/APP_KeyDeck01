@@ -143,6 +143,14 @@ pub struct HubState {
     pub adapter_tx: mpsc::UnboundedSender<AdapterJob>,
     /// D12: QRコード・ランディングページでURLを組み立てるために保持する。
     pub lan_ip: String,
+    /// このPCが持っているIPv4アドレス全部（インターフェース名, アドレス）。
+    ///
+    /// **1つでは足りない。** 家のWiFiに繋いだままPCをアクセスポイントにすると、
+    /// PCは2つのアドレスを持つ。QRに載るのは既定の経路の側（家のWiFi）なので、
+    /// アクセスポイント側に繋いだiPadからは開けない。だから全部を持っておき、
+    /// **この一覧に載っているものだけ**へ切り替えられるようにする。
+    /// 一覧外を受け取らないので、外から任意のホストを差し込むことはできない。
+    pub lan_ips: Vec<(String, String)>,
 }
 
 impl HubState {
@@ -175,8 +183,26 @@ impl HubState {
             next_client_id: 0,
             token,
             adapter_tx,
+            lan_ips: vec![("この端末".to_string(), lan_ip.clone())],
             lan_ip,
         }
+    }
+
+    /// 起動時に見つけたIPv4を登録する。既定は`lan_ip`のまま変えない。
+    pub fn set_hosts(&mut self, hosts: Vec<(String, String)>) {
+        if !hosts.is_empty() {
+            self.lan_ips = hosts;
+        }
+    }
+
+    /// QRとURLの組み立て先を切り替える。**一覧に無いアドレスは受け付けない。**
+    /// 受け付けたらtrue。
+    pub fn set_lan_ip(&mut self, ip: &str) -> bool {
+        if self.lan_ips.iter().any(|(_, known)| known == ip) {
+            self.lan_ip = ip.to_string();
+            return true;
+        }
+        false
     }
 
     /// P-005 段階B: keymapIdごとのレイヤー状態を取り出す（無ければ作る）。

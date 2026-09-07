@@ -51,6 +51,10 @@ pub fn router(state: SharedState) -> Router {
         // T9（設計書v0.5 F3）: 設定画面が「いま何が読み込まれているか」「どこへ繋げるか」を
         // 引くための読み取り専用API。書き込みは一切しない。
         .route("/api/formats", get(formats_handler))
+        // 外出先でPCをアクセスポイントにすると、PCは複数のIPv4を持つ。
+        // QRの宛先をそのどれにするかを選ぶための2本。
+        .route("/api/hosts", get(hosts_handler))
+        .route("/api/host", post(host_set_handler))
         // P-005 段階D: レイアウトの保存。**書き込みはこの1本だけ**。
         // 書き先は layouts/layout_<id>.json に固定され、idは厳格に検証される。
         .route("/api/layout/save", post(layout_save_handler))
@@ -213,6 +217,57 @@ async fn ping_handler(State(state): State<SharedState>, Query(query): Query<Toke
 ///   `keymaps`   … 読み込み済みキーボードとその規模
 ///   `decks`     … Deckと描き方・スロット数
 ///   `layouts`   … 画面の区画割り（どの部品がどこに置かれているか）
+/// このPCが持つIPv4の一覧と、いまQRに載っているもの。
+async fn hosts_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting hosts request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let s = state.lock().unwrap();
+    let hosts: Vec<_> = s
+        .lan_ips
+        .iter()
+        .map(|(name, ip)| json!({ "name": name, "ip": ip }))
+        .collect();
+    Json(json!({ "current": s.lan_ip, "hosts": hosts })).into_response()
+}
+
+#[derive(Deserialize)]
+struct HostSetBody {
+    ip: String,
+}
+
+/// QRとURLの宛先を切り替える。**このPCが実際に持っているアドレスしか受け付けない。**
+/// 任意のホストを差し込めるようにすると、QRが外部へ誘導する紙になりうる。
+async fn host_set_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    Json(body): Json<HostSetBody>,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting host set request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let mut s = state.lock().unwrap();
+    if !s.set_lan_ip(&body.ip) {
+        tracing::error!(
+            code = INTERNAL,
+            requested = %body.ip,
+            "rejecting host set: not an address of this machine"
+        );
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "code": INTERNAL,
+                "cause": format!("'{}' is not an IPv4 address of this machine", body.ip)
+            })),
+        )
+            .into_response();
+    }
+    tracing::info!(chk = "D12", host = %s.lan_ip, "QR host changed");
+    Json(json!({ "current": s.lan_ip })).into_response()
+}
+
 async fn formats_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
     if !token_ok(&state, query.token.as_deref()) {
         tracing::error!(code = WS_TOKEN_INVALID, "rejecting formats request");

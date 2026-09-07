@@ -90,8 +90,24 @@ async fn main() {
             "127.0.0.1".to_string()
         });
 
+    // このPCが持つIPv4を全部拾う。ループバックとリンクローカル(169.254)は
+    // 端末から繋げないので外す。既定の経路のものを先頭に置く。
+    let mut hosts: Vec<(String, String)> = local_ip_address::list_afinet_netifas()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(name, ip)| match ip {
+            std::net::IpAddr::V4(v4)
+                if !v4.is_loopback() && !v4.is_link_local() && !v4.is_unspecified() =>
+            {
+                Some((name, v4.to_string()))
+            }
+            _ => None,
+        })
+        .collect();
+    hosts.sort_by_key(|(_, ip)| (*ip != lan_ip, ip.clone()));
+
     let active_keymap_id = "writing01".to_string();
-    let hub_state = HubState::new(
+    let mut hub_state = HubState::new(
         keymaps,
         active_keymap_id,
         decks,
@@ -102,6 +118,7 @@ async fn main() {
         adapter_tx,
         lan_ip.clone(),
     );
+    hub_state.set_hosts(hosts.clone());
     let shared = std::sync::Arc::new(std::sync::Mutex::new(hub_state));
 
     // 起動バナー用に1本持っておく（routerへはこの後moveされるため）
@@ -120,6 +137,13 @@ async fn main() {
     println!("    トップ（レイアウト編集）: http://{lan_ip}:{PORT}/?token={}", token.value());
     println!("    QRギャラリー（端末を繋ぐ）: http://{lan_ip}:{PORT}/connect?token={}", token.value());
     println!("    設定（構成の確認・再読込）: http://{lan_ip}:{PORT}/settings?token={}", token.value());
+    if hosts.len() > 1 {
+        println!("  ▼ このPCの他のアドレス（外出先でアクセスポイントにしたときはこちら）");
+        for (name, ip) in hosts.iter().filter(|(_, ip)| *ip != lan_ip) {
+            println!("    {name}: http://{ip}:{PORT}/connect?token={}", token.value());
+        }
+        println!("    （QRギャラリー右上の「つなぎ先」で切り替えると、QRもこちらになります）");
+    }
     println!("  ▼ 端末で開く（QRギャラリーから読み取るのが早い）");
     // T9: 一覧は手書きしない。`connection_targets()`（ws.rs）が唯一の表で、
     // ランディングページ・/api/formats・ここが同じものを見る。
