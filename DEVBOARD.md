@@ -350,3 +350,1654 @@ discrete（タップ・ダブルタップ・長押し・Esc）は新WS `surface.
     上記のPointerEvent検証で「Hub側ロジック・クライアントJSロジックの両方が正しく動く」ことは
     確認済みだが、実指でのタップ/長押しの体感（閾値の妥当性等）はユーザーの実機確認が必要）
 - SR起票: **なし**（設計書に明記の無い判断は上記「自己解決した判断点」の範囲に収まった）
+
+---
+
+## Stream Deck v2（アクション拡張＋分割画面）— P-003 起票・見た目モック作成
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **裁定待ち。実装は未着手**
+
+### 発端（ユーザー要望・原文の要点）
+
+1. Elgato Stream Deck ソフトの登録用アクション一覧（システム8種＋マルチアクション4種、
+   折りたたみの Stream Deck／サウンドボード）と同等の機能を作りたい
+2. **画面分割**を可能にして、下をキーボード・上をStream Deckにしたい
+3. 渡したリストは**登録用（設定画面）**のもの。**表示側は四角いスロット**にする
+
+### 今回やったこと（コード変更ゼロ）
+
+- 新規 `brief/mockup/screen_mock_streamdeck_v0.8.html` — 見た目の正（3画面）
+  - ① 分割画面: 上=Deck（四角スロット5×2）／下=キーボード（`screen_mock_v0.4.html` の13列配置を転記）
+    ＋比率3プリセット（デッキ大／半々／キーボード大）
+  - ② Deck単独: 四角スロット5×3＋ページドット
+  - ③ 設定（登録画面）: 中央=スロット盤（クリックで選択）／右サイドバー=アクション一覧
+    （ユーザー提示リストをそのまま構造化）／下=プロパティ欄＋生成されるJSONのプレビュー
+  - 四角スロットは `aspect-ratio:1 / 1`＋`width:100%`。D2どおり素のHTML+JSのみ（CDN・外部依存ゼロ）
+- 新規 `brief/proposals/P-003_streamdeck_v2.md` — 提案書（裁定欄つき）
+  - アクション対応表（ユーザーのリスト16項目 → JSONの `t`）。うち**5項目は既存アクションで足りる**
+  - 中核の設計判断: **Deck JSONに生パス・生コマンドを書かない**（`apps/apps.json` 登録簿に
+    id で登録し、Deckは id だけ持つ。D28の「出口はHub側のJSONだけが決める」を1段進めた形）
+  - **CLAUDE.md 不変条件6との関係を §7 に明記**（後述）
+  - 受け入れ基準 G-a〜G-i、段階分割 Ver1-a／1-b／1-c
+
+### 不変条件との照合（実装前の自己点検）
+
+- **不変条件1（クライアントは位置IDのみ）: 維持**。クライアントが送るのは今までどおり
+  `{"type":"deck.press","slotId":"…"}` だけ。**新しいWS APIは1本も足さない**
+- **不変条件2（D3レイヤー意味論）: 無関係**。Deck発火は `resolve()` を通らない
+- **不変条件4（D2）: 維持**。モックは素のHTML+JS、外部依存ゼロ
+- **不変条件6: 🚩 要裁定**。`app.launch` / `shell.open` / `app.close` は条文の文言
+  （＝任意〜**API**）には触れないが精神には触れる。P-003 §7 に、採用を推す根拠
+  （`WIN+R`＋`text`＋`ENTER` の3スロットで今でも実質同じことができる＝リスクの実質的増分は小さい）と、
+  条件とする防御A〜G（登録簿方式／シェル非経由／ロード時の実在・拡張子検証／URLスキーム許可リスト／
+  `app.close`はactive限定／D9実行ログ／多重発火抑制）を記載した
+- **G5（決定性）: 🚩 要裁定**。`random`（ランダムアクション）が唯一の例外になる。
+  Deckスロット限定（`layers/*.json` には置けない）とする案を P-003 §8-1 に記載
+
+### 検証記録
+
+- Browser pane（`python -m http.server` でモックのみ配信）で3画面すべてを表示確認
+  （1280×900 デスクトップ／820×1180 iPad相当の2サイズ）
+  - タブ切替・分割比率プリセット・スロット選択→アクション割当→プロパティ生成→JSON出力の
+    一連が動作。`read_console_messages` でJSエラー0件
+  - 作成中に自分で見つけて直した不具合3件（いずれもモック内で修正済み）:
+    (a) `.slot` に `width:100%` が無く `aspect-ratio` がつぶれてスロットが極小になっていた
+    (b) `.screen{display:none}`（クラス）が `#scr-split{display:flex}`（ID）に特異性で負け、
+        タブを切り替えても①が消えなかった → `.screen:not(.on){display:none !important}` で解決
+    (c) `body{height:100%}` のため設定画面で縦にスクロールすると地色が塗られず黒く抜けた
+        → `min-height:100%` に変更
+- `cargo test --workspace`: **未実行**（Rust側の変更が1行も無いため。実装着手時に実施する）
+- 凍結領域への差分: **ゼロ**（今回の新規ファイルは `brief/mockup/` と `brief/proposals/` の2点のみ。
+  `crates/` `keymaps/` `decks/` `static/` `schemas/` は無変更）
+- SR起票: なし（曖昧さは P-003 §12 の裁定チェックリストに集約した）
+
+---
+
+## Stream Deck v2 — P-003 裁定 ＋ Ver1-a（分割面／四角スロット化）実装
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **Ver1-a 完了・未コミット**
+
+### ユーザー裁定（P-003 §12）
+
+- **§7 採用**: `app.launch` / `shell.open` / `app.close` を**防御A〜G条件付きで採用**してよい
+  （A登録簿方式／Bシェル非経由／Cロード時の実在・拡張子検証／DURLスキーム許可リスト／
+  E`app.close`はactive限定／FD9実行ログ／G多重発火抑制）。**A〜Gは実装の必須条件**
+- **§11 採用**: 段階分割（Ver1-a／1-b／1-c）で進め、**Ver1-a から先に着手**する
+- 未裁定のまま残したもの: §5細部（`web.open` の url 直書きという非対称）／§8-1（`random` の採否）／
+  §8-4（登録画面をT9と同居させるか）／§8-6（`icon` に絵文字を認めるか）
+
+### Ver1-a でやったこと
+
+| ファイル | 内容 |
+|---|---|
+| `static/panel.html`（新規） | 分割面。上=Deck（四角スロット）／下=キーボード（13列グリッド）。比率3プリセット |
+| `static/deck.html` | 四角スロット化（`aspect-ratio:1/1`＋`width:100%`）。`gridTemplateColumns` を `minmax(0,1fr)` に。**JSロジックは無変更**（CSSと1行のみ） |
+| `crates/proto-hub/src/ws.rs` | `/panel` の `route_service` 追加＋ランディングページのtarget一覧に `panel` を追加 |
+| `crates/proto-hub/src/state.rs` | `connection_url` に `"panel" => "/panel"` を追加（`/api/qr?target=panel` 用） |
+| `crates/proto-hub/src/main.rs` | 起動時バナーに panel のURLを1行追加 |
+
+### Ver1-aで確定した設計判断（Ver1-b以降も踏襲）
+
+1. **分割面はWS 1本・`/ws?surface=ipad` で接続する。プロトコル追加ゼロ。**
+   `surface.config` が元から `keymap` と `deck` を同一メッセージで配っているため、
+   新しい `SurfaceKind::Panel` は**作らなかった**（作ると broadcast 経路を全て触ることになり、
+   得るものが無い）。キーボードはipad面と同じ `ipad01_vol12` 固定＋専用 `ipad_layer_state`（T8）、
+   Deck発火は surface非依存の `handle_deck_press` をそのまま使う
+2. **四角スロットの大きさは「上ペインの高さ」から逆算する**（`fitDeckGrid()`）。
+   四角形は幅で大きさが決まるため、5列×3行のDeckをそのまま置くと上ペインからはみ出す。
+   1マスの**下限は44px**（タップ目標の下限）。下限に達したら縮めず上ペインをスクロールさせる
+3. **ページドットは `pages` が2枚以上のときだけ出す**。表示専用でHubへは何も送らない
+   （`deck.page` アクション自体はVer1-bの範囲）
+
+### 検証記録
+
+- `cargo test --workspace` = **99 passed, 0 failed**（hub-core 7 + proto-adapter-win 8 +
+  proto-hub 51 + proto-keymap 33）。前回95件から**+4**（削除・弱体化ゼロ）:
+  - `state::tests::connection_url_resolves_panel_target`
+  - `state::tests::connection_url_resolves_every_landing_page_target`（targetの足し忘れ防止）
+  - `state::tests::connection_url_rejects_unknown_target`
+  - `ws::tests::every_served_static_file_exists`（`ServeFile` の相対パスは綴り違いを
+    コンパイルで捕まえられず、実機でQRを読んだ瞬間に404で初めて分かるため固定した）
+- `cargo build --workspace`: 新規warningなし（既存の `surface.rs: is_empty is never used` のみ）
+- **実Hub・実WebSocketでの疎通確認**（`cargo run -p proto-hub` を起動し、Browser paneから
+  `/panel?token=…` を実際に開いた。モックではなく本番経路）:
+  - `surface.config` 1通で `keymap`(ipad01_vol12・3レイヤー) と `deck`(default・15スロット) の
+    両方が届き、上下ペインが同時に描画されることを確認（コンソール `[KD][T20-1][OK]`）
+  - **G-e相当の回帰確認**: 「記号」キー（`tg` layer2）を実押下 → レイヤーバッジが「記号」に変わり
+    キーボードが記号盤に再描画され、**同じWS上でDeckは無傷**（15スロット・先頭ラベル「消音」が不変）。
+    もう一度押して Layer 0 に戻ることも確認。`tg` は `LayerChanged` で終わるためSendInputは発生しない
+  - **G-f/G-g相当**: 比率3プリセット（デッキ大／半々／キーボード大）を切り替え、
+    デスクトップ1024×800・iPad 820×1180・Android縦412×915・Android横915×412 の4サイズで
+    `scrollWidth-clientWidth` / `scrollHeight-clientHeight` を実測し、**横はみ出しゼロ**を確認。
+    スロットは全サイズで正方形（幅=高さ、実測差1px未満）
+- 実装中に自分で見つけて直した不具合4件（すべて修正済み・再検証済み）:
+  1. `deckPaneEl` の宣言漏れ（`ReferenceError`）。page側のグローバルエラーハンドラが
+     D9書式で拾ったため発見できた（=D9の仕組みが機能した実例）
+  2. `.pagedots{display:flex}` が UAスタイルシートの `[hidden]{display:none}` に勝ってしまい、
+     ページが1枚でも空の箱がflex gapぶんの高さを食っていた（上ペインが4px溢れる）
+     → `.pagedots[hidden]{display:none}` を明示
+  3. 横向きスマホ（915×412）の「半々」で1マスが**実測35px**まで縮み、タップ目標として
+     小さすぎた → `MIN_CELL = 44px` の下限を導入。下限到達後は上ペインをスクロールさせる
+  4. 狭い画面でヘッダのタイトルが幅0まで潰れ「空白が空いているだけ」に見えた
+     → 560px以下ではタイトルを畳む（レイヤーバッジ・接続状態・QRを優先）
+  - なお検証中、ブラウザが `static/panel.html` の**古い版をキャッシュから返す**事象があり、
+    修正が効いていないように見えた。以後この面の検証ではクエリを足して読み直すこと（罠として記録）
+- 凍結領域への差分: **ゼロ**（`crates/hub-core/` / `keymaps/keymap_default.json` / `decks/` /
+  `brief/` の既存設計書・既存モック いずれも無変更。`git status --porcelain` で確認）
+- **未確認**: 実機Android/iPadでの指タッチ確認（G-19a と同種）。ブラウザのビューポート
+  エミュレーションでの寸法検証は済んでいるが、44px下限が実指で妥当かは実機でしか分からない。
+  URLは新規（`/panel?token=…`）なので、**実機で試すにはランディングページのQR（5枚目）が必要**
+- SR起票: なし
+
+---
+
+## T21 — 実機で見つかった不具合の修正: 「英数⇄日本語で画面表示が切り替わらない」
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **修正完了・未コミット**
+発見: ユーザーのiPad実機確認（P-003 Ver1-a の実機テスト中）
+
+### 報告内容
+
+> 表示keyboard日本語英語切り替え＝キーボードのかな変換は切り替わっていても、
+> iPadや画面に表示されたキーボードは切り替わらない
+
+### 原因
+
+`keymaps/layers/ipad01_vol12_layer0.json` の K511 が **ただの `chord`** だった。
+
+```json
+"K511": { "label": "英数⇄日本語", "action": { "t": "chord", "keys": ["ALT", "GRAVE"] } }
+```
+
+`chord` は PC へ ALT+GRAVE を撃つだけで **Hub側に何の状態も残らない**。
+Hubが `layer.state` を配信するのはレイヤー状態が変わったときだけなので、
+配信すべきものが無く、クライアントは再描画のきっかけを得られない。
+（対して「記号」K513 は `tg` なので状態が残り、正しく切り替わっていた ── この差が症状の正体）
+
+### ユーザー裁定（2026-09-05）
+
+- **日本語モードで変える表示**: 「モード表示＋実際に出力が変わるキーだけ」。
+  この盤面は**ローマ字入力**前提（全キーがQWERTYの`key`アクション）であり、日本語モードでも
+  a/k/s… は物理的に同じ英字を送っている。「日本語だから」とかな配列を出すのは
+  **押しても出ないかなを表示する嘘**になるため採らない
+- **ずれ対策**: レイヤーバッジ長押しで、PCへ何も送らずに表示だけ反転できるようにする
+
+### D29（新しい決定。DEVBOARDに記録。設計書への反映が要るならSR経由）
+
+**`tg.fire` — レイヤー切替とアクション発火を1打鍵で同時に行うアクション型。**
+
+`tg` は状態を変えるが発火しない。`chord` は発火するが状態を変えない。
+「OS側のモードを変えると同時に画面表示も変えたい」キーには、その両方が要る。
+
+```json
+{ "t": "tg.fire", "layer": 3, "fire": { "t": "chord", "keys": ["ALT", "GRAVE"] } }
+```
+
+- `fire` に置けるのは**葉アクションのみ**（key/chord/text）。mo/tg/tg.fire/keymap.* の入れ子は
+  ロード時に `LOAD_SCHEMA_INVALID` で拒否（再帰と、1打鍵での状態二重変更を防ぐ）
+- 参照先レイヤー不在は `LOAD_LAYER_REF_INVALID`、`fire` 内のvkも辞書検証の対象（`LOAD_VK_UNKNOWN`）
+- **Deck面には置けない**（mo/tg/transと同じ扱い。Deckにレイヤーの概念が無いため）
+- **不変条件1に抵触しない**: クライアントが送るのは今までどおり keyId のみ。WS APIの追加ゼロ
+- **G5（決定性）を壊さない**: トグル則は `tg` と同一で、乱数・時刻を使わない（テストで固定）
+
+### 変更内容
+
+| ファイル | 内容 |
+|---|---|
+| `crates/proto-keymap/src/lib.rs` | `Action::TgFire { layer, fire }`／`Resolved::FireAndLayerChanged(Action)`／resolveのarm／`validate_merged`の検証 |
+| `crates/proto-hub/src/ws.rs` | `FireAndLayerChanged` を処理（**先に`layer.state`配信 → 後に発火**。発火はadapter往復のawaitを挟むため画面が先の方が体感が速く、発火が失敗しても画面とHub状態の整合は保たれる） |
+| `crates/proto-hub/src/state.rs` | `canonical_command_id` が `tg.fire` の中の `fire` まで潜るよう修正（**後述の落とし穴**） |
+| `crates/proto-hub/src/deck.rs` | `tg.fire` をDeckで拒否（mo/tg/transと同じ列に追加） |
+| `schemas/keymap.schema.json` | `tg.fire` を `$defs/action` に追加。`deck.schema.json` にも「Deckには置けない」旨を明記 |
+| `keymaps/layers/ipad01_vol12_layer3.json`（新規） | 日本語モード表示レイヤー。K213(Enter/確定)・K504(Space/変換)・K511(⇄英数/日本語) の3キーのみ |
+| `keymaps/layers/ipad01_vol12_layer0.json` | K511を`tg.fire`へ。**H03**（board外keyId、`tg` layer3のみ＝PCへ何も送らない）を追加 |
+| `keymaps/keymap_ipad01_vol12.json` | `layerFiles` に layer3 を追加 |
+| `static/ipad.html` / `static/panel.html` | バッジを「日本語／英数」表示に・`body.jp` の地色・2行ラベルの主従入れ替え・バッジ長押し(H03) |
+| `keymaps/layers/README.md` | ipad01_vol12のレイヤー構成表と、layer3編集時の注意を追記 |
+
+### なぜ layer3 に「、。？」を入れなかったか（重要・触る前に読むこと）
+
+有効レイヤーは**番号の大きい方が勝つ（D3）**ため、layer3はlayer2（記号盤）より強い。
+layer2が定義しているキー（K102-111/K203-212/K303-311/**K403-412**）をlayer3に足すと、
+**記号盤を出している間まで日本語表示が勝ってしまい記号盤が壊れる。**
+そのため K410/K411/K412（、。？）の強調は JSON ではなく**クライアント側のCSS**で行った:
+
+```css
+body.jp:not(.sym) .key.dual       { font-size: 10px; color: var(--ink-muted); }
+body.jp:not(.sym) .key.dual small { font-size: 17px; color: var(--ink); }
+```
+
+`.dual` は「ラベルが2行である」ことを`renderLabel`が付ける印。`:not(.sym)` で記号盤中は除外する。
+
+### 落とし穴（今回踏んで直したもの。同種の追加をするとき必ず読む）
+
+**D5の起動時許可リストは、入れ子になったアクションを見つけられない。**
+
+`canonical_command_id` は top-level のアクションしか見ないため、`tg.fire` の中に入れた
+`chord:ALT+GRAVE` が許可リストに載らず、実行時に
+
+```
+ERROR ... action resolved but is absent from the startup allow-list: chord:ALT+GRAVE
+```
+
+で**発火だけが拒否された**。症状は「画面表示は切り替わるのにPCのIMEが切り替わらない」＝
+**元の不具合の左右反転**で、しかもクライアント側は無言（Hubのログにしか出ない）。
+今後 `multi` / `logic`（P-003 Ver1-b/1-c）で入れ子アクションを増やすときは、
+**許可リストの構築を同時に更新すること**。回帰テストを2本置いた（後述）。
+
+### 検証記録
+
+- `cargo test --workspace` = **108 passed, 0 failed**（hub-core 7 + proto-adapter-win 8 +
+  proto-hub 53 + proto-keymap 40）。Ver1-a時点の99件から**+9**（削除・弱体化ゼロ）:
+  - proto-keymap +7: `t21_tg_fire_changes_layer_and_fires_in_one_press`（核心＝1打鍵で両方起きる）／
+    `t21_tg_fire_toggles_back_and_still_fires`／`t21_tg_fire_ignores_key_up`／
+    `t21_tg_fire_is_deterministic`（G5）／`t21_tg_fire_referencing_missing_layer_is_rejected_at_load`／
+    `t21_tg_fire_rejects_nested_layer_action`／`t21_tg_fire_rejects_unknown_vk_inside_fire`
+  - proto-hub +2（**許可リスト落とし穴の回帰テスト**）:
+    `state::canonical_command_id_descends_into_tg_fire`（単体）と
+    `startup::real_data_startup_allows_the_ime_toggle_chord_behind_tg_fire`
+    （**リポジトリの実データで起動して `chord:ALT+GRAVE` が許可リストにあることを確認**。
+    単体だけだと「関数は正しいが実データでは載っていない」を取り逃す）
+- **実Hub・実SendInputでの疎通確認**（`cargo run -p proto-hub` を再起動して実施）:
+  - `/ipad` でK511を押下 → バッジ 英数→**日本語**、`body.jp` 付与、
+    K511「⇄英数/日本語」・K504「Space/変換」・K213「Enter/確定」に変化、
+    K410は本文10px・`<small>`17px（＝「、」が主）に入れ替わることを`getComputedStyle`で実測
+  - もう一度押下 → すべて元通り。**Hubのエラーログ0件**＝ALT+GRAVEが実際にOSへ送出された
+    （許可リスト修正前は同じ操作で `INTERNAL` エラーが出ていた。前後で対比を取っている）
+  - **記号盤との併用**: 日本語モード中に「記号」を押すと `body="jp sym"`、バッジ「記号」、
+    K410は「：」（layer2が勝つ）、フォント16px（主従入れ替えは`:not(.sym)`で無効）を確認。
+    記号盤を消すと日本語表示に戻る＝**layer2/layer3の衝突が設計どおり回避されている**
+  - **バッジ長押し(H03)**: 750ms押して離すと バッジ 日本語→英数・`body.jp`解除、
+    フッタに「表示だけ切り替えました（PCへは何も送っていません）」。
+    Hub側は `tg` のみでadapterへは何も流れないことをログで確認
+  - `/panel`（分割面）でも同一挙動。**切替中もDeckは無傷**（15スロット・先頭「消音」が不変）
+  - 押下は`computer`ツールに「押しっぱなし」操作が無いため、長押しのみT18と同じ
+    合成PointerEvent（実DOM・実WebSocket・実Hub・実SendInput経由）で実施。通常押下は実クリック
+- 凍結領域への差分: **ゼロ**（`crates/hub-core/` / `keymaps/keymap_default.json` / `decks/` /
+  `brief/` の既存設計書 いずれも無変更）
+- **未確認**: 実機iPadでの再確認（今回の修正が実指で期待どおりかはユーザー確認待ち）。
+  URLは変わらないので**ページの再読込だけでよい**（ただし後述のキャッシュに注意）
+- SR起票: なし（D29としてここに記録）
+
+---
+
+## T22 — ipad01_vol12の配置を1列左へ寄せる（実機指摘）
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+発見: ユーザーのiPad実機確認（T21の再確認中）／ 起票: `brief/spec_return_log.md` **SR-003**
+
+### 指示（原文の要点）
+
+> 一段感覚がずれてるな。一つ左にずらして、バックスペースはよこはば１マス、英数も1マス。
+> Pと？の場所はずれた後空白でいいよ
+
+原因は、文字段が col3 から始まっているのに数字段の `1` が col2 にあり、
+**q / a / z が数字より1マス右にずれて見えていた**こと（row2のcol2、row3/4のcol1-2が空白だった）。
+
+### 変更後の盤面（13列）
+
+```
+col:     1     2   3   4   5   6   7   8   9   10  11   12    13
+row1: [ Fn ][ 1][ 2][ 3][ 4][ 5][ 6][ 7][ 8][ 9][ 0][    ][ Bksp]
+row2: [ Tab][ q][ w][ e][ r][ t][ y][ u][ i][ o][ p][    ][Enter]
+row3: [    ][ a][ s][ d][ f][ g][ h][ j][ k][ l][   ][    ][Enter]
+row4: [    ][ z][ x][ c][ v][ b][ n][ m][、][。][？][    ][Shift]
+row5: [Ctrl][  ][      Space (col4-9)      ][  ][英数][    ][記号]
+```
+
+- Bksp・英数⇄日本語はいずれも**横幅1マス**（従来 colSpan 2）
+- **Bkspは右端(col13)**。同日の追加指示で col12 → col13 へ移動し、右端が Bksp / Enter / Shift / 記号 で揃った。row1の空白は col12。
+  これに伴い **layer1のF11も K112 → K113 へ追随**させた（「Fn+Bksp=F11」を保つため）。実機で Fn 押しっぱなし時の row1 が `F1..F10 / 空白 / F11` になることを確認済み
+- 旧pと旧？の位置（col12）は空白キー。row1のcol12・row3のcol11-12も空白
+- **Spaceは col4-9 のまま動かしていない**。文字段が col2-11 になった結果、
+  Spaceの中心(6.5)と文字段の中心(6.5)が一致するため
+
+### keyIdを位置に合わせて付け替えた
+
+マニフェストの「keyIdはK+行+列2桁」規約を保つため、動いた文字キーのIDを付け替えた。
+
+| 対象 | 旧 | 新 |
+|---|---|---|
+| row2 q..p | K203..K212 | **K202..K211** |
+| row3 a..l | K303..K311 | **K302..K310** |
+| row4 z..？ | K403..K412 | **K402..K411** |
+
+- 付け替えは **layer0 と layer2（記号盤）の両方**へ同じ規則で適用（記号盤も一緒にずれる）
+- layer1(Fn)・layer3(日本語モード) は row1・K213・K504・K511 しか持たないため変更不要
+- 新規の空白キー: `K113` / `K212`(旧p) / `K311`・`K312` / `K412`(旧？) / `K512`
+- **board のidと layer0 のキーが1対1**であることをスクリプトで突合して確認（迷子ゼロ）
+
+### 1マス化に伴うラベル調整（実機スクショで見切れを確認して対処）
+
+「英数⇄日本語」は6文字あり、1マスでは左右が切れて `数⇄日本` のようにしか読めなかった。
+**2行ラベル `"日本語\n英数"`** に変更（小=日本語 / 主=英数）。
+
+T21で入れたCSS（`body.jp:not(.sym) .key.dual` の主従入れ替え）がそのまま効くため、
+**layer0の1定義だけで両方の状態が正しく出る**:
+
+| モード | 主（大） | 小 |
+|---|---|---|
+| 英数 | 英数 (16px) | 日本語 (10px) |
+| 日本語 | 日本語 (17px) | 英数 (10px) |
+
+このため **layer3のK511上書きは削除した**（残すと入れ替えと二重になって逆さまに出る）。
+layer3は K213(Enter/確定)・K504(Space/変換) の2キーのみになった。
+
+### 凍結モックとの食い違い（SR-003）
+
+CLAUDE.mdが「配置の正」と定める `brief/mockup/screen_mock_v0.4.html` は凍結領域のため
+**一切変更していない**。結果として row2〜row5 でモックと実装が意図的に食い違う。
+次に読むAIが「実装が壊れている」と誤認して戻さないよう、SR-003に新配置と経緯を記録し、
+マニフェストのdescriptionにも「モックは古い」と明記した。
+**新しい配置の正をどこに置くか（案A=実装のboard／案B=v0.5モック新規作成）はFABLE裁定待ち。**
+
+### 検証記録
+
+- `cargo test --workspace` = **108 passed, 0 failed**（テスト件数はT21から変化なし＝データ変更のため）
+- 途中で1件failさせて直した: layer3のdescriptionへ**生の改行**を書き込んでJSONを壊した
+  （`LOAD_JSON_SYNTAX`）。`real_data_startup_allows_the_ime_toggle_chord_behind_tg_fire` が
+  検出した＝**T21で足した実データテストが早速効いた**
+- **実Hubで `POST /api/reload`（B2の正規経路）→ 再配信**して確認（再起動していない）:
+  - `/ipad` の実DOMからgrid座標を吸い出して照合。row1〜row5すべて上表のとおり
+  - **記号盤も一緒にずれていること**を確認（`( ) { } < > [ ] = _` が q..p の真下=col2-11、
+    `/ * + - # " ' & %` が a..l の真下=col2-10、`@ ~ | ¥ ^ $ ; ： ； 〜` が z..？ の真下=col2-11）
+  - 「英数」キーの2行ラベルを実測: 英数モード=主16px/小10px、日本語モード=主10px/小17px
+    （＝入れ替わる）。押して戻すとPCのIMEも表示も元通り
+  - `/panel`（分割面）でも同一配置。Deckは無傷（15スロット）
+  - Hubのエラーログ **0件**
+- 凍結領域への差分: **ゼロ**（`brief/mockup/screen_mock_v0.4.html` を含め無変更）
+- **未確認**: 実機iPadでの再確認。**ページ再読込だけでよい**（Hub再起動不要・token不変）
+
+---
+
+## T23 — P-005 段階A（`grid.rows`の欠陥修正・Deck縦2段・コピペリスト・Deck複数ロード）
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+提案書: `brief/proposals/P-005_layout_components.md`（§7で裁定済み）
+
+### 提案書の番号衝突と改番（重要）
+
+当初 **P-004** として起票したが、ほぼ同時刻（1分差）に**別セッション**が
+`brief/proposals/P-004_ssd_field_deck.md` を**同じ番号で**起票していた。
+向こうは専属チャットへの依頼文で既に「P-004」を参照済みだったため、
+**こちら（レイアウトと部品の三層化）を P-005 へ改番**した。
+コード内コメント・JSON・STATE/INDEXの参照31箇所も同時に付け替え済み。
+
+> **今後の運転上の注意**: `brief/proposals/` の採番は複数セッションが並行すると衝突する。
+> 起票直前に `ls brief/proposals/` で最大番号を確認するだけでは不十分（同時起票が起きる）。
+> 番号を取ったら**すぐ空ファイルを置く**か、採番をユーザーに確認するのが安全。
+
+### ユーザー裁定（P-005 §7）
+
+- 三層（**section / Component / slot**、1 section = 1 Component）で進める
+- section は**自由グリッド**（row/col/colSpan/rowSpan）
+- **`key.hold` を追加してよい**（切断時の強制解放を同時に入れること）
+- **不変条件6の書き込み許可に `layouts/` を追加してよい**
+- **段階A から着手**
+
+### 段階Aでやったこと
+
+| 変更 | 内容 |
+|---|---|
+| **`grid.rows`の欠陥修正** | 宣言されているだけで**一度も使われていなかった**（描画も検証もcolsのみ、行数はスロット数÷colsの暗黙値）。1ページのスロット数が `cols×rows` に収まることをロード時に検証し、クライアントは `grid.rows` を行数の正として使うようにした。溢れたスロットが黙って消える事故も同時に防いだ |
+| **Deckの複数ロード** | `main.rs` の `DECK_PATH = "decks/deck_default.json"` 1枚固定をやめ、`keymaps/` と同じ**ディレクトリスキャン**（`decks/deck_*.json`）へ。`deckId`重複と`default`欠落はロード時に拒否 |
+| **`deck.press` に `deckId`** | Deckが複数になりslotIdだけでは一意に決まらないため。省略時は`"default"`。deckIdもslotIdと同じ「位置ID」なので**不変条件1に抵触しない**。おかげでslotIdはDeckごとにローカルでよく、ユーザーが全Deck横断で一意なIDを考える必要がない |
+| **`render: "grid" \| "list"`** | Deckの描き方。データ（label＋actionの並び）は同じで見た目だけが違う。省略時`grid`＝既存JSONは書き換え不要 |
+| `decks/deck_default.json` | `grid` を `5×3` → **`8×2`（縦2段）**。スロットは15個のまま1つも減らしていない（容量16） |
+| `decks/deck_story_paths.json`（新規） | コピペリスト。`render:"list"`＋`text`アクション2件 |
+| `static/deck.html` / `static/panel.html` | `?deck=<deckId>` で描くDeckを選ぶ／list描画／`grid.rows`を使う／`deckId`を送る |
+| `schemas/deck.schema.json` | `render` を追加。`rows` の説明に「段階Aから実際に効く」と明記 |
+
+### コピペリストに新しいアクションは1つも要らなかった
+
+既存の `text`（D20・KEYEVENTF_UNICODE）がフルパスをそのまま打ち込む。
+D20が「クリップボードを黙って書き換えない」と定めているため、
+**クリップボード経由ではなく直接入力がこの設計での正解**。新規なのは縦リストの見た目だけ。
+
+### 検証記録
+
+- `cargo test --workspace` = **113 passed, 0 failed**（T22の108件から**+5**、削除・弱体化ゼロ）
+  - `deck::rejects_more_slots_than_grid_capacity`（`grid.rows`の欠陥の回帰テスト）
+  - `deck::render_defaults_to_grid_and_accepts_list`
+  - `startup::discovers_and_loads_every_deck_file`
+  - `startup::missing_default_deck_is_rejected`
+  - `startup::duplicate_deck_id_is_rejected`
+- **実Hubでの確認**（`cargo run -p proto-hub` 再起動。起動ログに `decks=2`）:
+  - `/deck` → 8列×2段・正方形スロット15個（実測68×68）。**縦2段になった**
+  - `/deck?deck=story_paths` → 縦リスト（実測496×46の横長行・左寄せラベル）。タイトルも `(story_paths)`
+  - `/panel` → 上ペインが8列×2段（実測86×86）、はみ出しゼロ、キーボードも無傷
+  - スロット押下 → `deck.press{deckId,slotId}` がHubに届き、slotが解決され、
+    **D5許可リストを通ってadapterへ発火（エラーログ0件）**
+- **確認できなかったこと（正直に）**: 打ち込まれた文字が「意図した入力欄に入るか」は
+  **このプレビュー環境では確認できない**。SendInputはOSの前面ウィンドウへ届くため、
+  ページ内に`<input>`を作ってfocusしても（`document.hasFocus()`はtrueでも）文字は入らなかった。
+  Hub側は成功を報告しているので**送出自体はできている**。着地の確認はユーザーの実機・実環境で必要。
+  **なお検証中に2回発火しているため、どこか別のウィンドウにパスが打ち込まれた可能性がある**
+- 凍結領域への差分: `crates/hub-core/` / `keymaps/keymap_default.json` / `brief/`の既存設計書・モック
+  いずれも無変更。**`decks/deck_default.json` は変更した**（CLAUDE.mdの変更禁止リストには
+  含まれておらず、D11が「ユーザーが編集するセットリスト」と定めているファイルのため）
+
+---
+
+## T24 — P-005 段階B/C（レイアウト面・十字キー・トラックボール部品化・Hub操作マニュアル）
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+
+### ユーザー要望
+
+1. 十字キー・リスト・Deck・キーボードを**JSONで自由に並べられる**ようにする（今回のゴール）
+2. 以前作ったトラックボールを**iPadの部品としても使え**、**現在の十字キーと手動で取り換えられる**ように
+3. そのための**Hub操作マニュアル**も一緒に開発する
+
+### やったこと
+
+| 新規/変更 | 内容 |
+|---|---|
+| `crates/proto-hub/src/layout.rs`（新規） | 区画割りの型・ロード・検証。**はみ出し／重なり／section id重複**をロード時に拒否 |
+| `startup.rs` | `layouts/layout_*.json` をスキャンし、**参照先id（keymapId/deckId/surfaceId）の実在を全ロード後に検証** |
+| `state.rs` | `SurfaceKind::Layout` ／ `layouts` ／ **keymapIdごとの `layer_states`** ／ 押しっぱなしキーの台帳 `held_keys` |
+| `protocol.rs` | `key.press` に `keymapId`（省略時は従来動作）／`layer.state` に `keymapId`／`surface.config` に `keymaps`・`layouts`・`layerStates` |
+| `ws.rs` | `/layout` ルート・QR target・Layout面の解決と配信・**切断時の押しっぱなしキー強制解放** |
+| `proto-keymap` | **`key.hold`**（JSONに書く側）と `key.button`（出口）。`key.hold`は**upでもFireを返す唯一のアクション** |
+| `proto-adapter-win` | `key.button` を press / release に分けて送出（`send_key()`はpress+release一体なので押しっぱなしにできなかった） |
+| `deck.rs` | **Deckに `key.hold` を置くのを拒否**（`deck.press`にedgeが無く「離す」機会が来ないため） |
+| `static/layout.html`（新規） | レイアウト面。keyboard / deck / trackball の3部品を描く1枚 |
+| `static/trackball.html` | **`?embed=1` を追加**（ヘッダ・パラメータUI・下半分を隠すCSSと1行のクラス付与のみ。**Core/View/Gestureは無改変**） |
+| `keymaps/keymap_dpad01.json` ＋ `layers/dpad01_layer0.json`（新規） | 十字キー。**新部品ではなく「3×3の小さなboardを持つkeyboard」** |
+| `layouts/layout_ipad_main.json`（新規） | 左=コピペリスト／中=Deck／右=十字キー／下=キーボード |
+| `layouts/layout_ipad_trackball.json`（新規） | 上記の右を**トラックボールに入れ替えた版**（`?id=` で切替） |
+| `docs/HUB_MANUAL.md`（新規） | Hub操作マニュアル。コードを書かずJSONだけで部品配置・スロット数・割当を変える手順 |
+
+### 設計上の判断（理由つき）
+
+- **十字キーは新しい部品種別にしなかった。** 3×3のboardを持つkeyboardでしかない。
+  おかげで新プロトコル・新描画経路がゼロで済み、割当変更も既存のレイヤーJSONの書き換えだけになる
+- **レイヤー状態をkeymapIdごとにした。** 1画面に複数のキーボード部品（十字キー＋一枚キーボード）を
+  置けるようになったため、面ごと（`layer_state`/`ipad_layer_state`）では足りない。
+  同じkeymapを2区画に置いたら状態は共有される＝同じキーボードなら同じレイヤー、が正しい挙動
+- **`key.press` に `keymapId`、`deck.press` に `deckId`。** どちらも「位置ID」であり、
+  実行内容を決めるのは相変わらずHub側のJSONだけ。**不変条件1には抵触しない**
+- **トラックボールはiframe埋め込みにした。** `trackball.html` の Core/View/Gesture は
+  検証済みの資産（DEVBOARD T15〜T19）で、切り出しは壊すリスクが高い。
+  **取引: この区画は自前のWS接続を1本持つ**（Hubから見ると別クライアント）。
+  将来ちゃんと共有モジュール化するときは Core/View を切り出すこと
+- **区画の重なりをロード時に拒否する。** 「パズルのように入れ替える」で最も起きやすい事故で、
+  しかも画面上は「片方が消えた」ようにしか見えないため、原因究明に時間を取られる
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**（T23の113件から**+6**、削除・弱体化ゼロ）
+  - `layout::loads_a_valid_layout` / `rejects_duplicate_section_id` / `rejects_section_outside_the_grid`
+    / `rejects_overlapping_sections` / `rejects_empty_sections` / `real_layout_files_load_successfully`
+- **実Hubでの確認**（起動ログ `keymaps=4 decks=2 surfaces=2 layouts=2`）:
+  - `/layout` → 4区画すべて描画。実測: 左リスト 291×329（行278×42）／中央Deck 588×329（マス67×67）／
+    右十字キー 291×329（キー89×101）／下キーボード 1182×412（キー84×75）。**はみ出しゼロ**
+  - **配置替えの実演**: `layout_ipad_main.json` の colSpan を 4/4/4 → 3/6/3 に書き換えて
+    `/api/reload` → 中央Deckのマスが 42×42 → **67×67 に変わった**（HTMLは無改変・Hub再起動なし）
+  - **十字キー⇄トラックボールの入れ替え**: `SEC-RIGHT` の component 1行を
+    `{"kind":"trackball","ref":"tb01"}` に書き換えて `/api/reload` → その区画がボールに変わることを確認。
+    `?id=ipad_trackball` でのURL切替も確認（`embed`クラスが当たっていることをiframe内DOMで実測）
+  - **押しっぱなし（key.hold）の安全網**: 十字キー「↑」をpointerdownしたまま画面を離脱 →
+    Hubログに `releasing keys still held by a disconnecting client keys=["W"]` を確認。
+    **押したまま切断してもPCが操作不能にならない**ことを実証
+- 凍結領域への差分: `crates/hub-core/` / `keymaps/keymap_default.json` / `brief/` の既存設計書・モック
+  いずれも無変更
+- **未確認**: 実機iPadでの操作感（十字キーのタップ目標・トラックボール区画の大きさ・
+  iframeが2本目のWSを張ることによる体感）。**実機で触ってからの調整が要る**
+
+---
+
+## T25 — 技術書化の制作依頼書（CODEX宛）
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **依頼書作成済み・題名の裁定待ち**
+
+### 発端
+
+ユーザーより「このコードを **Tauri＋Rust＋customkeyboard の作り方**として技術書にしたい。
+CODEXへの作成依頼と注意点・引継ぎを」との依頼。
+
+### 🚩 前提が1つ崩れていた
+
+**このリポジトリにTauriは1行も使われていない。** `Cargo.toml` / `Cargo.lock` /
+`crates/*/Cargo.toml` を検索して0件。実体は:
+
+- Hub: axum 0.8（HTTP＋WS）＋ tokio ＋ `windows` crate の SendInput
+- 端末: 素のHTML+JS（フレームワーク・ビルド工程・CDN依存ゼロ）
+
+しかも `CLAUDE.md` はこの構成を**確定アーキテクチャ**と定め、D2でフレームワーク導入を禁じている。
+そのため「このコードからTauriの作り方を書く」ことは原理的にできない（書けば架空の実装になる）。
+
+`docs/BOOK_REQUEST_CODEX.md` §0 に3案を提示し、**着手前にユーザー裁定を取るよう指示**した。
+
+| 案 | 内容 | 裏付け |
+|---|---|---|
+| **A（推奨）** | 題名を実態に合わせる（「Rust＋WebSocketで作る自作キーボード／Stream Deck」） | 全章が動作するコードで裏付けられる。今すぐ書ける |
+| B | Aに「HubをTauriで包む」最終部を足す | **Tauri章ぶんの実装が先に必要**。未検証コードを本に載せない線引きを明記 |
+| C | Tauriで作り直して書く | CLAUDE.mdの確定アーキテクチャに反する。提案書＋裁定が先 |
+
+### 依頼書に入れたもの
+
+- 本の芯にすべき問い（「クライアントに何を送らせてよいか」＝不変条件1の設計思想）
+- **落とし穴8件**を一次資料（DEVBOARD）つきで列挙。チュートリアルではなくこれが本の価値
+- 読む順番10ファイル・規模の実測（Rust 6,793行／クライアント 3,466行／JSON 24件／テスト119件）
+- 章立て案（全5部＋案Bのみ第6部）と、各章の裏付けコード
+- **守ってほしいこと**（重要度順）:
+  1. 🚩 **ユーザーの個人情報を載せない** — `deck_story_paths.json` に実在するDropboxパス、
+     DEVBOARD/STATEにLAN IPとtokenが含まれる。伏字ルールを先に決めさせる
+  2. コードを創作しない（全て実リポジトリからの引用・テストが通らないコードを載せない）
+  3. 事実を盛らない（**Windows専用**・`hub-core`はvendored凍結で自作ではない）
+  4. **セキュリティの書き方** — 題材は「ネットワーク越しにPCへキー入力を注入するアプリ」であり、
+     書き方を誤ると攻撃ツールの作り方になる。認証を外す手順を書かせない
+  5. リポジトリを書き換えない（原稿のみ作成）
+- **未確認事項5件**を明示（実機操作感／`text`の着地／Android実指／ALT+GRAVE依存／IME状態は推定）
+- 引き継ぎ（P-004採番衝突・別セッションのP-004・未コミット・exeロックでビルド失敗する件）
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**（T24から変化なし。本件はドキュメントのみ）
+- Tauri不在は `grep -rin "tauri" Cargo.toml Cargo.lock crates/*/Cargo.toml` で0件を確認
+- 規模の数値は `wc -l` / `ls | wc -l` の実測値
+- 凍結領域への差分: ゼロ
+
+---
+
+## T26 — 十字キーが文字入力になる件の確認と、矢印キー版の追加
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+
+### ユーザーからの確認依頼
+
+> 十字キーが、AやDの文字入力になってないかチェック
+
+### 確認結果: **なっている。仕様（ただし説明不足だった）**
+
+実データと adapter の変換表を突き合わせた結果:
+
+```
+D102 ↑ -> key.hold vk="W" -> 0x57 (VK_W)
+D201 ← -> key.hold vk="A" -> 0x41 (VK_A)
+D203 → -> key.hold vk="D" -> 0x44 (VK_D)
+D302 ↓ -> key.hold vk="S" -> 0x53 (VK_S)
+```
+
+**ラベルは矢印だが、送っているのは英字キーそのもの。** テキスト欄にフォーカスがあれば
+`wasd` と打ち込まれる。T24で「ゲームの十字キー」という要望に対しWASD（多くのゲームの移動キー）を
+既定にしたのは妥当だが、**その副作用をJSONにもマニュアルにも書いていなかった**のが落ち度。
+
+### 対応
+
+- `keymaps/keymap_dpad_arrows.json` ＋ `layers/dpad_arrows_layer0.json`（新規）
+  … 盤面の形はdpad01と同一、`vk` だけ `UP`/`LEFT`/`RIGHT`/`DOWN`。**矢印キーは文字を生まない**
+- `dpad01_layer0.json` の description に⚠️注意書きを追記（後で読む人が驚かないように）
+- `docs/HUB_MANUAL.md` §5 に「WASD版は文字が出ます」の節と比較表、§8のトラブル表に1行追加
+
+**既定は `dpad01`（WASD）のまま**にした。元の要望が「ゲームの十字キー」だったため。
+差し替えは `layouts/layout_ipad_main.json` の `ref` を `dpad_arrows` にして `/api/reload` するだけ。
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**（データ追加のみ）
+- 実Hubで `/api/reload` → `keymapsLoaded: 5`、`config.keymaps` に `dpad_arrows` が出現。
+  レイヤー内容を実測: `dpad01 = ↑:W ←:A →:D ↓:S` / `dpad_arrows = ↑:UP ←:LEFT →:RIGHT ↓:DOWN`
+- 凍結領域への差分: ゼロ
+
+---
+
+## T27 — 十字キーを矢印版へ／押した感（押し込み＋波紋）／キーボードVol1.3を新設
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+
+### 1. 十字キーを矢印版に切替（ユーザー指示）
+
+`layouts/layout_ipad_main.json` と `layout_ipad_trackball.json` の `ref` を
+`dpad01`(WASD) → **`dpad_arrows`**(UP/LEFT/RIGHT/DOWN) に変更。文字が混入しなくなった。
+`dpad01` は消さずに残してある（ゲーム用に戻したくなったら `ref` を戻すだけ）。
+
+### 2. 押した感（P-005提案の②③を実装）
+
+| | 内容 |
+|---|---|
+| ② 押し込み | `pointerdown` で `.pressing` を付け、CSSで **`transition: none` ＋ `scale(.94)`**。
+戻りだけ `cubic-bezier(.2,.9,.3,1.3)` で軽く弾ませる。**「入り0ms・戻りだけ緩やか」が体感を決める** |
+| ③ 波紋 | 触れた座標を要素内相対に直し、そこを中心に円を広げる。半径は押した点から四隅までの最大距離＝角を押しても全体を覆う |
+| 付随 | `prefers-reduced-motion: reduce` の端末では拡縮も波紋も出さない |
+
+### 🚩 実装中に見つけた欠陥: 波紋がDOMに溜まり続ける
+
+`animationend` で自分を消す実装にしたが、**12連打して9個が残り、1.2秒後も消えなかった**。
+
+原因は **タブが非表示のあいだCSSアニメが進まず、`animationend` が永久に来ない**こと。
+iPadでは他アプリへの切替・画面ロックが日常なので、**実運用で確実に踏む**種類の漏れ。
+
+対策を3重にした:
+
+1. `prefers-reduced-motion` の端末では波紋を**作らない**（`display:none` だとアニメが走らず
+   `animationend` も来ないため、作るだけ無駄に溜まる）
+2. 新しい波紋を作るとき、そのキーに残っている**古い波紋を捨てる**（連打時の上限）
+3. `animationend` に加えて **`setTimeout(cleanup, 700)`** を必ず仕掛ける
+   （非表示中でもタイマーは進むため、これが最後の砦）
+
+修正後の実測: 12連打しても**常に最大1個**、1.2秒後に**0個**。
+
+### 3. キーボード Vol1.3 を新設（スクショの配列）
+
+ユーザー提示のスクリーンショット（Android Gboardの日本語配列）を盤面化。
+
+**番号についての判断**: ユーザーの言う「Ver1.1（現行）→ Ver1.2（新規）」は、リポジトリの既存採番
+（現行が既に `ipad01_vol12`＝Vol1.2）と衝突する。さらに **`IPAD_KEYMAP_ID = "ipad01_vol12"` が
+`state.rs` にハードコードされており、改名すると `/ipad` が起動時に落ちる**。
+そのため **現行= `vol12`（凍結）／新規= `vol13`** とした（CLAUDE.md「複製して新Volを作ること」に一致）。
+
+| 新規ファイル | 中身 |
+|---|---|
+| `keymaps/keymap_ipad01_vol13.json` | **22列グリッド**の盤面。1キー=2列にすることで、スクショのA段の**半キーずれ（スタガード）を1列ぶんのずれとして正確に表現**した |
+| `layers/ipad01_vol13_layer0.json` | 基盤。Q〜Pの右肩に数字ヒント、確定=ENTER、ー=MINUS、日本語⇄英数=tg.fire、←→=矢印 |
+| `layers/ipad01_vol13_layer2.json` | 記号盤。**1段目に数字**（Q=1…P=0 とヒストの位置を一致させてある） |
+| `layers/ipad01_vol13_layer3.json` | 日本語モード表示。確定・Spaceのみ（layer2と1つも重ならないことを検証済み） |
+| `layouts/layout_ipad_v13.json` | `ipad_main` の複製で、`SEC-KEYBOARD` の ref だけ `ipad01_vol13` |
+
+**Vol1.3を作るにあたってVol1.2のファイルは1文字も触っていない**（新規5ファイルのみ）。
+※ `git status` で `keymap_ipad01_vol12.json` 等が変更扱いになるのは、**同日の T21（tg.fire）と
+T22（1列左寄せ）による変更**が未コミットで残っているためで、本タスク（T27）由来ではない。
+
+切替は `/layout?id=ipad_main`（Vol1.2）と `/layout?id=ipad_v13`（Vol1.3）で、URLだけ。
+片方を壊しても他方は無傷。
+
+### 🚩 Vol1.3で顕在化した既存機能との衝突
+
+T21で入れた「日本語モードでは2行ラベルの主従を入れ替える」CSSは、Vol1.3では**害になる**。
+Vol1.3はQ〜Pの全キーが2行ラベル（数字ヒント＋英字）なので、日本語モードにすると
+**数字が主・英字が従になって盤面が読めなくなる**。
+
+対策: `renderLabel` で **1行目が数字だけのラベルには `.dual` を付けない**ようにした。
+「小さい行が日本語側の代替表記のときだけ入れ替える。数字ヒントは代替表記ではない」という規則。
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**（データ・クライアントのみの変更）
+- 盤面の自動突合（スクリプト）: board↔layer0が**1対1で迷子ゼロ**／各行が22列に収まり**重なりゼロ**／
+  row2がcol2始まり（半キーずれ）／row3はcol1-18で右側が空く（スクショと一致）／
+  **layer2 ∩ layer3 = 空**（D3のレイヤー優先順位の罠を回避）
+- 実Hubで `keymaps=6 layouts=3` をロード。`/layout?id=ipad_v13` を実際に描画して目視確認
+  （Q〜Pの数字ヒストが右肩に出ること、A段が半キーずれること、右下に矢印が出ること）
+- 押した感の実測: `transition: none` / `transform: matrix(0.94,…)` / 波紋が押した点(15,13)から
+  半径220pxで発生 / 離すと `.pressing` が外れて戻りのtransitionが効く
+- `ipad_main`（Vol1.2）の回帰確認: キー59個・十字キーが `↑←→↓`（矢印版）で無傷
+- 凍結領域への差分: ゼロ
+- **未確認**: 実機iPadでの押した感（波紋の見え方・押し込みの深さ）と、Vol1.3の打鍵感
+
+---
+
+## T28 — 「PCでは変わるのに端末が変わらない」の原因究明と再発防止
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+
+### 症状（ユーザー報告）
+
+> PCはレイアウト変わってるけどIPADは変わらないよ
+
+### 原因: **端末が古いtokenを掴んだままだった**
+
+`curl` で実測して確定:
+
+```
+古いtoken (9c48…) -> 401
+現在のtoken (a0f4…) -> 200
+```
+
+本セッション中にHubを複数回再起動しており、**再起動のたびにtokenが再生成される（D8）**。
+端末が前のURLを開いたままだと、WSが延々と拒否され新しい`surface.config`を受け取れない。
+**画面には前の内容が残るので「変わらないだけ」に見える。**
+
+Hubのログに5秒おきに出ていた `WS_TOKEN_INVALID` は、まさにこの端末の再接続試行だった
+（T27の報告時点では「どこかの古いタブ」と書いたが、**実際にはiPadだった**）。
+
+### さらに悪いことに、端末側は原因を知らせていなかった
+
+クライアントはWSが閉じると「切断中は操作できません。再接続中…」としか出さない。
+**「tokenが古い」と「単に切れている」を区別していなかった**ため、ユーザーは
+原因が分からないまま待ち続けることになる。これが本質的な欠陥。
+
+### 対策1: レイアウトごとにQRを出す
+
+`connection_url` に **`layout:<layoutId>`** ターゲットを追加し、ランディングページが
+**読み込まれているレイアウトの数だけQRカードを自動生成**するようにした。
+レイアウトを足せばQRも自動で増える（Hub側の表示コードを触らなくてよい）。
+
+これで端末は「QRを読み直す」だけで最新tokenの目的の画面へ行ける。URLを手打ちしなくてよい。
+
+### 対策2: 端末に「tokenが古い」と言わせる
+
+- 新規 `GET /api/ping?token=` … token検証だけを行う軽量エンドポイント（200 / 401）
+- クライアント4枚（layout/panel/ipad/deck）で、**WSが閉じたらpingを叩き、401なら断定して案内**
+  「このURLのtokenは古くなっています。PCのHub画面を開き直して、QRを読み直してください」
+- 接続バッジも **「tokenが古い」** に変える
+
+### 🚩 実装中に見つけた欠陥: 警告が2秒ごとに消されていた
+
+最初の実装では案内が**画面に出なかった**。原因は**2秒ごとの再接続が
+`setStatus("接続中…")` → `setStatus("切断中…")` で警告を上書きし続けていた**こと。
+警告を出す仕組みを足しても、それを消す仕組みが既にあったので意味が無かった。
+
+対策: `setStatus` に**貼り付き（sticky）**を入れ、tokenが古いと判明した後は
+エラー以外の更新を無視するようにした。修正後は6秒経っても警告が残ることを実測。
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**
+- `/api/ping`: 古いtoken→**401** / 現在のtoken→**200** を curl で実測
+- ランディングページ: QRカードが **9枚**（既存6＋レイアウト3）。
+  **全部の画像が実際に生成されている**ことを `naturalWidth>0` で確認。
+  URLエンコード（`target=layout%3Aipad_v13`）も正しく解決
+- 古いtokenで `/layout` を開く → バッジ「tokenが古い」＋赤字の案内が表示され、
+  **6秒後も消えない**ことを実測
+- 新しいtokenで開く → 通常どおり接続（「接続しました」／キー41個＝Vol1.3の36＋十字5）
+- 凍結領域への差分: ゼロ
+
+### 学び（今後この種の報告を受けたとき）
+
+**「PC側は変わったのに端末が変わらない」は、まずtokenを疑う。**
+`curl -o /dev/null -w "%{http_code}" "http://localhost:8770/api/ping?token=<端末のURLのtoken>"`
+で1秒で切り分けられる。
+
+---
+
+## T29 — 端末が古い画面を出し続ける（真因はHTTPキャッシュ）
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+
+### 症状
+
+T28で「tokenが古い」と診断し、**新しいtoken付きのURLを渡したのに**:
+
+> IPADは再起動してもずっと古いものを表示している
+
+### 真因: 配信ヘッダに `Cache-Control` が無かった
+
+`curl -D -` で実測:
+
+```
+HTTP/1.1 200 OK
+content-type: text/html
+accept-ranges: bytes
+last-modified: Sat, 05 Sep 2026 10:56:29 GMT
+etag: "6a9bf55d.10a0fd74-86b0"
+          ← cache-control が無い
+```
+
+同時に、**Hubが配っているHTMLは新しい**ことも確認（`ripple`/`pressFeedback`/
+`diagnoseDisconnect` が19箇所ヒット）。つまり**サーバは正しく、端末が取りに来ていなかった**。
+
+`Cache-Control` が無いと、ブラウザは `last-modified`/`etag` だけを見て
+**ヒューリスティックキャッシュ**（独自判断での再利用）を行う。iOS Safariはこれが特に強く、
+**端末を再起動してもHTTPキャッシュは消えない**。結果、Hub側が何を変えても端末は
+何時間も古い画面を出し続ける。
+
+**T28の診断（tokenが古い）は、その時点では正しかったが、症状の原因は2つあった。**
+tokenを直したら2つ目（キャッシュ）が残っていた。1つ直して直らなかった時点で
+「別の原因が重なっている」と考えるべきだった。
+
+### 対策: ルータ全体に `Cache-Control: no-store`
+
+`tower_http::set_header::SetResponseHeaderLayer` をルータ全体に適用。
+
+判断の根拠: この面は**JSONを書き換えて即反映するのが売りの道具**で、配るのは
+LAN内の数十KBのHTMLでしかない。キャッシュで得られるものより、
+**古い画面が出る害の方が明確に大きい**。
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**
+- `curl -D -` で `cache-control: no-store` が `/layout` と `/`（ランディング）の両方に
+  付くことを実測
+- 新tokenで `/layout?id=ipad_v13` を開き、Vol1.3が正しく描画されることを確認
+  （keyboards=`[dpad_arrows, ipad01_vol13]` / キー41個 / 十字キー`↑←→↓`）
+- 凍結領域への差分: ゼロ
+
+### ⚠️ 端末側の後始末が一度だけ必要
+
+`no-store` は**次に端末が実際に取りに来たとき**から効く。
+既にキャッシュを掴んでいる端末は、**一度だけ**URL末尾に `&cb=1` 等を足して
+取りに行かせる必要がある。それ以降は二度と起きない。
+
+### 学び
+
+**「サーバは正しいのに端末が古い」を見たら、`curl -D -` で配信ヘッダを見る。**
+`Cache-Control` が無い静的配信は、ブラウザに好き放題キャッシュさせている状態。
+tower-httpの `ServeFile` は既定で `Cache-Control` を付けない。
+
+---
+
+## T30 — ヘッダに切り替えセレクタを2つ（登録board / キー配列）
+
+日付: 2026-09-05 ／ 担当: Claude Code（Opus 5）／ 状態: **完了・未コミット**
+
+### ユーザー要望
+
+> headerのTitleロゴ：左上のレイアウトでkeyboardformatを切り替えれるようにしたらどうだろう？
+> セレクターは二つ作ってほしくて、
+> KeyDeck：｛登録board切り替え（今は一つだけど、これからboardを増やしたら、丸ごと表示を
+> 差し替えるステート駆動で）、Layout→文字入力のkeyboardがあった場合、キーLayoutを切り替えられる｝
+
+### 実装: **Hub側の変更はゼロ**
+
+`surface.config` は既に全レイアウト・全キーマップを配っているので、
+**端末側の状態だけで両方とも実現できた**（ユーザーの言う「ステート駆動」そのもの）。
+
+| セレクタ | 効果 | 実装 |
+|---|---|---|
+| **BOARD** | 画面を丸ごと差し替え | `layoutId` を差し替えて `render()` |
+| **LAYOUT** | キーボードの配列だけ差し替え | `keymapOverride` を持ち、区画描画時に `effectiveKeymapId(section)` で解決 |
+
+### 設計上の判断
+
+- **上書きは「文字入力キーボード同士」のときだけ効かせる。**
+  そうしないと、十字キー（5キー）の区画まで一枚キーボードに置き換わってしまう。
+  判定は `board.keys.length >= 20`（`TEXT_KEYBOARD_MIN_KEYS`）。
+  十字キーは選択肢にも出ないし、差し替え対象にもならない
+- **LAYOUTセレクタは、いま出している画面に文字入力キーボードがあるときだけ出す**
+  （要望の「文字入力のkeyboardがあった場合」をそのまま条件にした）
+- **`layouts/*.json` は書き換えない。** これは「この端末ではこう出す」という表示上の選択。
+  全端末の既定を変えたいときは従来どおりJSONを編集する。段階D（配置GUI）で
+  ファイルへ書き戻す話になったときに、不変条件6の議論をすればよい
+- **選択は端末が覚える**（localStorage）。URLの `?id=` が指定されていればそちらが優先
+  （ランディングページのQRは `?id=` 付きなので、QRから入れば必ずそのレイアウトになる）
+- BOARD変更は `history.replaceState` でURLへ反映。そのURLを共有すればいきなりその画面へ
+
+### 検証記録
+
+- `cargo test --workspace` = **119 passed, 0 failed**（クライアントのみの変更）
+- 選択肢の自動生成: BOARD=`[ipad_main, ipad_trackball, ipad_v13]`（3レイアウト）、
+  LAYOUT=`[ipad01_vol12, ipad01_vol13]`（**dpad_arrows は正しく除外**）
+- **キー配列の切替**: vol12→vol13 で描画キーが **64→41** に変化し、
+  **十字キーの区画は `↑←→↓` のまま無傷**であることを実測（＝上書きが文字入力キーボードに限定されている）
+- **board切替**: `ipad_main`→`ipad_trackball` で SEC-RIGHT が `kind-trackball`（iframe）に変わり、
+  URLに `id=ipad_trackball` が反映。**キー配列の選択は独立して維持**された
+- **永続化**: `?id=` 無しで再読込 → BOARD/LAYOUT ともlocalStorageから復元されることを実測
+- 途中で `layoutId` の二重宣言（既存の `const` と新しい `let`）でJS構文エラーになったが、
+  Nodeでの構文チェックが検出したため画面に出す前に修正
+- 凍結領域への差分: ゼロ
+
+---
+
+## 実機確認（iPad）— 2026-09-05
+
+ユーザー報告: **「ipad成功です」**
+
+T29（`Cache-Control: no-store`）でキャッシュを抜けたことで、iPad実機でレイアウト面が
+正しく表示・動作することを確認。これにより T24〜T30 で「未確認」としていた
+**実機表示に関する項目が解消**した。
+
+確認できたとみなすもの:
+
+- `/layout` がiPad実機で描画される（4区画：コピペリスト／Stream Deck／十字キー／キーボード）
+- レイアウトの世代切り替え（Vol1.2 / Vol1.3）とboard切り替えがiPad上で動く
+- ヘッダの2セレクタ（BOARD / LAYOUT）がiPad上で操作できる
+
+**まだ評価を聞けていないもの**（動くことと、使い心地が良いことは別）:
+
+- 押した感（押し込み0ms・波紋）の体感が期待どおりか
+- Vol1.3（Gboard風配列）の打鍵感。数字が記号盤経由でよいか
+- 十字キー（矢印版）のタップ目標の大きさ
+- トラックボール区画の広さ、iframeが2本目のWSを張ることによる体感
+- コピペリストの `text` が実際に狙った入力欄へ着地するか（プレビュー環境では検証不能だった項目）
+
+---
+
+## T31 Hubの操作画面を作る（`/settings` が実質空だった）— 2026-09-06
+
+きっかけ: ユーザーから「Hubが確認できてない、見せて」。実際に開いたところ
+**`/settings` には再読込ボタン1つしか無く、中身が空**だった。構成を知るには
+JSONを手で開くしかない状態で、運用として成立していない。
+
+### 見つけた欠陥
+
+- **起動バナーにレイアウトが1つも出ていなかった**。`main.rs` の `println!` が
+  手書きの7行で、P-005でレイアウトを足したときに更新されず取り残されていた。
+  Webのランディングページは自動生成なので出ており、**両者が食い違っていた**
+- 再読込の成功メッセージが `keymaps` しか数えていない（decks/layoutsも読み直しているのに）
+
+### やったこと
+
+1. `ws.rs` に **`connection_targets()` を新設し、接続先の表を1箇所に集約**。
+   ランディングページ・`/api/formats`・起動バナーの3箇所がこれを見る。
+   同じ表を複数箇所に手書きしていたことが上の欠陥の原因なので、構造として潰した
+2. `GET /api/formats?token=…` を新設（**読み取り専用**。何も書かない）。
+   targets / keymaps / decks / layouts を返す
+3. `static/settings.html` を書き直し。接続先一覧（名前・種別チップ・URL・QRボタン）＋
+   キーボード／Deck／レイアウトの一覧。QRはモーダルで1枚だけ大きく出す
+   （凍結モック `screen_mock_v0.4.html`「② 設定」の行構造に従う。一覧にQRを並べない）
+4. 再読込後に一覧を自動で引き直すようにした（数字が変われば成功が目に見える）
+
+### 検証記録
+
+- `cargo test --workspace` → **119 passed / 0 failed**
+- `node --check`（settings.htmlのscript抽出）→ 構文OK
+- 起動バナーに **レイアウト3種が出ることを実測**（ipad_main / ipad_trackball / ipad_v13）
+- `/settings` 実測: 接続先9件・キーボード6件・Deck 2件・レイアウト3件（区画4つ×3）を表示
+- QRモーダル: `layout:ipad_v13` を押下 → `/api/qr?target=layout%3Aipad_v13` が 200。
+  コロンのエンコードが効いている
+- 再読込ボタン → 「再読込しました。」（緑）＋ 一覧が再描画。**console.error ゼロ**
+- 凍結領域への差分: ゼロ
+
+### 補足（設計上の注意）
+
+- `keys` 列が `—` になるのは split キーマップ（`board` ではなく `halves` で持つ）。
+  壊れているのではない
+- QRのURLにはトークンが入る。トークンは `main.rs` で**起動のたびに新規生成**され
+  ディスクに保存されない（D8）。**QR画像を保存しても次回は使えない**ことを画面に明記した
+
+---
+
+## T32 P-005 段階D のデザインモック（区画エディタ）— 2026-09-06
+
+ユーザーからの質問:「SVGでモックを作れるか。SVG / HTML / XHTML のどれが適切か」
+
+新規追加: `brief/mockup/mock_p005_stage_d_layout_editor.html`
+（**既存モックは1つも触っていない**。凍結領域への差分ゼロ）
+
+### 手段の結論: HTML + CSS Grid。SVGは不向き
+
+決め手は「**データが既に格子だから**」。`layouts/*.json` の
+`row / col / colSpan / rowSpan` が `grid-row / grid-column: <col> / span <n>` へ
+**そのまま乗る**。座標変換の算数が1つも要らない＝ズレる余地が無い。
+
+SVGだと同じ絵を出すのに、セル寸法×番号の掛け算を全部自前で持ち、
+`<text>` は折り返さず、フォーム部品は置けず（`foreignObject`＝結局HTML）、
+キーボード操作と読み上げを手で付けることになる。
+SVGが勝つのは「画像として書き出す」1点のみで、それはこの画面の目的ではない。
+
+モック内にHTML版とSVG版の**同じ区画を並べて描き**、比較表を置いた。口頭の主張ではなく実物で示す。
+
+### XHTMLについて
+
+採用しない。理由:
+- `application/xhtml+xml` で配信すると**1箇所の閉じ忘れで画面全体が出なくなる**（部分描画なし）
+- 「タグとの紐づけ」はHTML5の `data-*` 属性が標準で、XHTMLに利点は無い
+- D2（素のHTML+JS）に対するアーキ変更にあたる。やるならSR起票が必要
+- XHTMLが必須なのはEPUB3の本文。**用途が違う**（このユーザーは技術書も作っているため混同しやすい）
+
+### モックに入れた機能と検証
+
+- ドラッグ移動・つまみでリサイズ・パレットから追加・区画削除
+- **重なり／はみ出しをその場で赤表示**（`layout.rs` が実際に弾く条件と同じ）。不正な間は保存ボタンを無効化
+- 出来上がるJSONを常時表示（実物の `layouts/layout_*.json` と同じ形）
+- 検証: SEC-LEFT を右へ2マス動かす合成PointerEventを流し、
+  `col 1→3` / 重なり検出2件 / verdict赤 / 保存無効 を実測。**console.error ゼロ**
+- 横スクロールが出ていたのを媒体クエリで縦積みへ（実測 `scrollWidth == clientWidth`）
+
+### 注意
+
+- 自動操作の `left_click_drag` は**PointerEventを出さない**ため効かなかった。
+  検証は合成PointerEventで行っている。実機の指・マウスでの操作感は未評価
+- 保存は未実装。`layouts/` への書き込み＝不変条件6の拡張が要る（未裁定）
+
+---
+
+## T33 最小サイズと「減らす／減らせない」の切り分け（モックへ実装）— 2026-09-06
+
+ユーザー要望:
+1. Componentの枠を手動で調整したい
+2. **Component内にスクロールバーを出さない**。入りきらないなら表示要素数を減らす
+3. トラックボールのような実体がある部品は**下限を決めて**、中身が機能するようにする。今後の追加分も
+
+### ユーザー裁定（2026-09-06）
+
+| 論点 | 決定 |
+|---|---|
+| 枠の調整 | **数値入力（行/列/幅/高）＋ 部品ごとの最小サイズを手動指定**の両方 |
+| あふれたDeckスロット | **ページ送りへ回す**（到達できなくならない） |
+| 最小の基準端末 | **iPad Pro 12.9 横だけ**（1366×1024） |
+
+未確認だったが私の判断で進めた点（ユーザーへ明示済み）:
+**文字キーボードは「減らす」対象外**。キーを間引いたら打てないため、トラックボールと同じ下限側。
+
+### 見つけた現状の欠陥（未修正・実装側の宿題）
+
+- **`layout.html` は `overflow:hidden` で切り落としている。** 入りきらないスロットは
+  何の表示もなく消える。スクロールより悪い（気づけない）。**いま実機で起きうる**
+- `panel.html:340` は逆に `overflow:auto`。コメントに
+  「押しにくいボタンを並べるより、はみ出す方がまし」と明記されており、方針が真逆
+- `MIN_CELL` が layout.html=**40** / panel.html=**44** で食い違い。44（標準的なタップ目標）へ寄せる
+
+### 設計の核: 最小は「マス数」では決まらない。実ピクセルで決まる
+
+1マスの実寸は画面で変わる。基準端末で **1マス ≒ 114×109px**。
+そこから各部品の必要pxを出し、**切り上げてマス数**にする。
+
+| 部品 | 必要px | 最小マス | 型 |
+|---|---|---|---|
+| `ipad01_vol12` | 572×220 | 6×3 | floor |
+| `ipad01_vol13` | 484×176 | 5×2 | floor |
+| `dpad_arrows` | 132×132 | 2×2 | floor |
+| `tb01`（トラックボール） | 220×220 | 2×3 | floor（**人が決めるしかない**） |
+| `default`（Deck 15件） | 44×70 | 1×1 | reduce |
+| `story_paths` | 200×70 | 2×1 | reduce |
+
+**`ipad01_vol13` の最小colSpanは2**（1キー＝2列の半キーずらし）。
+必要幅は `22*(44/2)=484px` であって `22*44=968px` ではない。
+当初968pxと見積もったが誤りで、実データから訂正した。
+
+### 検証記録
+
+- `node --check` 構文OK / **console.error ゼロ**
+- 最小サイズ計算がPython側の独立計算と**全項目一致**
+- 下限クランプ: SEC-KEYBOARD を①つまみで極端に縮める ②数値欄に「1」を打つ
+  → **どちらも 5×2 で停止**（実測）
+- ページ分割: Deck default（15件）を 6×4 → 1×1 と縮め、
+  16→16→14→10→2個/ページ、1→1→2→2→8ページ と変化することを実測
+- 途中欠陥: `fitReport` が **Deckの宣言格子（8×2）で頭打ちにしていなかった**ため
+  「4マスの区画に9行入る＝72個」と出ていた。宣言容量で clamp して修正
+
+### 残り
+
+- 実装側（`layout.html` / `panel.html`）はまだ旧挙動のまま。切り落とし・スクロール・
+  MIN_CELL不一致の3点は**別途の修正が必要**
+- Deckのページ送りUI（帯26px想定）は未実装
+
+### T33-a 修正: ドラッグが実マウスで死んでいた（2026-09-06）
+
+ユーザー報告「Componentの移動も可変もできない」。**開発中だからではなく、私のバグだった。**
+
+**原因**: `move()` が毎回 `render()` を呼び、`gridEl.textContent = ""` で
+**掴んでいる要素そのものを破棄していた**。要素が外れるとポインタキャプチャも解放され、
+以降の `pointermove` は新しい要素（`mode` が null）へ飛ぶ。
+結果、実マウスでは最初のひと動きでドラッグが死ぬ。
+
+**なぜ最初の検証で見逃したか**: 合成PointerEventを**同じ要素参照へ1回だけ**送っていた。
+外れた要素にもリスナとクロージャは残っているので、合成イベントは通ってしまう。
+`document.contains(box)` を見ておらず、通ったことを「動いた」と誤読した。
+実マウスは `pointermove` を連続で出すため、1回だけの検証では再現しない種類の欠陥。
+
+**修正**: `render()` を2つに割った。
+- `render()` … 骨組みを作り直す。区画の増減・レイアウト切替のときだけ
+- `refresh()` … 位置・大きさ・赤表示・判定・JSONだけ更新。**要素は作り直さない**
+
+ドラッグ中に呼ぶのは `refresh()`。`secEls`（区画id→要素）で使い回す。
+
+**検証**:
+- 連続する `pointermove` 8回で `document.contains(box)` が**全て true**、
+  `col` が 1→2→3 と追従することを実測（修正前は最初の1回で false）
+- **自動操作の `left_click_drag` でも成立**。SEC-LEFT が col=1 → col=6 へ移動し、
+  重なり検出が働くことを実測
+
+**前回の説明の訂正**: T32で「`left_click_drag` はPointerEventを出さないので効かなかった」と
+書いたが**誤診**。イベントは出ていて、上記のDOM破棄が原因だった。
+
+### T33-b 重なりの扱いを裁定（2026-09-06）
+
+ユーザー質問:「重なったらエラーでいいか。それともtab式／レイヤー式にするか」
+
+**裁定: エラー（重なりは許さない）。tab式・レイヤー式は採らない。**
+
+理由:
+
+1. **この装置は見ないで押す道具**。指の下にあるものが指を動かさずに変わる仕組みは、
+   Deck・キーボードの価値である位置の記憶を壊す
+2. レイヤー式は「押したいボタンを押す前に1回クリック」が要る。
+   **1タップ＝1コマンドというDeckの前提が崩れる**
+3. `layout.rs` は既にロード時に重なりを弾いている。tab/レイヤーは検証・描画・
+   隠れた部品のWS接続とレイヤー状態の扱いを作り直すことになる
+   （隠れたキーボードのレイヤー状態が裏でずれる問題も付く）
+4. **「同じ場所に別のものを出したい」はboardセレクタが既に満たしている**。
+   画面まるごとの差し替えで、iPad実機で確認済み。区画ごとのtabより指の記憶を壊さない
+
+### 「赤くするだけ」では足りなかった
+
+重なったまま指を離せてしまい、**下に潜った区画が見えなくなる**（ユーザー提示の
+スクリーンショットで SEC-LEFT が SEC-CENTER の下に隠れていた）。
+
+**方針: 不正な形はコミットさせない。**
+ドラッグ中は赤く見せて理由を伝えるが、確定はさせず直前の状態へ戻す。
+これなら「Aを一旦どかしてBを入れる」も途中経過が赤いだけで妨げられない。
+
+`commitOrRevert()` を1つ置き、**4経路すべてを同じ扱い**にした
+（ドラッグ／数値入力／手動下限の引き上げ／部品の追加）。
+ドラッグだけ厳しく数値入力は緩い、という不整合を作らない。
+
+**検証（すべて実測）**:
+
+| 操作 | 結果 |
+|---|---|
+| 重なる位置へドラッグ→離す | ドラッグ中 col=5 で赤 → 離すと col=1 へ復帰＋メッセージ |
+| 空きへドラッグ→離す | col=10 へ移動して確定。判定は緑 |
+| 列に「4」を打つ（重なる） | col=1 のまま。差し戻しメッセージ |
+| 幅に「9」を打つ（重なる） | colSpan=3 のまま。差し戻しメッセージ |
+| 空きが足りない部品を追加 | 区画数 3→3。「6×3ぶん無いため追加しませんでした」 |
+
+console.error ゼロ。
+
+### T33-c モックの機能棚卸し（2026-09-06）
+
+ユーザー要望: ①空きが無いときのエラー ②置いた部品を「置ける部品」へ戻す
+③足りない機能の洗い出し
+
+#### キャッシュ事故（3回目）
+
+ユーザー提示のスクリーンショットが**重なったまま確定した状態**だった。
+現行版で再現を試みたが、どの操作列でも不正状態に到達しない
+（全消し→8種追加／一部消して追加を6周／手動下限を4→6→9→12：いずれも不正なし）。
+
+原因は配信側。`keydeck-mock` が素の `python -m http.server` で、
+**Last-Modified しか返さない**ためブラウザが古いページを保持していた。
+実測: `#flash` も `BUILD` も存在せず、修正前のHTMLが配信されていた。
+
+対処2つ:
+1. `brief/mockup/serve.mjs` を新設し、**全応答に `Cache-Control: no-store`**。
+   `.claude/launch.json` の `keydeck-mock` をこれに差し替え（`/` でモック本体へ）
+2. 画面右上に**版（`rev4 2026-09-06`）を表示**。
+   「古い画面を見ているか」を推測ではなく事実で切り分けられるようにした
+
+Hub本体は T29 で no-store 済みだったが、モック用サーバーだけ抜けていた。
+
+#### 追加した機能（rev4）
+
+- 空きが無いときの通知を**パレットの真上の帯**へ（判定行は格子の下で視線から遠い）
+- パレットに**「配置済み」チップ**。部品プールとして読めるようにした
+- 削除を**「← 置ける部品へ戻す」**に。戻した部品名を通知に出す
+
+検証（実測）: 空きなし追加→区画数4のまま＋通知 ／
+「戻す」→区画3件へ、`dpad_arrows` のチップが消えて通知が出る ／ console.error ゼロ。
+
+#### 棚卸しの結果（未実装。ユーザーの選択待ち）
+
+**A. 実務で困る**
+1. **`component.ref` を差し替えられない** — 最頻出操作（vol1.2→vol1.3）なのに
+   削除して置き直すしかなく、位置と大きさを失う。JSONでは1行
+2. **レイアウトの複製・新規作成が無い** — リポジトリの運用方針そのもの
+   （「既存を編集せず複製して新しい世代を作る」layout_ipad_v13.json に明記）を支えていない
+3. **Undo が無い** — 削除は即時。「元に戻す」は全体を初期状態に戻す粗さ
+4. **区画idを変えられない** — 調査結果: idは `layout.html` の `data-section-id` に
+   使われるだけで、`layout.rs` は重複のみ検査。**改名は安全**
+
+**B. あると良い**
+5. 中身のプレビュー（今は色の付いた箱だけ。最小サイズは計算で保証しているが体感は別）
+6. キーボード操作（矢印キーで1マス移動）
+7. `description` の編集（実物は改行入りの長文。複数行対応が要る）
+8. `grid` 12×9 の変更（基準端末を1つに決めた今は不要）
+
+**C. Hub側の不足（実装へつなぐ前に必要）**
+9. **`/api/formats` が `minColSpan`/`minRowSpan` を返さない** — 最小サイズ計算に要る。
+   モックはハードコードした表で代用している
+10. **`/api/formats` が surfaces（トラックボール）を返さない** — targets/keymaps/decks/layouts
+    の4つだけ。トラックボールをパレットに出せない
+11. 保存の口が無い（不変条件6の拡張が未裁定）
+
+**D. 入れないほうがよい**
+12. 自動詰め（空白は指の逃し場所として意味がある）
+13. tab／レイヤー（T33-b で裁定済み）
+14. 部品そのものの新規作成（VIAL型エディタ=T9の領分。混ぜると画面の責務が壊れる）
+
+### T33-d 部品へ戻す操作を「放り込み」に（2026-09-06）
+
+3秒長押し案はユーザーが中止。採用は**ドラッグ中だけ現れる放り込み口**。
+
+**なぜこちらが良いか**: 掴んでいる間しか現れないので誤爆しにくく、
+いま行っているドラッグをそのまま使える。長押しは「押している間の進み具合」を
+別途見せないと壊れて見えるうえ、待ち時間が操作を止める。
+
+**実装（rev6）**
+- 「置ける部品」パネルに膜（`.dropveil`）を重ね、**移動ドラッグ中だけ**表示
+- 膜は `pointer-events: none`。ポインタは掴んだ区画にキャプチャされているため、
+  **当たり判定は座標で行う**（膜側にイベントは飛んでこない）
+- 膜の上に来たら濃くする（`.over`）。放せば効くことが見て分かる
+- ボタンからの削除と放り込みは `returnToPalette()` を共有。2つの入口で挙動が食い違わないように
+
+**狭い画面の問題と対処**: 幅900px以下ではパレットが格子の上へ回るため、
+格子を見ている間はパレットが画面外にある（実測 `top=-275`、見えているのは下端58pxだけ）。
+掴んだ時点でパレットの可視高さを測り、90px未満なら膜を**画面上端へ貼り付ける**
+（`.pinned`）。当たり判定は膜の実位置を見ているので、貼り替えるだけで追従する。
+
+**検証（すべて実測）**
+
+| 経路 | 結果 |
+|---|---|
+| 掴む前 | 膜は非表示 |
+| 区画を掴む | 膜が出る |
+| パレット上へ運ぶ | `.over` が付く |
+| そこで離す | 4件→3件・通知あり・膜は片付く |
+| **つまみでリサイズ中** | **膜は出ない**（大きさ変更で消える事故を防ぐ） |
+| リサイズをパレット上で離す | 4件→4件（消えない） |
+| パレットを通過して格子へ戻して離す | `.over` が外れ、4件→4件。判定は緑 |
+| 狭い画面で帯に放り込む | `.pinned` 付き・`.over` 付き・4件→3件 |
+
+console.error ゼロ。
+
+### T33-e 役目を終えた部分の削除（2026-09-06・rev7）
+
+ユーザー指示「sectionの下のSVGと、この画面にいるものはもういらなければ削除しておいて」。
+
+**削除したもの（1021行 → 924行、97行減）**
+
+| 対象 | 消した理由 |
+|---|---|
+| 比較パネル（HTML版＋SVG版＋比較表） | SVG/HTML/XHTMLの判断は済み。**根拠は DEVBOARD T32 に記録済み**なので、画面に置き続ける必要が無い |
+| `.compare` / `.cols2` / `.tablewrap` / `table` `th` `td` `td.y` `td.n` | 比較パネル専用。他から使っていない |
+| `renderMini()` と呼び出し、`#miniHtml` | 比較パネル専用 |
+| `.nums` | 読み取り専用だった旧プロパティ欄の名残。`.numedit`（入力欄）に置き換わった時点で死んでいた |
+| `#verdict.warn` | 通知を `#flash` へ移した時点から誰も付けていない |
+| 冒頭コメントの「右下のパネルに示す」 | パネルを消したので嘘になる。DEVBOARD T32 への参照に書き換え |
+
+**削除後の検査（機械的）**
+- `getElementById` が参照するid **11個 / HTMLに在るid 11個 → 参照できないid ゼロ**
+- 定義済みCSSクラスのうち**未使用のもの ゼロ**
+- `compare` `cols2` `tablewrap` `miniHtml` `renderMini` `.nums` `verdict.warn` `<table` `<svg` の残骸 **すべて0件**
+
+**削除後の通し確認（機能が壊れていないこと）**
+
+| 確認 | 結果 |
+|---|---|
+| 重なる移動 → 差し戻し | OK |
+| 下限クランプ（幅に1を入力） | 5×5 で停止 |
+| ページ分割（Deck 3×2） | 14個/ページ・全2ページ |
+| パレットへ放り込み | 4→3件 |
+| 空きなしで追加 | 4→4件（拒否） |
+| 横スクロール | なし |
+
+`node --check` OK / console.error ゼロ。
+
+---
+
+## T34 モックをVol1.1で凍結／見た目の規則を制定（2026-09-06）
+
+### Vol1.1 を凍結
+
+ユーザー指示「現在の物をVol1.1として保存。他の開発でも使うかも」。
+
+- `brief/mockup/mock_layout_editor_vol1.1.html` … **凍結。編集禁止**
+- `brief/mockup/mock_p005_stage_d_layout_editor.html` … Vol1.2。以降の開発はこちら
+
+既存のVol運用（キーマップと同じく「編集せず複製して次の世代」）に合わせた。
+凍結版の冒頭に凍結の旨と収録機能を明記し、版表示も `Vol1.1 凍結` に変えてある。
+
+### 中身の描画は流用できる。**Rustは一切不要**
+
+ユーザー質問「Vol1.2からComponentの中身に現在の機能のレイアウトを使えるか。
+Rustの本番のほうがよければ保留で」→ **モック側で進めてよい。Rust変更ゼロ。**
+
+調査結果:
+- `static/layout.html` の `renderKeyboard`（514行〜）は**通信に一切触っていない**
+  （`socket`/`send` の参照ゼロ）。読むのは `config.keymaps` と `layerStates`、
+  発火は `bindKey` に分離済み。つまり**描画部分はほぼ純粋**
+- 中身のデータは `/api/formats` を拡張しなくても手に入る。エディタが
+  `layout.html` と同じく WS の `surface.config` を受ければ、keymap/deck の全体が来る
+
+**ただし条件が1つ**: `renderKeyboard` / `renderDeck` / `renderLabel` / `resolveDisplay` を
+`static/components.js`（素のJSファイル。D2に反しない）へ**切り出して共有する**こと。
+モックへコピーしてはいけない。
+
+理由: **同じ表を2箇所に手書きして食い違う事故を、今日この repo で実際に起こしている**
+（接続先一覧が `main.rs` と `ws.rs` で食い違い、レイアウト3種がコンソールに出ていなかった。
+T31で `connection_targets()` に集約して解消）。描画を複製すれば、エディタのプレビューが
+実機と違う絵を出すようになる＝プレビューが嘘になる。
+
+### 見た目の規則を制定: `brief/ref_component_visual_rules_v1.md`
+
+**色は「その部品がHubへ送るメッセージ種別」で決める**（`protocol.rs` の `ClientMessage`）。
+
+| 色 | メッセージ | 部品 |
+|---|---|---|
+| 青 `--kind-key` | `key.press` | 一枚キーボード、十字キー |
+| 紫 `--kind-cmd` | `deck.press` | Stream Deck、コピペリスト |
+| 緑 `--kind-state` | `surface.state` | トラックボール |
+
+見た目の分類と通信の分類がずれない。「十字キーは青か緑か」は
+`key.press` を送るかで決まる（送るので青）。
+新種別が3つのどれにも当てはまらないなら、**色より先に不変条件1の裁定が要る**。
+
+アイコンは3分類に対応するインラインSVG。`currentColor` で描き色はCSSから与える。
+絵文字は使わない（端末で字形が変わり iPad と PC で揃わない）。
+**色だけに意味を載せない**（色が見分けにくい人・モノクロでも通る）。
+
+> 比較パネルのSVGは削除したが、アイコンにSVGを使うのは矛盾しない。
+> SVGが向くのは動かさない絵であり、アイコンはまさにそれ（T32の結論どおり）。
+
+### 見つけた衝突（未修正）
+
+`static/settings.html` の接続先チップが `layout` に**青**を使っている。
+青は `key.press`（キーボード）に割り当てたので、同じ色が別の意味を持っている。
+接続先は部品種別ではなく画面の入口なので、灰系の中立色へ寄せる必要がある。
+
+### 検証
+
+`node --check` OK / console.error ゼロ /
+旧名 `--kb` `--deck:` `--tb` `.dot` の残骸 **すべて0件** /
+パレット7個・区画4個にアイコンが出ることを実測。
+
+### T34-a 入口の色を灰へ（2026-09-06）
+
+ユーザー裁定「入り口は灰色で頼む」＋「画面が白いのは苦手。黒めなら何でもいい」。
+
+`static/settings.html` を修正。**色を持つのは部品種別だけ**にした。
+
+| 出てくるもの | 部品種別か | 色 |
+|---|---|---|
+| レイアウトの区画の `kind` | そう | 3色（青/紫/緑） |
+| 接続先（kb / deck / ipad / trackball / panel / layout） | 違う＝**画面の入口** | 中立の灰 |
+| Deckの描き方（grid / list） | 違う＝**描き方** | 中立の灰 |
+| キーマップの種別（split / single） | 違う＝盤の形 | 中立の灰 |
+
+`.chip.layout` / `.chip.deck` / `.chip.trackball` を廃止し、
+`.chip.kind-keyboard` / `.chip.kind-deck` / `.chip.kind-trackball` に置き換え。
+クラス名に `kind-` を付けたのは、**部品種別にしか付かない**ことを名前で分かるようにするため。
+
+**検証（実測の背景色）**
+- 接続先9件すべて `rgb(42,51,82)`（中立の灰）
+- Deckの描き方 grid / list ともに中立の灰
+- 区画の部品種別のみ keyboard=`rgb(36,54,92)` / deck=`rgb(58,43,77)` / trackball=`rgb(22,63,58)`
+- 背景 `rgb(16,21,38)`（暗いまま）
+- console.error ゼロ
+
+明るさの方針（白い画面にしない）を `brief/ref_component_visual_rules_v1.md` §2 に明記。
+
+---
+
+## T35 画面構成の変更: トップ=レイアウト編集 / QR=専用ギャラリー（2026-09-07）
+
+ユーザー指示:
+- QRはトップではなく専用ページへ。**ギャラリー形式**にして簡易図や実機スクショを載せ、
+  カード右上のQRボタンでそのカードがQRに切り替わる
+- **トップはレイアウトを変えられる画面**にする
+
+### ルーティング
+
+| URL | 変更前 | 変更後 |
+|---|---|---|
+| `/` | QRを縦に9枚（`ws.rs` 内で生成） | **`static/editor.html`（レイアウト編集）** |
+| `/connect` | （無し） | **`static/gallery.html`（QRギャラリー）** |
+| `/shots/*` | （無し） | `static/shots/` の実機スクショ配信 |
+
+`index_page`（サーバー生成のQR一覧HTML・約2,100文字）を削除。gallery.html が置き換えた。
+起動バナーも「▼PCで開く（トップ/QRギャラリー/設定）」「▼端末で開く」に整理した。
+
+### editor.html — モックからの移植
+
+`brief/mockup/mock_layout_editor_vol1.1.html`（凍結）で確かめた設計をそのまま実装へ。
+**決め打ちのデータを全部外し、WS `surface.config` から作る**。
+
+- `surface.config` は `/layout` 面（実機で使う面）と**同じ入口**。だからエディタが
+  見ている構成と実機の構成が食い違わない。追加APIは不要（Rust側の新規実装ゼロ）
+- 最小サイズは実データから計算: キーボードは board の列数・行数と**一番細いキーのcolSpan**、
+  Deckは grid とスロット数。トラックボールだけは中身から寸法が出ないので既定値220×220px
+- `surface.config` は surfaces を配らないため、**トラックボールのidは既存レイアウトの
+  参照から拾う**（参照されていないものはパレットに出せない。既知の制約）
+- **保存ボタンは常に無効**。不変条件6の拡張が未裁定であることを画面とtitle属性に明記した。
+  形が正しくても押せない（押せない理由を1つに保つため）
+
+**検証**: 実データから出した最小サイズが、モック時代のハードコード値と**全項目一致**。
+
+| 部品 | 最小 | 型 |
+|---|---|---|
+| ipad01_vol12 | 6×3 | floor |
+| ipad01_vol13 | 5×2 | floor |
+| dpad01 / dpad_arrows | 2×2 | floor |
+| tb01 | 2×3 | floor |
+| default | 1×1 | reduce |
+| story_paths | 2×1 | reduce |
+
+レイアウト3件・区画4件・パレット7件を実測。
+
+### gallery.html — カードの表と裏
+
+- 表 = 実機スクショ、無ければ**Hubが読み込んでいるJSONから描いた簡易図**。
+  「それらしい絵」を手で描くと構成変更で古くなって嘘になるので、実データから描く
+- 裏 = QRとURL。カード右上のボタンで切り替わる。**QR画像は開くまで読み込まない**
+  （9枚ぶんを最初に取りに行かない）
+- 実機スクショは `static/shots/<target>.png` に置くだけで差し替わる
+
+### 移植中に踏んだ欠陥（4件）
+
+1. `QrQuery` の定義が `index_page` ブロックの中にあり、削除で巻き添えになった → 復帰
+2. 構成が届く前に `clone(SOURCE[layoutId])` を呼び、`undefined` を JSON.parse して落ちた
+   → 空のmodelで初期化し、届いてから作る
+3. `log()` を定義せずに使っていた（モックには無かった）→ D9書式で追加
+4. WSメッセージのタグ名を `t` と書いたが正しくは **`type`**（`#[serde(tag = "type")]`）
+   → 修正。あわせて `error` メッセージも拾うようにした
+
+### ギャラリーで踏んだ欠陥（2件）
+
+5. **`[hidden]` が `.shot { display:block }` に負け**、スクショが無いカードに
+   壊れた画像とalt文字が出た。`settings.html` で同じ罠を注記していたのに再発
+   → `.shot[hidden] { display:none !important }`
+6. 置いていないスクショを毎回取りに行き、**404が9件**コンソールに並んだ
+   → `/api/formats` が `shots`（実在するファイル名）を返すようにし、
+     クライアントは**実在するものだけ**読む。当てずっぽうに取りに行かない
+
+### 検証
+
+- `cargo build` OK / `cargo test --workspace` **119 passed / 0 failed**
+- エディタ: 実データ読み込み・最小サイズ一致・保存ボタン無効を実測
+- ギャラリー: カード9枚・簡易図9枚・**`.shot` 要素0個**（404を出す原因が消えた）・
+  QRボタンで裏返り `/api/qr?target=layout%3Aipad_v13` が200で表示されることを実測
+- `docs/HUB_MANUAL.md` の接続手順を新構成に更新
+
+### T35-a ヘッダの整理と、部品共有の規則（2026-09-07）
+
+**ヘッダから基準値を削除**（ユーザー指示）。`TARGET` / `TAP` の値はコードに残っており、
+最小サイズの計算にそのまま使われている。根拠が要るのは「なぜこの大きさで止まるのか」を
+見る場面だけなので、**最小サイズの箱の中へ移した**。
+
+実測: ヘッダ = `KeyDeck — レイアウト編集 / 保存は未対応 / [レイアウト選択] / 元に戻す /
+保存 / 接続中 / QRギャラリー→ / 設定→`。`#targetInfo` は存在しない。
+
+### 部品の共有について（ユーザーの問いへの回答）
+
+問い:「Componentだから全体に変更が影響する物と、独立したものを Ver1.1・Ver2.1 は
+別々のものとして取り扱うか？」
+
+**答え: 別々のものとして扱う。ただし「版」ではなく「別のid」として。**
+規則を `brief/ref_component_versioning_v1.md` に制定した。要点:
+
+1. **部品は参照で共有される。編集は必ず伝播する。** 分けたいなら複製して別id
+2. **レイアウトが部品の中身を上書きする仕組みは作らない。**
+   役割の分離（レイアウト=配置／部品=中身）が壊れ、
+   「`ipad01_vol12` はどんな盤面か」がレイアウトを知らないと答えられなくなる
+3. 直す=誤字や明らかな誤り（全部に効いてほしい）／複製=配置やキーの増減（既存を壊しうる）。
+   **迷ったら複製**。複製の代償はファイル1つ、編集の代償は気づかない破壊
+
+現状の共有関係（実データ）:
+
+| 部品 | 使っているレイアウト |
+|---|---|
+| `ipad01_vol12` | ipad_main, ipad_trackball |
+| `dpad_arrows` | ipad_main, ipad_v13 |
+| `default` | 3つ全部 |
+
+**実装した対策**: 区画を選ぶと、その部品が他のレイアウトでも使われていれば警告を出す。
+気づかずに直すのが一番危ないため、編集の前に目に入る位置へ置いた。
+
+実測: SEC-KEYBOARD（`ipad01_vol12`）選択時に
+「他の 1 件でも使われています: ipad_trackball」と表示。
+
+**未実装**: 複製ボタン（この区画だけ新しいidへ差し替える）／部品そのものの編集画面。
+ギャラリーのカードから飛んで中身を微調整する流れはまだ無い。
+
+**見つけた揺れ**: keymapIdは `vol12`（ドット無し）、モックのファイル名は `vol1.1`（ドット有り）。
+idはドット無しに統一する方針を規則書へ明記した。
+
+### T35-b SR-004起票とパレット行の折り返し修正（2026-09-07）
+
+**SR-004**: 設計書v0.3の **D15「`/` を設定画面に置換」** に対し、実装は `/` を
+レイアウト編集にした。D15の意図（QR縦並びランディングの廃止・トップを操作画面に）は
+満たしており、D15が求めた一覧行の構造とQRモーダルは `/settings` と `/connect` に
+実装済み。違うのは「トップに置く操作画面が設定ではなく編集になった」点のみ。
+凍結領域からの逸脱なので `brief/spec_return_log.md` へ記録した（裁定待ち）。
+
+**パレット行の折り返し**: 幅が足りないと「最小 6×3」が2行に割れて行が崩れていた
+（ユーザー提示のスクリーンショットで発生）。縮むのを名前だけにし、右側の数字は
+`white-space: nowrap` で折り返させないようにした。
+実測: 全7行が高さ33px一定・横溢れなし。名前には `title` を付けて省略時も読める。
+
+---
+
+## T36 レイアウト保存（P-005 段階D）— Hubで編集して実機へ反映（2026-09-07）
+
+### トークンは再発行されない
+
+ユーザー質問「Hubで変更をしたら、トークンが再発行になりますか？」→ **なりません。**
+トークンは `main.rs` の起動時に1回だけ作られる（D8）。保存はHubを再起動しないので変わらない。
+したがって**保存後の新トークンQRポップアップは不要**（条件が成立しない）。
+繋がったままの端末には、保存後の再配信で**自動で反映される**。
+
+### 不変条件6を拡張（ユーザー裁定）
+
+`CLAUDE.md` の書き込み許可に **`layouts/`** を追加。防御条件を条文に明記した:
+
+- 書き先は `layouts/layout_<layoutId>.json` のみ。**ファイル名はクライアントから受け取らない**
+- `layoutId` は `[a-z0-9_]{1,64}` のみ（`ws::layout_id_is_safe`）。
+  **パスを組み立てる前の唯一の関門**
+- 受け取った本文はそのまま書かず、Layoutとして**解釈し直し整形したもの**を書く
+- 書く前に `.bak`、書いた後に**全体を読み直して検証**。失敗したら巻き戻す
+- 検証は `startup::load_startup_data` を再利用（保存専用の緩い検証を作らない）
+
+### `POST /api/layout/save` の防御（実測）
+
+| 試したこと | 結果 |
+|---|---|
+| `layoutId: "a/b"` | 422 `LAYOUT_SAVE_REJECTED`（ファイル名になる前に拒否） |
+| `layoutId: "../evil"` | 422 同上 |
+| 区画の重なり | 422 `LOAD_LAYOUT_INVALID`「A と B が (row 1, col 2) で衝突」 |
+| 存在しない `ref` | 422。**書いた後に読み直して落ち、`rolledBack: true` で巻き戻し** |
+
+4回の不正保存のあと `layouts/` に**残骸ゼロ**を実測。
+
+### 実機まで通した（本番経路）
+
+`/layout?id=ipad_v13` を開いたタブを繋いだまま、エディタで SEC-RIGHT を 3×4 → 3×3 に変更して保存。
+
+- 端末側は**再読込なしで追従**（`SEC-RIGHT` の grid-row が `1/5` → `1/4`。
+  `performance.getEntriesByType("navigation").length === 1` でリロードしていないことを確認）
+- `.bak` が作られ、本体が更新されることを実測
+
+### 🚩 見つけたデータ損失（重大・修正済み）
+
+**1回目の保存で `description` が消えた。** ファイルが 1734 → 895 バイトになり、
+`layout_ipad_v13.json` の運用申し送り**373文字**（Volの切り替え手順・「編集せず複製する」方針）
+が失われた。`.bak` から復元済み。
+
+原因: エディタの送信本文に `description` が無く、`Layout.description` は
+`#[serde(default)]` なので空文字として解釈され、そのまま書かれた。
+
+**二重に塞いだ**:
+1. エディタが `description` を持ち回って送る
+2. Hub側でも、本文の説明が空で既存ファイルに説明があれば**引き継ぐ**。
+   エディタは配置しか編集しないので「空＝指定しなかった」とみなす。
+   説明を消したいときはJSONを直接編集する
+
+再発防止テスト2件を追加（`save_carries_over_the_existing_description` /
+`real_layout_descriptions_survive_a_save_round_trip`）。
+修正後に再実測: **description 373文字が保たれ、配置だけ更新**された。
+
+なお `Layout` は全階層に `deny_unknown_fields` が付いているため、
+**構造体が持たないフィールドはそもそもファイルに存在できない**＝往復での取りこぼしは
+原理的に起きない。今回消えたのは「構造体は持っているが送っていなかった」項目だった。
+
+### 検証
+
+- `cargo test --workspace` **126 passed / 0 failed**（保存の防御5件＋説明文2件を新規追加）
+- テストのパス解決を修正: `cargo test` の作業ディレクトリはクレート直下で、
+  実行時のワークスペース直下と違う。実物を読むテストは `CARGO_MANIFEST_DIR` から解決する
+- テスト後、`layouts/` は元の状態へ復帰済み（3件とも説明文つき・SEC-RIGHT rowSpan 4）
+
+---
+
+## T37 部品の描画を1本化し、エディタに実物のプレビューを出す（2026-09-07）
+
+ユーザー要望「現在のレイアウトでは、正しく部品を配置できてるかわからないので、
+部品のデザインをわかるようにしてほしい」。
+
+### `static/components.js` を新設（描画の唯一の実装）
+
+実機の面（`layout.html`）とエディタ（`editor.html`）が**同じ関数で描く**。
+別々に描いていると必ずズレ、ズレた瞬間にエディタのプレビューは嘘になる。
+このリポジトリでは同じ形の事故が実際に起きている（接続先一覧が `main.rs` と
+`ws.rs` に手書きで散り、レイアウト3種がコンソールに出ていなかった。T31で解消）。
+
+- `renderKeyboard` / `renderDeck` / `resolveDisplay` / `renderLabel` / `fitDeck`
+- **CSSも持つ**（見た目が2箇所に分かれてもズレるため）。`.kd-surface` に閉じ、
+  色は `var(--panel, 既定値)` の形でホスト側の定義が勝つ
+- 2つのモード: `interactive: true`（実機。押下はホストのコールバックへ）/
+  `false`（プレビュー。`.kd-preview` で `pointer-events` を殺す）
+- **送信そのものは書かない。** 何を送るかはホストが決める（不変条件1）
+
+### `layout.html` を共有版へ移行
+
+描画関数を削除して委譲に置き換え（6,242文字）、**重複CSSを26件削除**。
+呼び出し側の書き方（`renderKeyboard(body, keymapId)`）は変えていないので、
+`rerenderKeyboards` 等の既存経路は無改修。
+
+**移行前後の照合（実機で通っている面なので数値で突き合わせた）**
+
+| | 移行前 | 移行後 |
+|---|---|---|
+| キー数 | 41 | 41 |
+| スロット数 | 17 | 17 |
+| キーの背景 | `rgb(28,35,56)` | 同じ |
+| 角丸 / 文字 | 10px / 22px | 同じ |
+| 盤面の列数 | 3 | 3 |
+
+スクリーンショットも一致。`function resolveDisplay` `renderLabel` `bindKey`
+`fitDeck` `DECK_GAP` `MIN_CELL` の残存 **0件**。
+
+### エディタに実物のプレビュー
+
+区画の中に、実機と同じ関数で中身を描く。
+
+- 実測: `ipad_v13` でキー41・スロット17、`ipad_trackball` でキー59・スロット17＋丸1
+  （どちらも `/layout` と同数）
+- 4区画すべてに `.kd-preview` が付き、押せない
+- **ドラッグの邪魔をしない**: プレビュー中央で `elementFromPoint` が返すのは `.sec`。
+  プレビューの真上から掴んで1マス下へ移動できることを実測（row 1 → 2）。
+  重なる先へ運んだ場合は従来どおり差し戻される
+- 小さい区画は文字を消して形だけ見せる（`tiny-labels`）。
+  「正しく置けているか」に要るのは形と比率であって文字ではない
+
+### 途中で直した欠陥
+
+**見出しがキーに埋もれて読めなくなった。** 影だけでは足りなかったので、
+`.sid` / `.sref` に不透明の座布団を敷いた。
+
+### 検証
+
+`cargo build` OK / `cargo test --workspace` **126 passed / 0 failed** /
+`node --check` は components.js・layout.html・editor.html すべてOK / console.error ゼロ。
+
+### T37-a 「切り替わらない」の原因究明とQRボタン（2026-09-07）
+
+ユーザー報告「変更をした。MainのQRを読み込んだ。しかし十字キーはトラックボールへ
+切り替わらなかった。失敗です」。
+
+**保存は正しく動いていた。読んだQRが別のレイアウトだった。**
+
+ディスクの事実:
+
+| レイアウト | 右上の区画 | 更新時刻 |
+|---|---|---|
+| `ipad_v13` | `SEC-NEW1` = **trackball · tb01** | 12:15（保存された） |
+| `ipad_main` | `SEC-RIGHT` = keyboard · dpad_arrows | 9/5 19:41（未更新） |
+
+編集したのは `ipad_v13`、読んだQRは `ipad_main`。保存経路に欠陥は無い。
+
+### ただしこれは製品側が作った罠
+
+編集画面と接続用QRが**別のページ**にあり、
+「いま編集しているのはどれか」と「いま読もうとしているQRはどれか」を
+突き合わせる手段が無かった。ギャラリーには9枚のカードが並ぶだけで、
+どれが直前に編集したものかを示していない。
+
+**対処（ユーザー要望と一致）**: 編集画面のヘッダ、レイアウト選択のすぐ隣に
+**QRボタン**を置いた。出るのは**いま選んでいるレイアウトのQR**なので、
+取り違えようがない。
+
+実測:
+- ボタン→中央にモーダル。見出し「レイアウト: ipad_v13」、URLも一致、QR画像は読み込み成功
+- **カードの中を押しても閉じない** / **画面外を押すと閉じる** / **Escでも閉じる**
+- レイアウトを `ipad_main` へ切り替えて開き直すと、見出しもURLもQR画像も切り替わる
+- `[hidden]` が `display:flex` に負ける罠は今回も先回りして打ち消してある
+  （settings.html・gallery.html で既に踏んでいる）
+
+### 残っている使いにくさ（未対応）
+
+- 部品を入れ替えると区画idが `SEC-NEW1` になる。元の `SEC-RIGHT` という名前が失われる。
+  棚卸しA-4（区画idの改名）が効くところ
+- ギャラリー側にも「直前に編集したレイアウト」の印は無いまま

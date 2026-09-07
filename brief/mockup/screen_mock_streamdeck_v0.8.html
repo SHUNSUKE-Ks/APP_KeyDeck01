@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  screen_mock_streamdeck_v0.8.html — Stream Deck v2 見た目モック（機能なし）
+  ① 分割画面: 上=Stream Deck（四角スロット）／下=キーボード（v0.4の13列グリッドを流用）
+  ② Deck単独: 四角スロット5×3＋ページ切替
+  ③ 設定（登録画面）: 中央=四角スロット盤／右サイドバー=アクション一覧／下=プロパティ
+
+  正: brief/proposals/P-003_streamdeck_v2.md（裁定待ち）
+  流用元の正: brief/mockup/screen_mock_v0.4.html（配色トークン・13列キーボード）
+  注意: これはモック。押下色・タブ切替・スロット選択・アクション割当の見た目だけが動く。
+        WS送信もHub連携も一切しない（D2どおり素のHTML+JSのみ、CDN・外部依存ゼロ）。
+  ============================================================ -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck v0.8 モック（Stream Deck v2）</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#101526; --panel:#1c2338; --panel-lit:#232b48; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+    --ink-dim:#4b5468; --empty:#161c30; --accent:#2d67d9; --accent-soft:#24478f;
+    --ok:#35c47a; --warn:#ffd479; --line:#2d3550; --key-radius:10px; --key-gap:7px;
+    --slot-radius:12px;
+  }
+  * { box-sizing:border-box; }
+  html { height:100%; }
+  /* body側はmin-heightにする（height:100%だと設定画面のように内容が縦に伸びたとき、
+     ビューポートを超えた領域に地色が塗られず黒く抜ける） */
+  body { margin:0; min-height:100%; }
+  body { font-family:system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+
+  #mocktabs { display:flex; gap:8px; padding:10px 14px; background:#0a0e1b; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  #mocktabs button { border:1px solid var(--line); background:var(--panel); color:var(--ink-muted); border-radius:8px; padding:6px 14px; font:inherit; }
+  #mocktabs button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  /* IDセレクタ側でdisplayを指定している画面（#scr-split=flex, #scr-set=grid）に
+     負けないよう、非表示側の特異性を!importantで確保する */
+  .screen { display:none; } .screen.on { display:block; }
+  .screen:not(.on) { display:none !important; }
+  .spacer { flex:1; }
+  .note { color:var(--ink-dim); font-size:12px; padding:6px 14px; line-height:1.6; margin:0; }
+  .note b { color:var(--ink-muted); font-weight:600; }
+
+  /* ===== 共通: 四角スロット（Stream Deck面の正） =====
+     ユーザー裁定「表示側は四角いスロット」。aspect-ratio:1で常に正方形。
+     ラベルはスロット内の下段、アイコン（絵文字/画像）は上段。 */
+  .deckgrid { display:grid; gap:8px; }
+  .slot {
+    aspect-ratio:1 / 1;
+    width:100%;
+    min-width:0;
+    border:1px solid var(--line);
+    border-radius:var(--slot-radius);
+    background:var(--panel);
+    color:var(--ink);
+    font:inherit;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    padding:4px; overflow:hidden; text-align:center;
+    touch-action:manipulation; user-select:none;
+  }
+  .slot .ico { font-size:22px; line-height:1; }
+  .slot .lb  { font-size:11px; line-height:1.15; color:var(--ink-muted); overflow:hidden; }
+  .slot:active, .slot.pressed { background:var(--accent); border-color:var(--accent); }
+  .slot:active .lb, .slot.pressed .lb { color:#fff; }
+  .slot.empty { background:var(--empty); border-style:dashed; border-color:#232b48; color:var(--ink-dim); }
+  .slot.empty .ico { font-size:16px; color:var(--ink-dim); }
+  .slot.empty:active { background:var(--empty); }
+  /* アクション種別の帯（左上の小さな点）。設定画面で「何が入っているか」を一目で見る用 */
+  .slot .kindpip { position:absolute; }
+  .slotwrap { position:relative; display:block; min-width:0; }
+  .slotwrap .pip { position:absolute; top:6px; left:6px; width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:.75; }
+  .slotwrap .pip.multi { background:var(--warn); }
+  .slotwrap .pip.hide  { display:none; }
+
+  /* ページドット */
+  .pagedots { display:flex; gap:6px; align-items:center; }
+  .pagedots button { width:8px; height:8px; border-radius:50%; border:0; padding:0; background:#39415f; }
+  .pagedots button.on { background:var(--accent); }
+
+  /* ===== ① 分割画面 ===== */
+  #scr-split { display:flex; flex-direction:column; height:calc(100vh - 49px); }
+  .splitbar { display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid var(--line); }
+  .splitbar h1 { font-size:14px; margin:0; font-weight:600; }
+  .badge { font-size:11px; padding:3px 10px; border-radius:999px; background:var(--accent-soft); color:var(--ink); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--ok); }
+  .ratio { display:flex; gap:4px; }
+  .ratio button { border:1px solid var(--line); background:var(--panel); color:var(--ink-muted); border-radius:7px; padding:4px 9px; font:inherit; font-size:11px; }
+  .ratio button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  /* 上=Deck / 下=キーボード。比率はCSS変数1つで切り替える（実装でも同じ手でよい） */
+  .splitbody { flex:1; display:grid; grid-template-rows:var(--split, 40fr) 8px var(--splitkb, 60fr); min-height:0; }
+  /* 縦センタリングはflex column（grid+align-content:centerだと行トラックが
+     min-content扱いになり、aspect-ratioスロットが極小につぶれる） */
+  .deckpane { min-height:0; overflow:auto; padding:10px 12px; display:flex; flex-direction:column; justify-content:center; }
+  .deckpane .deckgrid { grid-template-columns:repeat(5, minmax(0,1fr)); width:100%; max-width:740px; margin:0 auto; flex:0 0 auto; }
+  .handle { background:#0a0e1b; border-top:1px solid var(--line); border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:center; }
+  .handle::after { content:""; width:52px; height:3px; border-radius:2px; background:#39415f; }
+  .kbpane { min-height:0; overflow:auto; padding:8px; background:#0c1120; }
+
+  /* v0.4の13列グリッドをそのまま流用（配置の正は screen_mock_v0.4.html） */
+  .kbgrid { display:grid; grid-template-columns:repeat(13, minmax(0,1fr)); grid-auto-rows:minmax(34px, 1fr); gap:5px; height:100%; }
+  .key { min-width:0; min-height:0; border:0; border-radius:var(--key-radius); background:var(--panel); color:var(--ink);
+         font:inherit; font-size:14px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+         line-height:1.1; touch-action:manipulation; user-select:none; padding:2px; overflow:hidden; white-space:nowrap; }
+  .key small { font-size:9px; color:var(--ink-muted); }
+  .key:active, .key.pressed { background:var(--accent); }
+  .key.empty { background:var(--empty); color:var(--ink-dim); }
+  .key.empty:active { background:var(--empty); }
+  .key.fn { background:var(--accent-soft); }
+
+  /* ===== ② Deck単独 ===== */
+  #scr-deck { padding:12px 14px; max-width:760px; }
+  .deckhead { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .deckhead h1 { font-size:15px; margin:0; font-weight:600; }
+  #scr-deck .deckgrid { grid-template-columns:repeat(5, minmax(0,1fr)); max-width:620px; }
+
+  /* ===== ③ 設定（登録画面） ===== */
+  #scr-set { display:grid; grid-template-columns:minmax(0,1fr) 268px; gap:14px; padding:14px; align-items:start; }
+  @media (max-width: 860px) { #scr-set { grid-template-columns:minmax(0,1fr); } }
+  .pane { background:#0c1120; border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .pane h2 { font-size:12px; color:var(--ink-muted); margin:0 0 10px; font-weight:600; }
+  .set-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .set-head h1 { font-size:15px; margin:0; }
+  .set-head select { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font:inherit; }
+  #setgrid { grid-template-columns:repeat(5, minmax(0,1fr)); max-width:520px; }
+  #setgrid .slot.sel { outline:2px solid var(--accent); outline-offset:2px; background:var(--panel-lit); }
+
+  /* 右サイドバー: アクション一覧（=ユーザー提示の登録用リスト） */
+  .cat { margin-bottom:10px; }
+  .cat > summary { font-size:12px; color:var(--ink-muted); font-weight:600; cursor:pointer; padding:6px 4px; list-style:none; display:flex; align-items:center; gap:6px; }
+  .cat > summary::-webkit-details-marker { display:none; }
+  .cat > summary::before { content:"▸"; color:var(--ink-dim); font-size:10px; }
+  .cat[open] > summary::before { content:"▾"; }
+  .actlist { display:flex; flex-direction:column; gap:4px; padding:2px 0 6px; }
+  .act { display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:1px solid transparent; background:var(--panel);
+         color:var(--ink); border-radius:8px; padding:7px 9px; font:inherit; font-size:12px; }
+  .act:hover { background:var(--panel-lit); }
+  .act.on { border-color:var(--accent); background:var(--accent-soft); }
+  .act .ai { width:18px; text-align:center; font-size:14px; flex:0 0 auto; }
+  .act .at { flex:1; min-width:0; }
+  .act .tt { font-size:10px; color:var(--ink-dim); font-family:ui-monospace,Consolas,monospace; }
+  .act.multi .ai { color:var(--warn); }
+
+  /* プロパティ欄 */
+  .prop { display:flex; flex-direction:column; gap:8px; }
+  .prop .row { display:grid; grid-template-columns:120px minmax(0,1fr); gap:8px; align-items:center; }
+  .prop label { font-size:12px; color:var(--ink-muted); }
+  .prop input, .prop select, .prop textarea {
+    background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; font-size:13px; width:100%;
+  }
+  .prop textarea { min-height:62px; resize:vertical; }
+  .prop .hint { font-size:11px; color:var(--ink-dim); line-height:1.6; }
+  .prop .hint code { color:var(--ink-muted); font-family:ui-monospace,Consolas,monospace; }
+  .steps { display:flex; flex-direction:column; gap:6px; }
+  .step { display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 9px; font-size:12px; }
+  .step .n { width:18px; color:var(--ink-dim); font-size:11px; }
+  .step .x { margin-left:auto; color:var(--ink-dim); }
+  .addstep { border:1px dashed var(--line); background:transparent; color:var(--ink-dim); border-radius:8px; padding:7px; font:inherit; font-size:12px; }
+  .jsonout { background:#080b16; border:1px solid var(--line); border-radius:8px; padding:10px; font-family:ui-monospace,Consolas,monospace;
+             font-size:11px; color:var(--ink-muted); white-space:pre; overflow-x:auto; line-height:1.55; }
+  .flag { border-left:3px solid var(--warn); background:#1a1a24; padding:8px 10px; border-radius:0 8px 8px 0; font-size:11px; color:var(--warn); line-height:1.6; }
+</style>
+</head>
+<body>
+
+<nav id="mocktabs">
+  <button class="on" data-scr="scr-split">① 分割画面（上Deck／下キーボード）</button>
+  <button data-scr="scr-deck">② Deck単独</button>
+  <button data-scr="scr-set">③ 設定（登録画面）</button>
+</nav>
+
+<!-- ============ ① 分割画面 ============ -->
+<section id="scr-split" class="screen on">
+  <div class="splitbar">
+    <h1>KeyDeck — 分割（deck01 ＋ ipad01_vol12）</h1>
+    <span class="badge">Layer 0</span>
+    <span class="spacer"></span>
+    <div class="ratio">
+      <button data-deck="55" data-kb="45">デッキ大</button>
+      <button class="on" data-deck="40" data-kb="60">半々</button>
+      <button data-deck="26" data-kb="74">キーボード大</button>
+    </div>
+    <span class="dot"></span>
+  </div>
+  <div class="splitbody" id="splitbody" style="--split:40fr; --splitkb:60fr;">
+    <div class="deckpane">
+      <div class="deckgrid" id="splitdeck"><!-- JSで描画（5×2＝10枠） --></div>
+    </div>
+    <div class="handle" title="実装では上下にドラッグして比率を変えられる予定"></div>
+    <div class="kbpane">
+      <div class="kbgrid" id="splitkb"><!-- JSで描画（v0.4の13列配置をそのまま） --></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ② Deck単独 ============ -->
+<section id="scr-deck" class="screen">
+  <div class="deckhead">
+    <h1>KeyDeck — Deck（deck01）</h1>
+    <span class="spacer"></span>
+    <div class="pagedots" id="pagedots">
+      <button class="on"></button><button></button><button></button>
+    </div>
+    <span class="dot"></span>
+  </div>
+  <div class="deckgrid" id="deckgrid"><!-- JSで描画（5×3＝15枠） --></div>
+  <p class="note">
+    <b>四角スロット</b>（<code>aspect-ratio:1</code>）。列数・行数は <code>decks/deck_*.json</code> の <code>grid</code> がそのまま正。
+    ページはドットで切替（<code>pages[]</code>）。空きスロットは破線＋暗色で「まだ何も無い」と分かる形にしている。
+  </p>
+</section>
+
+<!-- ============ ③ 設定（登録画面） ============ -->
+<section id="scr-set" class="screen">
+  <div>
+    <div class="set-head">
+      <h1>KeyDeck — Stream Deck 設定</h1>
+      <select><option>deck01（編集対象）</option><option>deck_default（原本）</option></select>
+      <span class="spacer"></span>
+      <div class="pagedots"><button class="on"></button><button></button><button></button></div>
+    </div>
+
+    <div class="pane">
+      <h2>スロット盤（クリックで選択 → 右のアクション一覧から割当）</h2>
+      <div class="deckgrid" id="setgrid"><!-- JSで描画 --></div>
+    </div>
+
+    <div class="pane" style="margin-top:14px;">
+      <h2 id="prophead">プロパティ — スロット未選択</h2>
+      <div class="prop" id="prop">
+        <p class="hint">左のスロットを選び、右の一覧からアクションを選ぶと、ここに設定項目が出ます。</p>
+      </div>
+    </div>
+
+    <div class="pane" style="margin-top:14px;">
+      <h2>書き出されるJSON（decks/deck01.json の該当スロット）</h2>
+      <div class="jsonout" id="jsonout">（スロット未選択）</div>
+    </div>
+  </div>
+
+  <!-- 右サイドバー: ユーザー提示のアクション一覧をそのまま構造化 -->
+  <div class="pane">
+    <h2>アクション</h2>
+
+    <details class="cat" open>
+      <summary>システム</summary>
+      <div class="actlist">
+        <button class="act" data-t="web.open">   <span class="ai">🌐</span><span class="at">Webサイト<br><span class="tt">web.open</span></span></button>
+        <button class="act" data-t="chord.toggle"><span class="ai">🔁</span><span class="at">ホットキーの切り替え<br><span class="tt">chord.toggle</span></span></button>
+        <button class="act" data-t="chord">      <span class="ai">⌨️</span><span class="at">ホットキー<br><span class="tt">chord</span></span></button>
+        <button class="act" data-t="shell.open"> <span class="ai">📂</span><span class="at">開く<br><span class="tt">shell.open</span></span></button>
+        <button class="act" data-t="app.launch"> <span class="ai">🚀</span><span class="at">アプリケーションを開く<br><span class="tt">app.launch</span></span></button>
+        <button class="act" data-t="app.close">  <span class="ai">✖️</span><span class="at">閉じる<br><span class="tt">app.close</span></span></button>
+        <button class="act" data-t="text">       <span class="ai">📝</span><span class="at">テキスト<br><span class="tt">text</span></span></button>
+        <button class="act" data-t="media">      <span class="ai">🎵</span><span class="at">マルチメディア<br><span class="tt">key（MEDIA_*/VOL_*）</span></span></button>
+      </div>
+    </details>
+
+    <details class="cat" open>
+      <summary>マルチアクション</summary>
+      <div class="actlist">
+        <button class="act multi" data-t="multi">       <span class="ai">▶️</span><span class="at">マルチアクション<br><span class="tt">multi</span></span></button>
+        <button class="act multi" data-t="multi.toggle"><span class="ai">🔀</span><span class="at">マルチアクションのスイッチ<br><span class="tt">multi.toggle</span></span></button>
+        <button class="act multi" data-t="random">      <span class="ai">🎲</span><span class="at">ランダムアクション<br><span class="tt">random</span></span></button>
+        <button class="act multi" data-t="logic">       <span class="ai">🧩</span><span class="at">Key Logic<br><span class="tt">logic</span></span></button>
+      </div>
+    </details>
+
+    <details class="cat">
+      <summary>Stream Deck</summary>
+      <div class="actlist">
+        <button class="act" data-t="deck.page">     <span class="ai">📄</span><span class="at">ページ切替<br><span class="tt">deck.page</span></span></button>
+        <button class="act" data-t="keymap.switch"><span class="ai">🗂️</span><span class="at">プロファイル切替<br><span class="tt">keymap.switch</span></span></button>
+        <button class="act" data-t="keymap.reset"> <span class="ai">↩️</span><span class="at">既定に戻す<br><span class="tt">keymap.reset</span></span></button>
+      </div>
+    </details>
+
+    <details class="cat">
+      <summary>サウンドボード</summary>
+      <div class="actlist">
+        <button class="act" data-t="sound.play"><span class="ai">🔔</span><span class="at">効果音の再生<br><span class="tt">sound.play（将来）</span></span></button>
+      </div>
+    </details>
+
+    <div class="flag">
+      🚩 <b>裁定待ち</b>: <code>shell.open</code> / <code>app.launch</code> / <code>app.close</code> は
+      「PCで何かを起動・終了する」新しい出口です。CLAUDE.md 不変条件6（任意パス・任意コマンド実行APIを作らない）に
+      触れるため、<b>実装前にユーザー裁定が必要</b>。詳細と対策案は
+      <code>brief/proposals/P-003_streamdeck_v2.md</code>。
+    </div>
+  </div>
+</section>
+
+<script>
+/* ============================================================
+   モック用のデータと描画。実装ではこの構造がそのまま
+   decks/deck_*.json ＋ surface.config の形になる想定。
+   ============================================================ */
+
+// Deckのサンプルセットリスト（5列×3行）。iconは絵文字で代用（実装はicon: data URI）
+const DECK = [
+  { id:"S01", ico:"🔇", label:"消音",       t:"media" },
+  { id:"S02", ico:"🔉", label:"Vol −",      t:"media" },
+  { id:"S03", ico:"🔊", label:"Vol ＋",     t:"media" },
+  { id:"S04", ico:"⏮", label:"前の曲",     t:"media" },
+  { id:"S05", ico:"⏯", label:"再生/停止",  t:"media" },
+  { id:"S06", ico:"💾", label:"保存",       t:"chord" },
+  { id:"S07", ico:"📋", label:"コピー",     t:"chord" },
+  { id:"S08", ico:"📌", label:"貼り付け",   t:"chord" },
+  { id:"S09", ico:"🚀", label:"OBS起動",    t:"app.launch" },
+  { id:"S10", ico:"📂", label:"資料",       t:"shell.open" },
+  { id:"S11", ico:"🌐", label:"公式サイト", t:"web.open" },
+  { id:"S12", ico:"📝", label:"定型文",     t:"text" },
+  { id:"S13", ico:"▶️", label:"配信開始",   t:"multi" },
+  { id:"S14", ico:"🔁", label:"ミュート切替", t:"chord.toggle" },
+  { id:"S15", ico:"＋", label:"空き",       t:"none" }
+];
+
+const MULTI_TYPES = ["multi", "multi.toggle", "random", "logic"];
+
+// ---- 四角スロット1枚を作る（3画面で共通） -------------------
+function makeSlot(item, opts) {
+  const wrap = document.createElement("div");
+  wrap.className = "slotwrap";
+
+  const btn = document.createElement("button");
+  btn.className = "slot" + (item.t === "none" ? " empty" : "");
+  btn.dataset.slotId = item.id;
+
+  const ico = document.createElement("span");
+  ico.className = "ico";
+  ico.textContent = item.ico;
+  btn.appendChild(ico);
+
+  const lb = document.createElement("span");
+  lb.className = "lb";
+  lb.textContent = item.label;
+  btn.appendChild(lb);
+
+  const pip = document.createElement("span");
+  pip.className = "pip" + (item.t === "none" ? " hide" : (MULTI_TYPES.includes(item.t) ? " multi" : ""));
+  wrap.appendChild(btn);
+  wrap.appendChild(pip);
+
+  if (opts && opts.onClick) {
+    btn.addEventListener("click", () => opts.onClick(item, btn));
+  } else {
+    // 表示側は押下フィードバックのみ（モックなので送信しない）
+    btn.addEventListener("pointerdown", () => {
+      btn.classList.add("pressed");
+      setTimeout(() => btn.classList.remove("pressed"), 130);
+    });
+  }
+  return wrap;
+}
+
+function renderDeck(el, items, opts) {
+  el.innerHTML = "";
+  for (const item of items) el.appendChild(makeSlot(item, opts));
+}
+
+// ---- ①分割画面 / ②Deck単独 の描画 --------------------------
+renderDeck(document.getElementById("splitdeck"), DECK.slice(0, 10));
+renderDeck(document.getElementById("deckgrid"), DECK);
+
+// キーボード（v0.4 screen_mock_v0.4.html の13列配置をそのまま転記）
+const KB = [
+  ["Fn","1,1","fn"],["1","2,1"],["2","3,1"],["3","4,1"],["4","5,1"],["5","6,1"],["6","7,1"],
+  ["7","8,1"],["8","9,1"],["9","10,1"],["0","11,1"],["Bksp","12/14,1"],
+
+  ["Tab","1,2"],["","2,2","empty"],["q","3,2"],["w","4,2"],["e","5,2"],["r","6,2"],["t","7,2"],
+  ["y","8,2"],["u","9,2"],["i","10,2"],["o","11,2"],["p","12,2"],
+
+  ["","1,3","empty"],["","2,3","empty"],["a","3,3"],["s","4,3"],["d","5,3"],["f","6,3"],["g","7,3"],
+  ["h","8,3"],["j","9,3"],["k","10,3"],["l","11,3"],["","12,3","empty"],["Enter","13,2/4"],
+
+  ["","1,4","empty"],["","2,4","empty"],["z","3,4"],["x","4,4"],["c","5,4"],["v","6,4"],["b","7,4"],
+  ["n","8,4"],["m","9,4"],[",","10,4"],[".","11,4"],["?","12,4"],["Shift","13,4"],
+
+  ["Ctrl","1,5","fn"],["","2,5","empty"],["","3,5","empty"],["Space","4/10,5"],["","10,5","empty"],
+  ["英数⇄日本語","11/13,5","fn"],["記号","13,5","fn"]
+];
+
+const kbEl = document.getElementById("splitkb");
+for (const [label, pos, cls] of KB) {
+  const [col, row] = pos.split(",");
+  const b = document.createElement("button");
+  b.className = "key" + (cls ? " " + cls : "");
+  b.textContent = label;
+  b.style.gridColumn = col;
+  b.style.gridRow = row;
+  kbEl.appendChild(b);
+}
+
+// ---- 分割比率プリセット ------------------------------------
+const splitBody = document.getElementById("splitbody");
+for (const btn of document.querySelectorAll(".ratio button")) {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".ratio button").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    splitBody.style.setProperty("--split", btn.dataset.deck + "fr");
+    splitBody.style.setProperty("--splitkb", btn.dataset.kb + "fr");
+  });
+}
+
+// ---- ③設定画面 ---------------------------------------------
+const setGrid   = document.getElementById("setgrid");
+const propEl    = document.getElementById("prop");
+const propHead  = document.getElementById("prophead");
+const jsonOut   = document.getElementById("jsonout");
+
+// 編集中の状態（モックなので保存はしない）
+let selected = null;   // { id, ico, label, t } の参照
+let selectedBtn = null;
+
+function renderSetGrid() {
+  renderDeck(setGrid, DECK, {
+    onClick: (item, btn) => {
+      setGrid.querySelectorAll(".slot").forEach((b) => b.classList.remove("sel"));
+      btn.classList.add("sel");
+      selected = item;
+      selectedBtn = btn;
+      syncActionList();
+      renderProp();
+    }
+  });
+  // 選択状態を描き直し後も維持
+  if (selected) {
+    const again = setGrid.querySelector('.slot[data-slot-id="' + selected.id + '"]');
+    if (again) { again.classList.add("sel"); selectedBtn = again; }
+  }
+}
+renderSetGrid();
+
+// アクション一覧のハイライトを選択スロットに合わせる
+function syncActionList() {
+  document.querySelectorAll(".act").forEach((a) => {
+    a.classList.toggle("on", !!selected && a.dataset.t === selected.t);
+  });
+}
+
+document.querySelectorAll(".act").forEach((a) => {
+  a.addEventListener("click", () => {
+    if (!selected) {
+      propHead.textContent = "プロパティ — 先に左のスロットを選んでください";
+      return;
+    }
+    selected.t = a.dataset.t;
+    if (selected.t !== "none" && selected.label === "空き") {
+      selected.label = a.querySelector(".at").childNodes[0].textContent.trim();
+      selected.ico = a.querySelector(".ai").textContent.trim();
+    }
+    renderSetGrid();
+    syncActionList();
+    renderProp();
+  });
+});
+
+/* 各アクションのプロパティ定義（=登録画面で何を入れるか）と、
+   そこから生まれるJSONの形。実装ではこの形が schemas/deck.schema.json の正になる。 */
+const FORMS = {
+  "web.open": {
+    rows: [["URL", "text", "https://example.com/"]],
+    json: (s) => ({ t:"web.open", url:"https://example.com/" }),
+    hint: "http / https のみ許可。それ以外のスキーム（file:, javascript: 等）はロード時に拒否する案。"
+  },
+  "chord.toggle": {
+    rows: [["ホットキー A", "text", "CTRL + SHIFT + M"], ["ホットキー B", "text", "CTRL + SHIFT + U"]],
+    json: () => ({ t:"chord.toggle", a:["CTRL","SHIFT","M"], b:["CTRL","SHIFT","U"] }),
+    hint: "押すたびに A → B → A … と交互に発火。順番はHub側が保持する（クライアントは押した事実しか送らない）。"
+  },
+  "chord": {
+    rows: [["ホットキー", "text", "CTRL + S"]],
+    json: () => ({ t:"chord", keys:["CTRL","S"] }),
+    hint: "既存アクション。vk辞書（proto-keymap::VK_DICTIONARY）内の名前のみ。"
+  },
+  "shell.open": {
+    rows: [["登録済みの場所", "select", ["docs — C:\\\\Users\\\\…\\\\Documents\\\\資料", "dl — ダウンロード", "（apps.json に追加）"]]],
+    json: () => ({ t:"shell.open", pathId:"docs" }),
+    hint: "パスそのものはDeck JSONに書かない。PC側の登録簿（apps/apps.json 案）に id で登録し、Deckは id だけ持つ（D28と同じ考え方）。"
+  },
+  "app.launch": {
+    rows: [["登録済みアプリ", "select", ["obs — OBS Studio", "vscode — Visual Studio Code", "（apps.json に追加）"]],
+           ["起動引数", "text", "（登録簿側で固定）"]],
+    json: () => ({ t:"app.launch", appId:"obs" }),
+    hint: "同上。クライアントは appId すら選べない（送るのは slotId のみ）。"
+  },
+  "app.close": {
+    rows: [["対象", "select", ["active — 今アクティブなウィンドウ", "obs — OBS Studio"]]],
+    json: () => ({ t:"app.close", target:"active" }),
+    hint: "既定は active（= ALT+F4 相当）。名前指定での強制終了は別扱い（裁定対象）。"
+  },
+  "text": {
+    rows: [["入力する文字列", "textarea", "お世話になっております。"]],
+    json: () => ({ t:"text", string:"お世話になっております。" }),
+    hint: "既存アクション（D20）。KEYEVENTF_UNICODE で直接注入。クリップボードは書き換えない。"
+  },
+  "media": {
+    rows: [["操作", "select", ["MUTE — 消音", "VOL_UP", "VOL_DOWN", "MEDIA_PLAY", "MEDIA_NEXT", "MEDIA_PREV"]]],
+    json: () => ({ t:"key", vk:"MUTE" }),
+    hint: "既存の key アクションで足りる。新規型は不要。"
+  },
+  "multi": {
+    steps: ["app.launch — OBS Studio", "delay — 1500ms", "chord — CTRL+SHIFT+R", "web.open — 配信ページ"],
+    json: () => ({ t:"multi", steps:[
+      { t:"app.launch", appId:"obs" }, { t:"delay", ms:1500 },
+      { t:"chord", keys:["CTRL","SHIFT","R"] }, { t:"web.open", url:"https://…" }
+    ] }),
+    hint: "上から順に実行。steps に入れられるのは単発アクションと delay だけ（multi の入れ子は禁止＝無限ループ防止）。"
+  },
+  "multi.toggle": {
+    steps: ["A群: app.launch — OBS / chord — 配信開始", "B群: chord — 配信停止 / app.close — OBS"],
+    json: () => ({ t:"multi.toggle",
+      a:[{ t:"app.launch", appId:"obs" }, { t:"chord", keys:["CTRL","SHIFT","R"] }],
+      b:[{ t:"chord", keys:["CTRL","SHIFT","R"] }, { t:"app.close", target:"obs" }] }),
+    hint: "押すたびに A群 / B群 を交互に。状態はHub側が持つ。"
+  },
+  "random": {
+    steps: ["text — 案1", "text — 案2", "text — 案3"],
+    json: () => ({ t:"random", choices:[
+      { t:"text", string:"案1" }, { t:"text", string:"案2" }, { t:"text", string:"案3" }
+    ] }),
+    hint: "🚩 G5「同じ入力列は常に同じ結果」と正面から衝突する唯一のアクション。採否は裁定対象（P-003 §5）。"
+  },
+  "logic": {
+    steps: ["if — 前面アプリが OBS のとき", "→ chord — CTRL+SHIFT+R", "else → app.launch — OBS", "delay — 500ms"],
+    json: () => ({ t:"logic", steps:[
+      { t:"if", cond:{ t:"foreground.is", appId:"obs" },
+        then:[{ t:"chord", keys:["CTRL","SHIFT","R"] }],
+        else:[{ t:"app.launch", appId:"obs" }] },
+      { t:"delay", ms:500 }
+    ] }),
+    hint: "条件は事前登録された述語のみ（foreground.is / layer.is 等の許可リスト）。任意式の評価はしない。"
+  },
+  "deck.page": {
+    rows: [["移動先ページ", "select", ["1", "2", "3", "次へ", "前へ"]]],
+    json: () => ({ t:"deck.page", to:2 }),
+    hint: "Deck内のページ移動。分割画面では上ペインだけが切り替わる。"
+  },
+  "keymap.switch": {
+    rows: [["プロファイル", "select", ["ipad01_vol12", "writing01", "分割 左手"]]],
+    json: () => ({ t:"keymap.switch", id:"writing01" }),
+    hint: "既存アクション。"
+  },
+  "keymap.reset": {
+    rows: [],
+    json: () => ({ t:"keymap.reset" }),
+    hint: "既存アクション。keymap_default.json に戻す。"
+  },
+  "sound.play": {
+    rows: [["音源", "select", ["（未実装）"]]],
+    json: () => ({ t:"sound.play", soundId:"…" }),
+    hint: "将来枠。Hub機に音を鳴らすのか端末に鳴らすのかが未決のため、v0.8では場所だけ確保（v0.4のマクロ枠と同じ扱い）。"
+  },
+  "none": {
+    rows: [],
+    json: () => ({ t:"none" }),
+    hint: "空きスロット。表示は破線の枠になり、押しても何も起きない。"
+  }
+};
+
+function renderProp() {
+  if (!selected) return;
+  propHead.textContent = "プロパティ — " + selected.id + "（" + selected.label + "）";
+  const form = FORMS[selected.t] || FORMS["none"];
+  propEl.innerHTML = "";
+
+  // ラベルとアイコンは全アクション共通
+  addRow("ラベル", "text", selected.label);
+  addRow("アイコン", "text", selected.ico);
+
+  if (form.rows) for (const [label, kind, val] of form.rows) addRow(label, kind, val);
+
+  if (form.steps) {
+    const box = document.createElement("div");
+    box.className = "steps";
+    form.steps.forEach((s, i) => {
+      const d = document.createElement("div");
+      d.className = "step";
+      d.innerHTML = '<span class="n">' + (i + 1) + '</span><span>' + s + '</span><span class="x">✕</span>';
+      box.appendChild(d);
+    });
+    const add = document.createElement("button");
+    add.className = "addstep";
+    add.textContent = "＋ ステップを追加";
+    box.appendChild(add);
+    propEl.appendChild(box);
+  }
+
+  const hint = document.createElement("p");
+  hint.className = form.hint && form.hint.startsWith("🚩") ? "flag" : "hint";
+  hint.innerHTML = form.hint || "";
+  propEl.appendChild(hint);
+
+  jsonOut.textContent = JSON.stringify({
+    slotId: selected.id,
+    label: selected.label,
+    icon: "（data URI）",
+    action: form.json()
+  }, null, 2);
+
+  function addRow(label, kind, val) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const l = document.createElement("label");
+    l.textContent = label;
+    row.appendChild(l);
+    let f;
+    if (kind === "select") {
+      f = document.createElement("select");
+      for (const o of val) { const op = document.createElement("option"); op.textContent = o; f.appendChild(op); }
+    } else if (kind === "textarea") {
+      f = document.createElement("textarea");
+      f.value = val;
+    } else {
+      f = document.createElement("input");
+      f.type = "text";
+      f.value = val;
+    }
+    row.appendChild(f);
+    propEl.appendChild(row);
+  }
+}
+
+// ---- モックタブ切替 -----------------------------------------
+for (const btn of document.querySelectorAll("#mocktabs button")) {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#mocktabs button").forEach((b) => b.classList.remove("on"));
+    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on"));
+    btn.classList.add("on");
+    document.getElementById(btn.dataset.scr).classList.add("on");
+  });
+}
+
+// ---- ページドット（見た目のみ） -------------------------------
+document.querySelectorAll(".pagedots").forEach((dots) => {
+  dots.querySelectorAll("button").forEach((d) => {
+    d.addEventListener("click", () => {
+      dots.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+      d.classList.add("on");
+    });
+  });
+});
+</script>
+</body>
+</html>
