@@ -61,6 +61,16 @@
     #statusBtn .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-dim); display: inline-block; }
     #statusBtn.connected .dot { background: var(--ok); }
     #statusBtn.disconnected .dot { background: var(--err); }
+    /* 有線（USB-C）だと**自分で申告している**ときの色。ブラウザには
+       ケーブルが挿さっているかを知る手立てが無いので、Hubは裏を取れない。
+       だから「確かめた事実」ではなく「あなたが立てた札」として別色にする。 */
+    #statusBtn.wired .dot { background: var(--accent); }
+    #wiredBtn {
+      border: 1px solid var(--line); border-radius: 999px;
+      background: var(--panel); color: var(--ink-dim); font: inherit;
+      font-size: 12px; padding: 5px 12px; flex-shrink: 0; min-height: 38px;
+    }
+    #wiredBtn.on { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
     #qrOpenBtn {
       min-width: 44px; min-height: 38px; border: 0; border-radius: 8px;
       background: var(--accent); color: #fff; font: inherit; font-size: 13px; padding: 0 12px; flex-shrink: 0;
@@ -186,6 +196,7 @@
       <select id="keymapSel" aria-label="キーボードの配列を切り替え"></select>
     </label>
     <span class="spacer"></span>
+    <button id="wiredBtn" type="button" aria-pressed="false">USB</button>
     <button id="statusBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="statusLabel">未接続</span></button>
     <button id="qrOpenBtn" type="button">QR</button>
   </header>
@@ -291,11 +302,47 @@
       statusEl.classList.toggle("error", !!isError);
     }
 
+    // ------------------------------------------------------------------
+    // 接続の見え方は3つ。
+    //   接続中        … WSが繋がっている（Hubが裏を取れる事実）
+    //   USB接続中     … 上に加えて、有線だと**利用者が申告している**
+    //   切断          … WSが切れている
+    //
+    // **ブラウザはUSBケーブルが挿さっているかを知れない。**
+    // 電池の充電状態（getBattery）はiPadのSafariに無く、他に手段が無い。
+    // だから自動では判定せず、手で立てる札にしている。札はこの端末の
+    // ブラウザに覚えさせるので、次に開いても同じ状態から始まる。
+    // ------------------------------------------------------------------
+    let wired = false;
+    try { wired = localStorage.getItem("keydeck.wired") === "1"; } catch { /* 使えない環境 */ }
+
     function setConnectionBadge(connected) {
-      statusBtnEl.classList.toggle("connected", connected);
+      statusBtnEl.classList.toggle("connected", connected && !wired);
+      statusBtnEl.classList.toggle("wired", connected && wired);
       statusBtnEl.classList.toggle("disconnected", !connected);
-      statusLabelEl.textContent = connected ? "接続中" : "切断・タップで再接続";
+      statusLabelEl.textContent = !connected ? "切断・タップで再接続"
+        : wired ? "USB接続中" : "接続中";
     }
+
+    function renderWiredBtn() {
+      const b = document.getElementById("wiredBtn");
+      b.classList.toggle("on", wired);
+      b.setAttribute("aria-pressed", wired ? "true" : "false");
+      b.title = wired
+        ? "有線（USB-C）だと申告しています。Hubは裏を取れません。タップで解除"
+        : "有線（USB-C）で繋いだときにタップしてください。自動では判定できません";
+    }
+
+    document.getElementById("wiredBtn").addEventListener("click", () => {
+      wired = !wired;
+      try { localStorage.setItem("keydeck.wired", wired ? "1" : "0"); } catch { /* 使えない環境 */ }
+      renderWiredBtn();
+      setConnectionBadge(statusBtnEl.classList.contains("connected")
+        || statusBtnEl.classList.contains("wired"));
+      log("P008", "OK", wired ? "wired mode declared" : "wired mode cleared", { wired });
+    });
+
+    renderWiredBtn();
 
     // ================================================================
     // 区画の描画

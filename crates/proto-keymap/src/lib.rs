@@ -713,7 +713,7 @@ impl LayerState {
     }
 
     /// 有効レイヤー = {0} ∪ momentary ∪ toggled。
-    fn active_layers(&self) -> BTreeSet<u8> {
+    pub fn active_layers(&self) -> BTreeSet<u8> {
         let mut set = BTreeSet::new();
         set.insert(0);
         set.extend(self.momentary.iter().copied());

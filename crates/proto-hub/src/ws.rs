@@ -1162,6 +1162,33 @@ fn resolve_for_surface(s: &mut HubState, surface: SurfaceKind, key_id: &str, edg
     }
 }
 
+/// ログに出すための「いま有効なレイヤー」。解決に使われた並びそのものなので、
+/// `mo`が入る**前**の状態を撮る（押下でレイヤーが増えるより先に読む）。
+fn active_layers_snapshot(s: &mut HubState, surface: SurfaceKind, keymap_id: Option<&str>) -> String {
+    let layers = match keymap_id {
+        Some(id) => s.layer_state_for(id).active_layers(),
+        None => match surface {
+            SurfaceKind::Ipad => s.ipad_layer_state.active_layers(),
+            SurfaceKind::Split => s.layer_state.active_layers(),
+            SurfaceKind::Layout | SurfaceKind::Trackball => Default::default(),
+        },
+    };
+    layers.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",")
+}
+
+/// 解決の結果を1語で表す。ログを目で追うためのもので、分岐には使わない。
+fn resolved_summary(resolved: &Resolved) -> String {
+    match resolved {
+        Resolved::Fire(action) | Resolved::FireAndLayerChanged(action) => {
+            canonical_command_id(action).unwrap_or_else(|| "(no command id)".to_string())
+        }
+        Resolved::LayerChanged => "layer-change".to_string(),
+        Resolved::Ignored => "ignored".to_string(),
+        Resolved::UnknownKey => "unknown-key".to_string(),
+        Resolved::NoResolution => "no-resolution".to_string(),
+    }
+}
+
 async fn handle_key_press(
     state: &SharedState,
     client_id: ClientId,
@@ -1170,13 +1197,30 @@ async fn handle_key_press(
     key_id: &str,
     edge: Edge,
 ) {
-    let resolved = {
+    let (resolved, layers) = {
         let mut s = state.lock().unwrap();
-        match keymap_id {
+        let layers = active_layers_snapshot(&mut s, surface, keymap_id);
+        let resolved = match keymap_id {
             Some(id) => resolve_for_layout(&mut s, id, key_id, edge),
             None => resolve_for_surface(&mut s, surface, key_id, edge),
-        }
+        };
+        (resolved, layers)
     };
+
+    // **押されたキーを必ず1行残す。**
+    // 「Ctrlを押したのに何も起きなかった」を後から追える唯一の手がかり。
+    // どのキーが・どのレイヤーの並びで・何に解決して・OSへ何を送ったかを1行に入れる。
+    // 失敗時だけ記録していたので、成功したのに効かない場合が追えなかった。
+    tracing::info!(
+        chk = "T3-3",
+        ?surface,
+        keymap_id = keymap_id.unwrap_or("-"),
+        key_id,
+        ?edge,
+        layers = %layers,
+        outcome = %resolved_summary(&resolved),
+        "key press"
+    );
 
     match resolved {
         Resolved::UnknownKey => emit_error(
