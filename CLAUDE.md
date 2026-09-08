@@ -48,3 +48,18 @@
 
 ## レビュー体制
 - 大きめの変更後は守護エージェント `keydeck-guardian`（`.claude/agents/`）で規則違反と回帰を点検すること
+
+## 技術トピックカードの登録
+動作を確認できた機能は、`C:\00_CreatorHub\knowledge\TechTopicCards\` へ再利用できる形で登録する。
+KeyDeck固有の判断ではなく他プロジェクトへ持ち出せる技術（データ構造・UIパターン・検証手順など）が対象。
+
+手順:
+1. `knowledge/TechTopicCards/README.md` と `schema/tech_topic_card.schema.json` を読む
+2. id接頭辞は `KEYDECK_`（例 `KEYDECK_LOGIC_001`）
+3. **「実際に動くと確認できたもの」だけをカードにする**。設計だけ・未検証のものは `status` を正直に書く（`working`/`partial`/`planned`）
+4. `verification.files` に書くパスは実在を確認してから書く。実在しないファイル・関数・数値を書かない（最重要規則。嘘のカードはAIの参照資産として無効になる）
+5. `knowledge/TechTopicCards/cards/<ID>.json` を作る
+6. `node knowledge/TechTopicCards/tools/build_cards.mjs` で `INDEX.md` を再生成する（`verification.files` の実在をここで機械的に検査する）
+7. 何をカードにして何を見送ったか、理由つきで報告する
+
+前例: `KEYDECK_LOGIC_001`（位置と中身を1本の履歴で戻す — `static/keys.html` のundoStack）
