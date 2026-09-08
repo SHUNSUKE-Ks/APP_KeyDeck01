@@ -339,6 +339,66 @@
   // **何が起きたか・どうすれば入れるか**を画面いっぱいに出す。
   // 小さなステータス行だと気づかれず「壊れている」と誤解される。
   // ================================================================
+  // ------------------------------------------------------------------
+  // 画面切り替え（部門 → 画面 の2階層）。
+  //
+  // 「PC部門」がいま実際にある画面。「ゲーム部門」は**まだ中身が無い**。
+  // 将来PC画面と組み合わせ、タブレットを操作パネルにしたゲーム
+  // （携帯ゲーム機の下画面のような使い方）を作るときのための
+  // 場所取りで、選んでも何も起きない（disabled）。
+  // ------------------------------------------------------------------
+  var NAV_TREE = [
+    {
+      dept: "PC部門",
+      items: [
+        { label: "レイアウト編集", path: "/" },
+        { label: "キー編集", path: "/keys" },
+        { label: "接続（Gallery）", path: "/connect" },
+        { label: "操作カタログ", path: "/catalog" },
+        { label: "設定", path: "/settings" },
+      ],
+    },
+    {
+      dept: "ゲーム部門（準備中）",
+      items: [],
+    },
+  ];
+
+  /// host に2階層のセレクトを1つ描く。選ぶと token を引き継いで画面遷移する。
+  /// currentPath はハイライト用（今の画面を選択済みにする）。
+  function renderNav(host, currentPath, token) {
+    var sel = host.ownerDocument.createElement("select");
+    sel.setAttribute("aria-label", "画面を切り替え");
+    sel.className = "kd-nav-select";
+
+    NAV_TREE.forEach(function (dept) {
+      var group = host.ownerDocument.createElement("optgroup");
+      group.label = dept.dept;
+      if (dept.items.length === 0) {
+        var placeholder = host.ownerDocument.createElement("option");
+        placeholder.textContent = "（未実装）";
+        placeholder.disabled = true;
+        group.appendChild(placeholder);
+      }
+      dept.items.forEach(function (item) {
+        var opt = host.ownerDocument.createElement("option");
+        opt.value = item.path;
+        opt.textContent = item.label;
+        if (item.path === currentPath) opt.selected = true;
+        group.appendChild(opt);
+      });
+      sel.appendChild(group);
+    });
+
+    sel.addEventListener("change", function () {
+      if (!sel.value) return;
+      var sep = sel.value.indexOf("?") >= 0 ? "&" : "?";
+      window.location.href = sel.value + sep + "token=" + encodeURIComponent(token || "");
+    });
+
+    host.appendChild(sel);
+  }
+
   function showTokenNotice(doc) {
     var d = doc || document;
     if (d.getElementById("kd-token-notice")) return;
@@ -380,6 +440,7 @@
   }
 
   global.KDComponents = {
+    renderNav: renderNav,
     showTokenNotice: showTokenNotice,
     injectStyles: injectStyles,
     resolveDisplay: resolveDisplay,

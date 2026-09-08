@@ -76,6 +76,7 @@ pub fn router(state: SharedState) -> Router {
         // P-005 段階B: レイアウト面。layouts/layout_*.json の区画割りをそのまま描く。
         .route_service("/layout", ServeFile::new("static/layout.html"))
         .route_service("/settings", ServeFile::new("static/settings.html"))
+        .route_service("/catalog", ServeFile::new("static/catalog.html"))
         // P-007: キー編集。PCでもiPadでも同じURLで開ける
         .route_service("/keys", ServeFile::new("static/keys.html"))
         // 部品の描画は static/components.js が唯一の実装。実機の面とエディタが

@@ -302,6 +302,7 @@
 
 <div class="head">
   <h1>KeyDeck — レイアウト編集</h1>
+  <span id="navHost"></span>
 
   <span class="cap">board</span>
   <select id="layoutSel" aria-label="表示するboard"></select>
@@ -372,6 +373,7 @@ let COMPONENT = {};   // ref -> 最小サイズの計算に使う寸法
 
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || "";
+KDComponents.renderNav(document.getElementById("navHost"), "/", token);
 
 const TARGET = { name: "iPad Pro 12.9 横", w: 1366, h: 1024, header: 44 };
 const TAP = 44;   // タップ目標の下限。既存実装は layout.html=40 / panel.html=44 と

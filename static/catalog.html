@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  catalog.html — 操作性のカタログ部屋。素のHTML+JSのみ（D2）。URL: /catalog?token=…
+
+  ■ この画面の役割
+    Componentに持たせられそうなタッチ操作（フリック・エッジスワイプ・
+    カードスワイプ・ピンチ）を、実際に触って試すための部屋。
+
+  ■ 何ができて、何ができないか（正直に書く）
+    - ここで触れるのは**見た目と判定だけ**。指を動かすとどう判定される
+      かをその場で見せる、確認用の展示品。
+    - **PCへ実際にキーやマウス操作を送りはしない。** 送るところまで作ると
+      「どのComponentの、どのキーへ」という文脈が要るため、ここでは
+      作らない。良さそうな操作を選んだら、実際のComponentへ組み込む
+      別の作業になる。
+    - ピンチは2本指が要るので、マウスでは試せない（iPadなどタッチ
+      端末で開いてください）。
+
+  ■ 展示していないもの
+    スリングショットとなぞり書き（スワイプ入力）はここに無い。
+    理由はページ下部の「対象外」に書いてある。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — 操作カタログ</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel2:#161c30; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+      --ink-dim:#6b7590; --accent:#2d67d9; --accent-soft:#24478f; --ok:#35c47a;
+      --warn:#e8b44a; --err:#e2555a; --line:#2d3550;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); padding: 16px 20px 60px;
+      font-size: 13px; line-height: 1.6;
+    }
+    .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+    h1 { font-size: 16px; margin: 0; }
+    #navHost select {
+      background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+      border-radius: 6px; font: inherit; font-size: 12px; padding: 4px 6px; max-width: 40vw;
+    }
+    .note {
+      color: var(--ink-dim); font-size: 12px; margin: 10px 0 20px; max-width: 760px;
+    }
+    .note b { color: var(--ink-muted); }
+    .grid {
+      display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+    }
+    .card h2 { font-size: 13px; margin: 0 0 4px; }
+    .card .why { font-size: 11px; color: var(--ink-dim); margin: 0 0 10px; }
+    .stage {
+      position: relative; height: 200px; border-radius: 10px; background: var(--panel2);
+      border: 1px dashed var(--line); overflow: hidden; touch-action: none; user-select: none;
+    }
+    .readout {
+      margin-top: 8px; font-size: 12px; color: var(--ink-muted); min-height: 34px;
+    }
+    .readout b { color: var(--accent); }
+    .center-dot {
+      position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px;
+      border-radius: 50%; background: var(--ink-dim);
+    }
+    .arrow {
+      position: absolute; font-size: 20px; color: var(--ink-dim); transition: color .15s, transform .15s;
+    }
+    .arrow.up    { left: 50%; top: 10px;    transform: translateX(-50%); }
+    .arrow.down  { left: 50%; bottom: 10px; transform: translateX(-50%); }
+    .arrow.left  { left: 10px; top: 50%;    transform: translateY(-50%); }
+    .arrow.right { right: 10px; top: 50%;   transform: translateY(-50%); }
+    .arrow.hit { color: var(--accent); transform: scale(1.3) translateX(-50%); }
+    .arrow.left.hit, .arrow.right.hit { transform: scale(1.3) translateY(-50%); }
+
+    .edge {
+      position: absolute; background: rgba(45,103,217,.14); transition: background .15s;
+    }
+    .edge.top    { left: 0; right: 0; top: 0; height: 22%; }
+    .edge.bottom { left: 0; right: 0; bottom: 0; height: 22%; }
+    .edge.left   { left: 0; top: 0; bottom: 0; width: 22%; }
+    .edge.right  { right: 0; top: 0; bottom: 0; width: 22%; }
+    .edge.hit { background: rgba(45,103,217,.5); }
+    .edge-label {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--ink-dim); font-size: 12px; pointer-events: none;
+    }
+
+    .deckstage {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+      height: 100%;
+    }
+    .page {
+      width: 84%; height: 130px; border-radius: 10px; background: var(--panel);
+      border: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr; gap: 6px; padding: 8px;
+    }
+    .page .slot {
+      background: var(--accent-soft); border-radius: 7px; display: flex; align-items: center;
+      justify-content: center; font-size: 11px; color: var(--ink);
+    }
+    .dots { display: flex; gap: 6px; }
+    .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+    .dots span.on { background: var(--accent); }
+
+    .pinch-readout {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      font-size: 28px; font-weight: 700; color: var(--ink-muted);
+    }
+    .pinch-hint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 11px; color: var(--ink-dim); }
+
+    .skip { opacity: .75; }
+    .skip .stage { display: none; }
+    .skip .why { color: var(--warn); }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <h1>KeyDeck — 操作カタログ</h1>
+    <span id="navHost"></span>
+  </div>
+  <p class="note">
+    Componentに持たせられそうなタッチ操作を、実際に触って確認する部屋です。
+    <b>ここではPCへ実際のキーやマウス操作は送りません。</b>指を動かすとどう判定されるかを
+    見た目で確認するだけの展示です。良さそうなものが決まったら、実際のComponentへ組み込みます。
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>① フリック方向入力</h2>
+      <p class="why">1マスで上下左右4方向ぶんの動作を持たせられます。ジェスチャーの仕組みにそのまま乗ります。</p>
+      <div class="stage" id="flickStage">
+        <div class="center-dot"></div>
+        <div class="arrow up">↑</div>
+        <div class="arrow down">↓</div>
+        <div class="arrow left">←</div>
+        <div class="arrow right">→</div>
+      </div>
+      <div class="readout" id="flickReadout">中央から指を動かして離してください。</div>
+    </div>
+
+    <div class="card">
+      <h2>② エッジスワイプ</h2>
+      <p class="why">画面の端から中へ。中身の操作と衝突しないので、「レイヤー一覧を出す」等の全体操作に向きます。</p>
+      <div class="stage" id="edgeStage">
+        <div class="edge top" data-edge="上"></div>
+        <div class="edge bottom" data-edge="下"></div>
+        <div class="edge left" data-edge="左"></div>
+        <div class="edge right" data-edge="右"></div>
+        <div class="edge-label">端から中へスワイプ</div>
+      </div>
+      <div class="readout" id="edgeReadout">まだ検出していません。</div>
+    </div>
+
+    <div class="card">
+      <h2>③ カードスワイプ（デッキのページ送り）</h2>
+      <p class="why">Deckは枠を超えると置けないキーが出ます（実測: 8×2デッキで72個と出た欠陥）。ページ送りで解決できます。</p>
+      <div class="stage" id="deckStage">
+        <div class="deckstage">
+          <div class="page" id="deckPage"></div>
+          <div class="dots" id="deckDots"></div>
+        </div>
+      </div>
+      <div class="readout" id="deckReadout">左右にスワイプするとページが変わります。</div>
+    </div>
+
+    <div class="card">
+      <h2>④ ピンチズーム</h2>
+      <p class="why">2本指の距離変化を「Ctrl+ホイール」に見立てられます。画像編集やコード画面の拡大縮小に使えます。</p>
+      <div class="stage" id="pinchStage">
+        <div class="pinch-readout" id="pinchReadout">×1.00</div>
+        <div class="pinch-hint">2本指が要ります（マウスでは試せません）</div>
+      </div>
+      <div class="readout" id="pinchLog">タッチ端末で開いて2本指をつまんでください。</div>
+    </div>
+
+    <div class="card skip">
+      <h2>対象外① スリングショット</h2>
+      <p class="why">弓を引くような物理演出は、PC操作の語彙に対応する動作が無く、飾りにしかなりません。</p>
+    </div>
+
+    <div class="card skip">
+      <h2>対象外② なぞり書き（スワイプ入力）</h2>
+      <p class="why">
+        なぞった軌跡から単語を決める処理は端末側でやることになり、KeyDeckの決め事
+        （端末は位置IDと押下/離上しか送らない。意味はHub側で決める）に反します。
+        やるなら「通過したキー位置IDの列だけ送り、Hubが辞書照合する」という別の大きな機能になります。
+      </p>
+    </div>
+  </div>
+
+  <script src="/components.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+    if (!token) { KDComponents.showTokenNotice(); }
+    KDComponents.renderNav(document.getElementById("navHost"), "/catalog", token);
+
+    // ================================================================
+    // ① フリック方向
+    // ================================================================
+    (function () {
+      const stage = document.getElementById("flickStage");
+      const readout = document.getElementById("flickReadout");
+      const counts = { up: 0, down: 0, left: 0, right: 0 };
+      let sx = 0, sy = 0, active = false;
+
+      stage.addEventListener("pointerdown", (event) => {
+        active = true; sx = event.clientX; sy = event.clientY;
+        stage.setPointerCapture(event.pointerId);
+      });
+      stage.addEventListener("pointerup", (event) => {
+        if (!active) return;
+        active = false;
+        const dx = event.clientX - sx, dy = event.clientY - sy;
+        const dist = Math.hypot(dx, dy);
+        stage.querySelectorAll(".arrow").forEach((a) => a.classList.remove("hit"));
+        // 動いた距離が短すぎるものはフリックとみなさない（タップとの取り違え防止）
+        if (dist < 24) { readout.textContent = "動きが小さすぎます（タップ扱い）。もっと大きく。"; return; }
+        const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+        const label = { up: "↑ 上", down: "↓ 下", left: "← 左", right: "→ 右" }[dir];
+        counts[dir] += 1;
+        stage.querySelector(".arrow." + dir).classList.add("hit");
+        readout.innerHTML = "検出: <b>" + label + "</b>（距離 " + Math.round(dist) + "px）／"
+          + "回数 上" + counts.up + " 下" + counts.down + " 左" + counts.left + " 右" + counts.right;
+      });
+    })();
+
+    // ================================================================
+    // ② エッジスワイプ（端から始めて、中へ一定距離動かしたら成立）
+    // ================================================================
+    (function () {
+      const stage = document.getElementById("edgeStage");
+      const readout = document.getElementById("edgeReadout");
+      const THRESH = 0.18; // 端の帯の割合（.edgeのCSSと合わせてある）
+      let startEdge = null, sx = 0, sy = 0;
+
+      function edgeAt(x, y, rect) {
+        const rx = (x - rect.left) / rect.width, ry = (y - rect.top) / rect.height;
+        if (ry < THRESH) return "上";
+        if (ry > 1 - THRESH) return "下";
+        if (rx < THRESH) return "左";
+        if (rx > 1 - THRESH) return "右";
+        return null;
+      }
+
+      stage.addEventListener("pointerdown", (event) => {
+        const rect = stage.getBoundingClientRect();
+        startEdge = edgeAt(event.clientX, event.clientY, rect);
+        sx = event.clientX; sy = event.clientY;
+        if (startEdge) stage.setPointerCapture(event.pointerId);
+      });
+      stage.addEventListener("pointerup", (event) => {
+        if (!startEdge) return;
+        const dist = Math.hypot(event.clientX - sx, event.clientY - sy);
+        stage.querySelectorAll(".edge").forEach((e) => e.classList.remove("hit"));
+        if (dist < 40) { readout.textContent = startEdge + "端で押しただけです。中へ引き込んでください。"; startEdge = null; return; }
+        const map = { "上": "top", "下": "bottom", "左": "left", "右": "right" };
+        stage.querySelector(".edge." + map[startEdge]).classList.add("hit");
+        readout.innerHTML = "検出: <b>" + startEdge + "端スワイプ</b>（" + Math.round(dist) + "px 引き込み）";
+        startEdge = null;
+      });
+    })();
+
+    // ================================================================
+    // ③ カードスワイプ（デッキのページ送り）
+    // ================================================================
+    (function () {
+      const stage = document.getElementById("deckStage");
+      const pageEl = document.getElementById("deckPage");
+      const dotsEl = document.getElementById("deckDots");
+      const readout = document.getElementById("deckReadout");
+      const PAGES = [
+        ["1", "2", "3", "4"],
+        ["5", "6", "7", "8"],
+        ["9", "10", "11", "12"],
+      ];
+      let page = 0, sx = 0;
+
+      function render() {
+        pageEl.textContent = "";
+        for (const label of PAGES[page]) {
+          const slot = document.createElement("div");
+          slot.className = "slot";
+          slot.textContent = label;
+          pageEl.appendChild(slot);
+        }
+        dotsEl.textContent = "";
+        PAGES.forEach((_, i) => {
+          const d = document.createElement("span");
+          if (i === page) d.classList.add("on");
+          dotsEl.appendChild(d);
+        });
+        readout.textContent = "ページ " + (page + 1) + " / " + PAGES.length;
+      }
+
+      stage.addEventListener("pointerdown", (event) => {
+        sx = event.clientX;
+        stage.setPointerCapture(event.pointerId);
+      });
+      stage.addEventListener("pointerup", (event) => {
+        const dx = event.clientX - sx;
+        if (Math.abs(dx) < 40) return;
+        if (dx < 0 && page < PAGES.length - 1) page += 1;
+        if (dx > 0 && page > 0) page -= 1;
+        render();
+      });
+      render();
+    })();
+
+    // ================================================================
+    // ④ ピンチズーム（2本指の距離変化）
+    // ================================================================
+    (function () {
+      const stage = document.getElementById("pinchStage");
+      const readout = document.getElementById("pinchReadout");
+      const log = document.getElementById("pinchLog");
+      const pointers = new Map();
+      let startDist = null, startScale = 1, scale = 1;
+
+      function dist() {
+        const pts = [...pointers.values()];
+        if (pts.length < 2) return null;
+        return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      }
+
+      stage.addEventListener("pointerdown", (event) => {
+        pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        stage.setPointerCapture(event.pointerId);
+        if (pointers.size === 2) { startDist = dist(); startScale = scale; }
+      });
+      stage.addEventListener("pointermove", (event) => {
+        if (!pointers.has(event.pointerId)) return;
+        pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (pointers.size === 2 && startDist) {
+          const d = dist();
+          scale = Math.max(0.3, Math.min(3, startScale * (d / startDist)));
+          readout.textContent = "×" + scale.toFixed(2);
+          log.innerHTML = "見立て: <b>Ctrl+ホイール " + (scale >= startScale ? "上" : "下") + "</b>（拡大率 ×" + scale.toFixed(2) + "）";
+        }
+      });
+      const clear = (event) => {
+        pointers.delete(event.pointerId);
+        if (pointers.size < 2) startDist = null;
+      };
+      stage.addEventListener("pointerup", clear);
+      stage.addEventListener("pointercancel", clear);
+    })();
+  </script>
+</body>
+</html>

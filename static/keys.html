@@ -171,6 +171,7 @@
 <body>
   <div class="head">
     <h1>KeyDeck — キー編集</h1>
+    <span id="navHost"></span>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
     <button id="undoBtn" type="button">1つ戻す</button>
@@ -198,6 +199,7 @@
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
+    KDComponents.renderNav(document.getElementById("navHost"), "/keys", token);
 
     function log(kind, code, message, context) {
       const line = "[KD][" + kind + "][" + code + "] " + message;

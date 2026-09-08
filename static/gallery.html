@@ -47,6 +47,10 @@
       font-size: 13px; line-height: 1.6;
     }
     h1 { font-size: 16px; margin: 0; }
+    #navHost select {
+      background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+      border-radius: 6px; font: inherit; font-size: 12px; padding: 4px 6px; max-width: 40vw;
+    }
     .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .head a { color: var(--ink-muted); font-size: 12px; }
     .note { color: var(--ink-dim); font-size: 11px; margin: 8px 0 18px; }
@@ -112,6 +116,7 @@
 <body>
   <div class="head">
     <h1>KeyDeck — 接続</h1>
+    <span id="navHost"></span>
     <a href="/">← トップ（レイアウト編集）</a>
     <a href="/settings">設定</a>
     <span style="flex:1"></span>
@@ -132,6 +137,7 @@
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
+    KDComponents.renderNav(document.getElementById("navHost"), "/connect", token);
 
     function log(kind, code, message, context) {
       const line = "[KD][" + kind + "][" + code + "] " + message;
