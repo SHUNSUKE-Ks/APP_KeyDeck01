@@ -5,7 +5,8 @@
 
   ■ この画面の役割
     Componentに持たせられそうなタッチ操作（フリック・エッジスワイプ・
-    カードスワイプ・ピンチ）を、実際に触って試すための部屋。
+    カードスワイプ・ピンチ・ラジアルメニュー・ジョグダイヤル）を、
+    実際に触って試すための部屋。
 
   ■ 何ができて、何ができないか（正直に書く）
     - ここで触れるのは**見た目と判定だけ**。指を動かすとどう判定される
@@ -115,6 +116,55 @@
     }
     .pinch-hint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 11px; color: var(--ink-dim); }
 
+    /* ---- 黒い操作盤の質感（図2 Black Interface 寄せ） ----
+       平面の色ではなく、上から光が当たった金属・樹脂に見せる。
+       押せる部品ほど立体に、読むだけの部品ほど平らにする。 */
+    .skeu {
+      background: radial-gradient(ellipse at 50% 20%, #232a40 0%, #121726 70%);
+      border: 1px solid #0a0d18;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05), inset 0 -20px 40px rgba(0,0,0,.35);
+    }
+
+    /* ---- ⑤ ラジアルメニュー ---- */
+    #radialStage { height: 260px; }
+    #radialSvg { position: absolute; pointer-events: none; overflow: visible; }
+    #radialSvg[hidden] { display: none !important; }
+    .rseg { fill: rgba(28,35,56,.94); stroke: #3a4466; stroke-width: 1; transition: fill .08s; }
+    .rseg.on { fill: #2d67d9; filter: url(#glow); }
+    .rlabel { fill: #b7bfd6; font-size: 11px; text-anchor: middle; dominant-baseline: middle; }
+    .rlabel.on { fill: #fff; font-weight: 700; }
+    .rcenter { fill: #151a2b; stroke: #3a4466; }
+    .rcenter.on { fill: #3a2f14; stroke: var(--warn); }
+    .rcx { fill: #6b7590; font-size: 14px; text-anchor: middle; dominant-baseline: middle; }
+    /* 指の外（メニューの上）に、いま選んでいるものを出す。
+       指の真下は自分の指で見えないため（オクルージョン対策） */
+    #radialTip {
+      position: absolute; transform: translate(-50%, -100%);
+      background: #0d1120; border: 1px solid var(--accent); color: #fff;
+      border-radius: 6px; padding: 3px 10px; font-size: 12px; white-space: nowrap;
+      pointer-events: none;
+    }
+    #radialTip[hidden] { display: none !important; }
+    .radial-hint {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--ink-dim); font-size: 12px; pointer-events: none;
+    }
+
+    /* ---- ⑥ ジョグダイヤル ---- */
+    #jogStage { height: 240px; display: flex; align-items: center; justify-content: center; gap: 18px; }
+    #jogSvg { width: 180px; height: 180px; touch-action: none; cursor: grab; }
+    #jogSvg:active { cursor: grabbing; }
+    .jtick { stroke: #3a4466; stroke-width: 2; stroke-linecap: round; }
+    .jtick.major { stroke: #6b7590; }
+    .jprog { fill: none; stroke: #2d8cff; stroke-width: 4; stroke-linecap: round; filter: url(#jglow); }
+    .jogside { display: flex; flex-direction: column; gap: 6px; min-width: 88px; }
+    .jogcount {
+      font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center;
+      background: linear-gradient(#1a2033, #0d1120); border: 1px solid #0a0d18; border-radius: 8px;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,.6); padding: 4px 0; color: #e8edf8;
+    }
+    .jogunit { font-size: 10px; color: var(--ink-dim); text-align: center; }
+
     .skip { opacity: .75; }
     .skip .stage { display: none; }
     .skip .why { color: var(--warn); }
@@ -178,6 +228,32 @@
         <div class="pinch-hint">2本指が要ります（マウスでは試せません）</div>
       </div>
       <div class="readout" id="pinchLog">タッチ端末で開いて2本指をつまんでください。</div>
+    </div>
+
+    <div class="card">
+      <h2>⑤ ラジアルメニュー（パイメニュー）</h2>
+      <p class="why">押した場所を中心に扇が開き、指を動かした方向の項目を、離した瞬間に決定します。中央で離すと取り消し。
+        ゲームの武器ホイールを<b>日常の編集操作</b>に置き換えた例です（1マスで8つのショートカット）。</p>
+      <div class="stage skeu" id="radialStage">
+        <div class="radial-hint" id="radialHint">押したまま、使いたい方向へ指を動かして離す</div>
+        <svg id="radialSvg" hidden></svg>
+        <div id="radialTip" hidden></div>
+      </div>
+      <div class="readout" id="radialReadout">まだ選んでいません。</div>
+    </div>
+
+    <div class="card">
+      <h2>⑥ ジョグダイヤル</h2>
+      <p class="why">つまみを回すと、15°ごとに1目盛り進みます。時計回り＝次（ホイール下）、反時計回り＝前（ホイール上）に見立てています。
+        動画のコマ送り・音量・拡大率など「少しずつ動かしたい値」向けです。</p>
+      <div class="stage skeu" id="jogStage">
+        <svg id="jogSvg" viewBox="0 0 180 180"></svg>
+        <div class="jogside">
+          <div class="jogcount" id="jogCount">0</div>
+          <div class="jogunit">目盛り（15°＝1）</div>
+        </div>
+      </div>
+      <div class="readout" id="jogReadout">つまみを掴んで回してください。</div>
     </div>
 
     <div class="card skip">
@@ -351,6 +427,260 @@
       };
       stage.addEventListener("pointerup", clear);
       stage.addEventListener("pointercancel", clear);
+    })();
+
+    // ================================================================
+    // SVGの部品づくり
+    // ================================================================
+    const SVGNS = "http://www.w3.org/2000/svg";
+    function svgEl(tag, attrs) {
+      const e = document.createElementNS(SVGNS, tag);
+      for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+      return e;
+    }
+    /// 光る縁取り。選んでいる扇と、ダイヤルの進み具合に使う。
+    function addGlow(svg, id) {
+      const defs = svgEl("defs");
+      const f = svgEl("filter", { id: id || "glow", x: "-50%", y: "-50%", width: "200%", height: "200%" });
+      f.appendChild(svgEl("feGaussianBlur", { stdDeviation: "2.5", result: "b" }));
+      const m = svgEl("feMerge");
+      m.appendChild(svgEl("feMergeNode", { in: "b" }));
+      m.appendChild(svgEl("feMergeNode", { in: "SourceGraphic" }));
+      f.appendChild(m);
+      defs.appendChild(f);
+      svg.appendChild(defs);
+      return defs;
+    }
+    /// 角度は「上が0°・時計回り」。画面の見た目と合わせるため数学の角度は使わない。
+    function polar(cx, cy, r, deg) {
+      const a = deg * Math.PI / 180;
+      return [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+    }
+    function ringSector(cx, cy, r0, r1, a0, a1) {
+      const [x0, y0] = polar(cx, cy, r1, a0), [x1, y1] = polar(cx, cy, r1, a1);
+      const [x2, y2] = polar(cx, cy, r0, a1), [x3, y3] = polar(cx, cy, r0, a0);
+      const large = (a1 - a0) > 180 ? 1 : 0;
+      return "M" + x0 + "," + y0 + " A" + r1 + "," + r1 + " 0 " + large + " 1 " + x1 + "," + y1
+        + " L" + x2 + "," + y2 + " A" + r0 + "," + r0 + " 0 " + large + " 0 " + x3 + "," + y3 + " Z";
+    }
+
+    // ================================================================
+    // ⑤ ラジアルメニュー
+    //
+    // 押す → その場所を中心に開く（はみ出す位置なら内側へ寄せる）
+    // 動かす → 中心からの向きで扇を1つ光らせる。中央の円の中は「取り消し」
+    // 離す → 光っている扇を決定
+    //
+    // 長押しを要求しないのは、KeyDeckではこれを専用のマスに置くから。
+    // ゲームで長押しが要るのは同じ場所に別の操作が重なっているためで、
+    // 専用マスなら待ち時間はただ遅いだけになる。
+    // ================================================================
+    (function () {
+      const stage = document.getElementById("radialStage");
+      const svg = document.getElementById("radialSvg");
+      const tip = document.getElementById("radialTip");
+      const hint = document.getElementById("radialHint");
+      const readout = document.getElementById("radialReadout");
+
+      // 上から時計回り（0=上, 1=右上, 2=右, 3=右下, 4=下, 5=左下, 6=左, 7=左上）。
+      // **上下左右の4方向が一番狙いやすい**ので、使う回数の多い4つをそこに置く。
+      // 斜めは隣の扇と取り違えやすいので、頻度の低いものへ回す。
+      const ITEMS = [
+        { label: "コピー", keys: "Ctrl+C" },     // 上
+        { label: "切り取り", keys: "Ctrl+X" },   // 右上
+        { label: "貼り付け", keys: "Ctrl+V" },   // 右
+        { label: "保存", keys: "Ctrl+S" },       // 右下
+        { label: "元に戻す", keys: "Ctrl+Z" },   // 下
+        { label: "やり直し", keys: "Ctrl+Y" },   // 左下
+        { label: "全選択", keys: "Ctrl+A" },     // 左
+        { label: "検索", keys: "Ctrl+F" },       // 左上
+      ];
+      const R = 100;      // 外周
+      const R0 = 30;      // 中央（取り消し）の半径
+      const STEP = 360 / ITEMS.length;
+      const GAP = 1.5;    // 扇どうしの隙間（度）
+
+      addGlow(svg);
+      const size = R * 2 + 8, c = size / 2;
+      svg.setAttribute("width", size); svg.setAttribute("height", size);
+      svg.setAttribute("viewBox", "0 0 " + size + " " + size);
+      const segs = [], labels = [];
+      ITEMS.forEach((item, i) => {
+        const mid = i * STEP;
+        const path = svgEl("path", { class: "rseg", d: ringSector(c, c, R0 + 4, R, mid - STEP / 2 + GAP, mid + STEP / 2 - GAP) });
+        const [lx, ly] = polar(c, c, (R0 + R) / 2 + 2, mid);
+        const text = svgEl("text", { class: "rlabel", x: lx, y: ly });
+        text.textContent = item.label;
+        svg.appendChild(path); svg.appendChild(text);
+        segs.push(path); labels.push(text);
+      });
+      const center = svgEl("circle", { class: "rcenter", cx: c, cy: c, r: R0 });
+      const cx = svgEl("text", { class: "rcx", x: c, y: c });
+      cx.textContent = "×";
+      svg.appendChild(center); svg.appendChild(cx);
+
+      let open = false, ox = 0, oy = 0, current = -1;
+
+      function pick(event) {
+        const rect = stage.getBoundingClientRect();
+        const dx = event.clientX - rect.left - ox, dy = event.clientY - rect.top - oy;
+        if (Math.hypot(dx, dy) < R0) return -1;           // 中央 = 取り消し
+        let ang = Math.atan2(dx, -dy) * 180 / Math.PI;     // 上0°・時計回り
+        if (ang < 0) ang += 360;
+        return Math.round(ang / STEP) % ITEMS.length;
+      }
+
+      function paint(idx) {
+        current = idx;
+        segs.forEach((s, i) => s.classList.toggle("on", i === idx));
+        labels.forEach((t, i) => t.classList.toggle("on", i === idx));
+        center.classList.toggle("on", idx === -1);
+        if (idx === -1) {
+          tip.textContent = "取り消し";
+        } else {
+          tip.textContent = ITEMS[idx].label + "（" + ITEMS[idx].keys + "）";
+        }
+      }
+
+      stage.addEventListener("pointerdown", (event) => {
+        const rect = stage.getBoundingClientRect();
+        // はみ出す位置で押されたら、全体が見える位置まで中心を寄せる
+        const pad = R + 4;
+        ox = Math.min(Math.max(event.clientX - rect.left, pad), rect.width - pad);
+        oy = Math.min(Math.max(event.clientY - rect.top, pad), rect.height - pad);
+        svg.style.left = (ox - c) + "px";
+        svg.style.top = (oy - c) + "px";
+        // 選択中の表示はメニューの**上**（指で隠れない側）。上に余白が無ければ下へ
+        const above = oy - R - 10;
+        tip.style.left = ox + "px";
+        tip.style.top = (above > 24 ? above : oy + R + 30) + "px";
+        svg.hidden = false; tip.hidden = false; hint.hidden = true;
+        open = true;
+        paint(pick(event));
+        stage.setPointerCapture(event.pointerId);
+      });
+
+      stage.addEventListener("pointermove", (event) => {
+        if (!open) return;
+        const idx = pick(event);
+        if (idx !== current) paint(idx);
+      });
+
+      const finish = (event) => {
+        if (!open) return;
+        open = false;
+        const idx = pick(event);
+        svg.hidden = true; tip.hidden = true; hint.hidden = false;
+        readout.innerHTML = idx === -1
+          ? "取り消しました（中央で離した）"
+          : "決定: <b>" + ITEMS[idx].label + "</b>（" + ITEMS[idx].keys + " に見立て）";
+      };
+      stage.addEventListener("pointerup", finish);
+      stage.addEventListener("pointercancel", () => {
+        // 途中で奪われた操作は、何も決定しない
+        open = false; svg.hidden = true; tip.hidden = true; hint.hidden = false;
+        readout.textContent = "操作が中断されました（何も決定していません）";
+      });
+    })();
+
+    // ================================================================
+    // ⑥ ジョグダイヤル
+    //
+    // 中心から見た指の角度の**差分**を足していき、15°たまるごとに1目盛り。
+    // 絶対角度で判定しないのは、つまみのどこを掴んでも同じ手ごたえにするため。
+    // 0°/360°の境目をまたいだときに ±360 飛ばないよう、差分は -180〜180 に畳む。
+    // ================================================================
+    (function () {
+      const svg = document.getElementById("jogSvg");
+      const countEl = document.getElementById("jogCount");
+      const readout = document.getElementById("jogReadout");
+      const DETENT = 15;   // 1目盛りの角度
+      const EPS = 1e-6;
+      const C = 90;
+
+      const defs = addGlow(svg, "jglow");
+      const grad = svgEl("radialGradient", { id: "knobGrad", cx: "38%", cy: "30%", r: "75%" });
+      grad.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#6a7184" }));
+      grad.appendChild(svgEl("stop", { offset: "55%", "stop-color": "#2a3040" }));
+      grad.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#141824" }));
+      defs.appendChild(grad);
+      const rim = svgEl("linearGradient", { id: "rimGrad", x1: "0", y1: "0", x2: "0", y2: "1" });
+      rim.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#3c4459" }));
+      rim.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#0b0e18" }));
+      defs.appendChild(rim);
+
+      // 台座と目盛り
+      svg.appendChild(svgEl("circle", { cx: C, cy: C, r: 86, fill: "#0b0e18" }));
+      for (let i = 0; i < 360 / DETENT; i++) {
+        const deg = i * DETENT;
+        const [x0, y0] = polar(C, C, 76, deg), [x1, y1] = polar(C, C, i % 6 === 0 ? 84 : 81, deg);
+        svg.appendChild(svgEl("line", { class: "jtick" + (i % 6 === 0 ? " major" : ""), x1: x0, y1: y0, x2: x1, y2: y1 }));
+      }
+      // 進み具合の青い弧（1周で一巡）
+      const RP = 70, CIRC = 2 * Math.PI * RP;
+      const prog = svgEl("circle", {
+        class: "jprog", cx: C, cy: C, r: RP,
+        "stroke-dasharray": CIRC, "stroke-dashoffset": CIRC,
+        transform: "rotate(-90 " + C + " " + C + ")",
+      });
+      svg.appendChild(prog);
+      // つまみ本体（回るのはここ）
+      const knob = svgEl("g");
+      knob.appendChild(svgEl("circle", { cx: C, cy: C, r: 60, fill: "url(#rimGrad)" }));
+      knob.appendChild(svgEl("circle", { cx: C, cy: C, r: 55, fill: "url(#knobGrad)" }));
+      knob.appendChild(svgEl("circle", { cx: C, cy: C - 40, r: 5, fill: "#2d8cff", filter: "url(#jglow)" }));
+      svg.appendChild(knob);
+
+      let dragging = false, lastAng = 0, total = 0, detents = 0, carry = 0;
+
+      function angleAt(event) {
+        const r = svg.getBoundingClientRect();
+        const dx = event.clientX - (r.left + r.width / 2), dy = event.clientY - (r.top + r.height / 2);
+        return Math.atan2(dx, -dy) * 180 / Math.PI;
+      }
+      function draw() {
+        knob.setAttribute("transform", "rotate(" + total + " " + C + " " + C + ")");
+        const frac = (((total % 360) + 360) % 360) / 360;
+        prog.setAttribute("stroke-dashoffset", CIRC * (1 - frac));
+        countEl.textContent = (detents > 0 ? "+" : "") + detents;
+      }
+
+      svg.addEventListener("pointerdown", (event) => {
+        dragging = true; lastAng = angleAt(event);
+        svg.setPointerCapture(event.pointerId);
+      });
+      /// 指の位置から回転を足す。**離した瞬間の位置も必ず通す**（最後の動きを取りこぼさない）。
+      function applyMove(event) {
+        const a = angleAt(event);
+        let d = a - lastAng;
+        if (d > 180) d -= 360;
+        if (d < -180) d += 360;
+        lastAng = a;
+        total += d;
+        carry += d;
+        let stepped = 0;
+        // EPS: 角度を足し合わせると 90° が 89.9999… になり、目盛りを1つ落とすため
+        while (carry >= DETENT - EPS) { carry -= DETENT; detents += 1; stepped += 1; }
+        while (carry <= -DETENT + EPS) { carry += DETENT; detents -= 1; stepped -= 1; }
+        // 目盛りを越えた瞬間だけ、指先に小さく知らせる（対応端末のみ。iPadのSafariは振動APIを持たない）
+        if (stepped !== 0 && navigator.vibrate) navigator.vibrate(4);
+        if (stepped !== 0) {
+          readout.innerHTML = (stepped > 0 ? "時計回り → <b>次</b>（ホイール下 ×" + stepped + "）"
+            : "反時計回り → <b>前</b>（ホイール上 ×" + (-stepped) + "）")
+            + "／合計 " + (detents > 0 ? "+" : "") + detents + " 目盛り";
+        }
+        draw();
+      }
+      svg.addEventListener("pointermove", (event) => {
+        if (dragging) applyMove(event);
+      });
+      svg.addEventListener("pointerup", (event) => {
+        if (!dragging) return;
+        applyMove(event);
+        dragging = false;
+      });
+      svg.addEventListener("pointercancel", () => { dragging = false; });
+      draw();
     })();
   </script>
 </body>
