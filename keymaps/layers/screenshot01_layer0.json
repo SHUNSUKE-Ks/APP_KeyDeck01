@@ -1,0 +1,7 @@
+{
+  "layer": 0,
+  "description": "画面全体を1枚保存する（WIN+PRTSC）。保存先はWindows側の「スクリーンショット」フォルダー。",
+  "keys": {
+    "SH": { "label": "スクショ", "action": {"t": "chord", "keys": ["WIN", "PRTSC"]} }
+  }
+}

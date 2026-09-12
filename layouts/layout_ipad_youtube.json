@@ -56,6 +56,15 @@
         "kind": "keyboard",
         "ref": "mouse_right"
       }
+    },
+    {
+      "id": "SEC-SHOT",
+      "row": 5,
+      "col": 11,
+      "component": {
+        "kind": "keyboard",
+        "ref": "screenshot01"
+      }
     }
   ]
 }

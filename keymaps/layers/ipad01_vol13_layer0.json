@@ -2,264 +2,42 @@
   "layer": 0,
   "description": "Vol1.3 基盤。配置の正=2026-09-05のユーザー提示スクショ（Gboard日本語配列）。\n\n■ Q〜Pの右肩の数字はヒント表示であって、そのままでは打てない\nスクショでは上フリックで数字が出るが、KeyDeckのクライアントは位置IDしか送らない設計なのでフリックを持たない。数字を打つときは『記号』(K301, layer2)へ切り替える。ラベルの1行目（小さい方）が数字なので、クライアント側の日本語モードの主従入れ替えは適用されない（数字ヒントは日本語の代替表記ではないため）。\n\n■ 各キーが実際に送るもの\n- 確定(K220) = ENTER … IMEの変換確定。英数モードでは普通の改行\n- ー(K317) = MINUS … ローマ字入力のかなモードで長音『ー』になる\n- 、(K403) = COMMA / 。(K417) = PERIOD … かなモードで全角の読点・句点になる\n- 日本語⇄英数(K401) = tg.fire … PCへALT+GRAVE（IME切替）を送りつつ、layer3（日本語モード表示）を切り替える\n- ←→(K419/K421) = LEFT/RIGHT … 文字を生まない矢印キー",
   "keys": {
-    "K101": {
-      "label": "1\nQ",
-      "action": {
-        "t": "key",
-        "vk": "Q"
-      }
-    },
-    "K103": {
-      "label": "2\nW",
-      "action": {
-        "t": "key",
-        "vk": "W"
-      }
-    },
-    "K105": {
-      "label": "3\nE",
-      "action": {
-        "t": "key",
-        "vk": "E"
-      }
-    },
-    "K107": {
-      "label": "4\nR",
-      "action": {
-        "t": "key",
-        "vk": "R"
-      }
-    },
-    "K109": {
-      "label": "5\nT",
-      "action": {
-        "t": "key",
-        "vk": "T"
-      }
-    },
-    "K111": {
-      "label": "6\nY",
-      "action": {
-        "t": "key",
-        "vk": "Y"
-      }
-    },
-    "K113": {
-      "label": "7\nU",
-      "action": {
-        "t": "key",
-        "vk": "U"
-      }
-    },
-    "K115": {
-      "label": "8\nI",
-      "action": {
-        "t": "key",
-        "vk": "I"
-      }
-    },
-    "K117": {
-      "label": "9\nO",
-      "action": {
-        "t": "key",
-        "vk": "O"
-      }
-    },
-    "K119": {
-      "label": "0\nP",
-      "action": {
-        "t": "key",
-        "vk": "P"
-      }
-    },
-    "K121": {
-      "label": "⌫",
-      "action": {
-        "t": "key",
-        "vk": "BKSP"
-      }
-    },
-    "K202": {
-      "label": "A",
-      "action": {
-        "t": "key",
-        "vk": "A"
-      }
-    },
-    "K204": {
-      "label": "S",
-      "action": {
-        "t": "key",
-        "vk": "S"
-      }
-    },
-    "K206": {
-      "label": "D",
-      "action": {
-        "t": "key",
-        "vk": "D"
-      }
-    },
-    "K208": {
-      "label": "F",
-      "action": {
-        "t": "key",
-        "vk": "F"
-      }
-    },
-    "K210": {
-      "label": "G",
-      "action": {
-        "t": "key",
-        "vk": "G"
-      }
-    },
-    "K212": {
-      "label": "H",
-      "action": {
-        "t": "key",
-        "vk": "H"
-      }
-    },
-    "K214": {
-      "label": "J",
-      "action": {
-        "t": "key",
-        "vk": "J"
-      }
-    },
-    "K216": {
-      "label": "K",
-      "action": {
-        "t": "key",
-        "vk": "K"
-      }
-    },
-    "K218": {
-      "label": "L",
-      "action": {
-        "t": "key",
-        "vk": "L"
-      }
-    },
-    "K220": {
-      "label": "確定",
-      "action": {
-        "t": "key",
-        "vk": "ENTER"
-      }
-    },
-    "K301": {
-      "label": "記号",
-      "action": {
-        "t": "mo",
-        "layer": 2
-      }
-    },
-    "K303": {
-      "label": "Z",
-      "action": {
-        "t": "key",
-        "vk": "Z"
-      }
-    },
-    "K305": {
-      "label": "X",
-      "action": {
-        "t": "key",
-        "vk": "X"
-      }
-    },
-    "K307": {
-      "label": "C",
-      "action": {
-        "t": "key",
-        "vk": "C"
-      }
-    },
-    "K309": {
-      "label": "V",
-      "action": {
-        "t": "key",
-        "vk": "V"
-      }
-    },
-    "K311": {
-      "label": "B",
-      "action": {
-        "t": "key",
-        "vk": "B"
-      }
-    },
-    "K313": {
-      "label": "N",
-      "action": {
-        "t": "key",
-        "vk": "N"
-      }
-    },
-    "K315": {
-      "label": "M",
-      "action": {
-        "t": "key",
-        "vk": "M"
-      }
-    },
-    "K317": {
-      "label": "ー",
-      "action": {
-        "t": "key",
-        "vk": "MINUS"
-      }
-    },
-    "K401": {
-      "label": "日本語\n英数",
-      "action": {
-        "t": "tg.fire",
-        "layer": 3,
-        "fire": {
-          "t": "chord",
-          "keys": [
-            "ALT",
-            "GRAVE"
-          ]
-        }
-      }
-    },
-    "K403": {
-      "label": "、",
-      "action": {
-        "t": "key",
-        "vk": "COMMA"
-      }
-    },
-    "K405": {
-      "label": "Space",
-      "action": {
-        "t": "key",
-        "vk": "SPACE"
-      }
-    },
-    "K417": {
-      "label": "。",
-      "action": {
-        "t": "key",
-        "vk": "PERIOD"
-      }
-    },
-    "K419": {
-      "label": "←",
-      "action": {
-        "t": "key",
-        "vk": "LEFT"
-      }
-    },
-    "K421": {
-      "label": "→",
-      "action": {
-        "t": "key",
-        "vk": "RIGHT"
-      }
-    }
+    "K101": { "label": "1\nQ", "action": { "t": "key", "vk": "Q" } },
+    "K103": { "label": "2\nW", "action": { "t": "key", "vk": "W" } },
+    "K105": { "label": "3\nE", "action": { "t": "key", "vk": "E" } },
+    "K107": { "label": "4\nR", "action": { "t": "key", "vk": "R" } },
+    "K109": { "label": "T", "action": { "t": "key", "vk": "T" } },
+    "K111": { "label": "6\nY", "action": { "t": "key", "vk": "Y" } },
+    "K113": { "label": "7\nU", "action": { "t": "key", "vk": "U" } },
+    "K115": { "label": "8\nI", "action": { "t": "key", "vk": "I" } },
+    "K117": { "label": "9\nO", "action": { "t": "key", "vk": "O" } },
+    "K119": { "label": "0\nP", "action": { "t": "key", "vk": "P" } },
+    "K121": { "label": "⌫", "action": { "t": "key", "vk": "BKSP" } },
+    "K202": { "label": "A", "action": { "t": "key", "vk": "A" } },
+    "K204": { "label": "S", "action": { "t": "key", "vk": "S" } },
+    "K206": { "label": "D", "action": { "t": "key", "vk": "D" } },
+    "K208": { "label": "F", "action": { "t": "key", "vk": "F" } },
+    "K210": { "label": "G", "action": { "t": "key", "vk": "G" } },
+    "K212": { "label": "H", "action": { "t": "key", "vk": "H" } },
+    "K214": { "label": "J", "action": { "t": "key", "vk": "J" } },
+    "K216": { "label": "K", "action": { "t": "key", "vk": "K" } },
+    "K218": { "label": "L", "action": { "t": "key", "vk": "L" } },
+    "K220": { "label": "確定", "action": { "t": "key", "vk": "ENTER" } },
+    "K301": { "label": "記号盤", "action": { "layer": 2, "t": "tg" } },
+    "K303": { "label": "Z", "action": { "t": "key", "vk": "Z" } },
+    "K305": { "label": "X", "action": { "t": "key", "vk": "X" } },
+    "K307": { "label": "C", "action": { "t": "key", "vk": "C" } },
+    "K309": { "label": "V", "action": { "t": "key", "vk": "V" } },
+    "K311": { "label": "B", "action": { "t": "key", "vk": "B" } },
+    "K313": { "label": "N", "action": { "t": "key", "vk": "N" } },
+    "K315": { "label": "M", "action": { "t": "key", "vk": "M" } },
+    "K317": { "label": "、", "action": { "t": "key", "vk": "COMMA" } },
+    "K401": { "label": "日本語\n英数", "action": { "fire": { "keys": ["ALT", "GRAVE"], "t": "chord" }, "layer": 3, "t": "tg.fire" } },
+    "K403": { "label": "Shift", "action": { "t": "key", "vk": "SHIFT" } },
+    "K405": { "label": "Space", "action": { "t": "key", "vk": "SPACE" } },
+    "K410": { "label": "Ctrl", "action": { "t": "key", "vk": "CTRL" } },
+    "K417": { "label": "。", "action": { "t": "key", "vk": "PERIOD" } },
+    "K419": { "label": "←", "action": { "t": "key", "vk": "LEFT" } },
+    "K421": { "label": "→", "action": { "t": "key", "vk": "RIGHT" } }
   }
 }

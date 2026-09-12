@@ -1,0 +1,14 @@
+{
+  "keymapId": "screenshot01",
+  "kind": "single",
+  "description": "スクショ1つだけの部品。右クリックの隣に置いて使う。\n\n■ 保存先はKeyDeckからは決められない\nWIN+PRTSC の保存先を決めるのはWindowsであって、KeyDeckが送れるのはキーだけ。\n目的地にしたい場所: C:\\Users\\enjoy\\InBox2026\\Inbox0821\\ScreenShot\n\n■ 保存されないときに最初に見るところ\nWindowsの「スクリーンショット」フォルダーの登録先が、存在しない場所を指していると無言で失敗する（実際に G:\\マイドライブ を指しており、そのドライブが無かった）。\nエクスプローラーで ピクチャ\\スクリーンショット を右クリック → プロパティ → 場所 → 移動、で上の目的地へ移すと、このボタンがそのまま効くようになる。",
+  "board": {
+    "cols": 1,
+    "keys": [
+      { "id": "SH", "row": 1, "col": 1 }
+    ]
+  },
+  "layerFiles": [
+    "layers/screenshot01_layer0.json"
+  ]
+}
