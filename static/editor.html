@@ -229,6 +229,24 @@
 
   /* パレット＝まだ置いていない部品の置き場。置いたものは印を付ける */
   .palette-item.placed { opacity: .62; }
+  /* 名前の下に出す素のid。人が読む名前と、JSONに書くidは別物なので両方見せる */
+  .pid { font-size: 9px; color: var(--ink-dim); margin-left: 2px; }
+  /* 部品の種類。アイコンだけでは「これは何の仲間か」が伝わらない */
+  .pkind {
+    font-size: 9px; padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+    background: var(--panel2); color: var(--ink-dim); border: 1px solid var(--line);
+  }
+  .pkind.keyboard { color: #9fd0ff; border-color: #2f4a72; }
+  .pkind.deck     { color: #d9b3ff; border-color: #4a3a6b; }
+  .pkind.trackball{ color: #9ef0c9; border-color: #2c5c46; }
+  .pkind.jog      { color: #ffd9a0; border-color: #6b4c17; }
+  #paletteSearch {
+    width: 100%; margin-bottom: 8px; padding: 5px 8px;
+    background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px;
+  }
+  #paletteSearch:focus { outline: none; border-color: var(--accent); }
+  #paletteEmpty { color: var(--ink-dim); font-size: 11px; padding: 6px 2px; }
   .palette-pane { position: relative; }
   .dropveil {
     position: absolute; inset: 0; z-index: 5; border-radius: 12px;
@@ -340,6 +358,8 @@
       <span>ここに放すと<br>置ける部品へ戻す</span>
     </div>
     <h2>置ける部品</h2>
+    <input id="paletteSearch" type="search" autocomplete="off"
+           placeholder="名前・id・種類でしぼる（例: ダイヤル / youtube / deck）">
     <div id="palette"></div>
     <p class="note">クリックすると空いている場所へ追加します。大きさはその部品の最小サイズ（右端の数字）から決まります。</p>
   </div>
@@ -1176,9 +1196,36 @@ function bindDrag(box, sec, handle) {
 }
 
 // ---- パレット ---------------------------------------------------------
+/// 人が読む名前。**説明文の1行目**から作る。
+///
+/// 部品には元々 description があり、その1行目が「これは何か」を
+/// 一言で言っている。名前用の項目を新たに足すと、同じことを2箇所に
+/// 書くことになり、片方だけ直されてずれる。
+/// 末尾の記号や（P-005 段階A）のような開発の符丁は、人が探すときには
+/// 邪魔なので落とす。
+function componentName(item) {
+  // 配信がまだ届いていない間も呼ばれうる。落とさずidで我慢する
+  if (!CONFIG) return item.ref;
+  const src = item.kind === "deck"
+    ? (CONFIG.decks || {})[item.ref]
+    : (CONFIG.keymaps || {})[item.ref];
+  const desc = src && src.description ? String(src.description) : "";
+  let head = desc.split("\n")[0].split("。")[0].trim();
+  head = head.replace(/（[^）]*）\s*$/, "").replace(/\([^)]*\)\s*$/, "").trim();
+  if (!head && item.kind === "trackball") head = "トラックボール";
+  if (!head) return item.ref;
+  return head.length > 22 ? head.slice(0, 21) + "…" : head;
+}
+
+const KIND_LABEL = {
+  keyboard: "キーボード", deck: "リスト", trackball: "トラックボール", jog: "ダイヤル",
+};
+
 function renderPalette() {
   const host = document.getElementById("palette");
   host.textContent = "";
+  const query = (document.getElementById("paletteSearch").value || "")
+    .trim().toLowerCase();
   // いま何個置かれているか。パレットを「まだ置いていない部品の置き場」として読めるようにする。
   // 同じ部品を2区画に置くこと自体は禁じない（同じキーボードなら状態も共有される仕様）。
   const placed = new Map();
@@ -1186,15 +1233,29 @@ function renderPalette() {
     placed.set(sec.component.ref, (placed.get(sec.component.ref) || 0) + 1);
   }
 
+  let shown = 0;
   for (const item of PALETTE) {
+    const label = componentName(item);
+    const kindLabel = KIND_LABEL[item.kind] || item.kind;
+    // 名前・id・種類のどれで探しても当たるようにする。
+    // 「ダイヤル」で探す人と「jog」で探す人の両方が居る。
+    if (query) {
+      const hay = (label + " " + item.ref + " " + item.kind + " " + kindLabel).toLowerCase();
+      if (!hay.includes(query)) continue;
+    }
+    shown += 1;
     const count = placed.get(item.ref) || 0;
     const row = document.createElement("div");
     row.className = "palette-item" + (count ? " placed" : "");
     const dot = iconFor(item.kind);
     const name = document.createElement("div");
     name.className = "pname";
-    name.textContent = item.ref;
-    name.title = item.ref;   // 縮んで読めなくなったとき用
+    name.appendChild(document.createTextNode(label));
+    const idTag = document.createElement("span");
+    idTag.className = "pid";
+    idTag.textContent = item.ref;
+    name.appendChild(idTag);
+    name.title = label + "（" + item.ref + " / " + kindLabel + "）";
     const lim = minCells(item.ref, model.grid);
     const meta = document.createElement("div");
     meta.className = "pmeta";
@@ -1204,6 +1265,10 @@ function renderPalette() {
       chip.textContent = count > 1 ? "配置済み ×" + count : "配置済み";
       meta.appendChild(chip);
     }
+    const kindChip = document.createElement("span");
+    kindChip.className = "pkind " + item.kind;
+    kindChip.textContent = kindLabel;
+    meta.appendChild(kindChip);
     const size = document.createElement("span");
     size.className = "psize";
     size.textContent = "最小 " + lim.cols + "×" + lim.rows;
@@ -1212,7 +1277,16 @@ function renderPalette() {
     row.addEventListener("click", () => { clearFlash(); addSection(item); });
     host.appendChild(row);
   }
+
+  if (shown === 0) {
+    const empty = document.createElement("p");
+    empty.id = "paletteEmpty";
+    empty.textContent = "「" + query + "」に当たる部品はありません。";
+    host.appendChild(empty);
+  }
 }
+
+document.getElementById("paletteSearch").addEventListener("input", renderPalette);
 
 function addSection(item) {
   // 置く大きさは**その部品の下限**から決める。3×3固定だと、
