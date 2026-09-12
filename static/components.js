@@ -50,17 +50,48 @@
     "  min-width: 0; min-height: 0;",
     "}",
 
-    // ---- 画面切り替え（タイトル兼用のプルダウン） ----
-    // 見出しと画面切り替えを2つ並べると同じ言葉が二度出る。
-    // **タイトルそのものを選べるようにして1つにまとめる。**
-    ".kd-nav-select {",
+    // ---- 画面切り替え（看板ボタン＋自前のメニュー） ----
+    ".kd-nav { position: relative; display: inline-block; }",
+    ".kd-nav-btn {",
+    "  display: inline-flex; align-items: center; gap: 7px;",
     "  background: var(--kd-panel); color: var(--kd-ink);",
     "  border: 1px solid var(--kd-line); border-radius: 8px;",
     "  font: inherit; font-size: 15px; font-weight: 700; letter-spacing: .01em;",
-    "  padding: 4px 8px; max-width: 46vw; min-height: 30px;",
+    "  padding: 4px 10px; min-height: 30px; cursor: pointer;",
     "}",
-    ".kd-nav-select:hover { border-color: var(--kd-accent); }",
-    ".kd-brand { font-size: 12px; font-weight: 600; color: var(--kd-ink-dim); margin: 0; }",
+    ".kd-nav-btn:hover { border-color: var(--kd-accent); }",
+    ".kd-nav-caret { font-size: 9px; color: var(--kd-ink-dim); transition: transform .15s ease; }",
+    ".kd-nav-btn[aria-expanded=\"true\"] .kd-nav-caret { transform: rotate(180deg); }",
+    // 開いた一覧は**明るい紙に黒文字**。背景色と文字色の両方をここで決め切る
+    // （片方を環境まかせにすると、暗い板に暗い字が乗って読めなくなる）。
+    ".kd-nav-menu {",
+    "  position: absolute; left: 0; top: calc(100% + 6px); z-index: 200;",
+    "  min-width: 210px; padding: 6px;",
+    "  background: #f7f9ff; color: #10131c;",
+    "  border: 1px solid #c9d2e6; border-radius: 10px;",
+    "  box-shadow: 0 12px 28px rgba(0,0,0,.45);",
+    "  transform-origin: top center;",
+    "  transform: translateY(-6px) scaleY(.96); opacity: 0;",
+    "  transition: transform .15s ease-out, opacity .15s ease-out;",
+    "}",
+    ".kd-nav-menu.open { transform: none; opacity: 1; }",
+    ".kd-nav-menu[hidden] { display: none !important; }",
+    ".kd-nav-group {",
+    "  font-size: 10px; font-weight: 700; color: #5b6478;",
+    "  padding: 7px 8px 2px; letter-spacing: .06em;",
+    "}",
+    ".kd-nav-item {",
+    "  display: block; width: 100%; text-align: left;",
+    "  background: transparent; color: #10131c; border: 0; border-radius: 7px;",
+    "  font: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer;",
+    "}",
+    ".kd-nav-item:hover { background: #dfe8fb; }",
+    ".kd-nav-item.current { font-weight: 700; }",
+    ".kd-nav-item[disabled] { color: #97a0b5; cursor: default; }",
+    ".kd-nav-item[disabled]:hover { background: transparent; }",
+    "@media (prefers-reduced-motion: reduce) {",
+    "  .kd-nav-menu, .kd-nav-caret { transition: none; }",
+    "}",
 
     // ---- ダイヤル（jog） ----
     ".kd-surface .jogwrap { display: flex; flex-direction: column; align-items: center;",
@@ -636,48 +667,96 @@
   /// **表示は常に「KeyDeck」のまま**にする。ここは看板であって現在地表示ではない。
   /// いまどの画面に居るかは候補の側に ● を付けて示す。
   /// （選ぶと画面が変わって読み込み直されるので、表示は自然と「KeyDeck」へ戻る）
+  /// host に「KeyDeck」と出ているボタンを1つ描く。押すと候補が上から滑り出て、
+  /// 選ぶと token を引き継いで画面遷移する。
+  ///
+  /// **表示は常に「KeyDeck」のまま**にする。ここは看板であって現在地表示ではない。
+  /// いまどの画面に居るかは候補の側に ● を付けて示す。
+  ///
+  /// 標準の <select> をやめて自前で組んでいる理由は2つ。
+  ///   1. 開いた一覧の配色を指定できない（環境によって字が読めない組合せになる）
+  ///   2. 開くときの動きを付けられない
   function renderNav(host, currentPath, token) {
     injectStyles(host.ownerDocument);
     var doc = host.ownerDocument;
-    var sel = doc.createElement("select");
-    sel.setAttribute("aria-label", "画面を切り替え");
-    sel.className = "kd-nav-select";
 
-    var brand = doc.createElement("option");
-    brand.value = "";
-    brand.textContent = "KeyDeck";
-    brand.selected = true;
-    sel.appendChild(brand);
+    var wrap = doc.createElement("div");
+    wrap.className = "kd-nav";
+
+    var btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "kd-nav-btn";
+    btn.setAttribute("aria-haspopup", "true");
+    btn.setAttribute("aria-expanded", "false");
+    btn.appendChild(doc.createTextNode("KeyDeck"));
+    var caret = doc.createElement("span");
+    caret.className = "kd-nav-caret";
+    caret.textContent = "\u25bc";
+    btn.appendChild(caret);
+
+    var menu = doc.createElement("div");
+    menu.className = "kd-nav-menu";
+    menu.hidden = true;
 
     NAV_TREE.forEach(function (dept) {
-      var group = host.ownerDocument.createElement("optgroup");
-      group.label = dept.dept;
+      var label = doc.createElement("div");
+      label.className = "kd-nav-group";
+      label.textContent = dept.dept;
+      menu.appendChild(label);
+
       if (dept.items.length === 0) {
-        var placeholder = doc.createElement("option");
-        placeholder.textContent = "（未実装）";
-        placeholder.disabled = true;
-        group.appendChild(placeholder);
+        var none = doc.createElement("button");
+        none.type = "button";
+        none.className = "kd-nav-item";
+        none.disabled = true;
+        none.textContent = "（未実装）";
+        menu.appendChild(none);
       }
       dept.items.forEach(function (item) {
-        var opt = doc.createElement("option");
-        opt.value = item.path;
-        // いま居る画面には印を付ける。選択状態にはしない（看板を上書きしてしまうため）
-        opt.textContent = (item.path === currentPath ? "● " : "　") + item.label;
-        group.appendChild(opt);
+        var row = doc.createElement("button");
+        row.type = "button";
+        row.className = "kd-nav-item" + (item.path === currentPath ? " current" : "");
+        row.textContent = (item.path === currentPath ? "● " : "　") + item.label;
+        row.addEventListener("click", function () {
+          var sep = item.path.indexOf("?") >= 0 ? "&" : "?";
+          global.location.href = item.path + sep + "token=" + encodeURIComponent(token || "");
+        });
+        menu.appendChild(row);
       });
-      sel.appendChild(group);
     });
 
-    sel.addEventListener("change", function () {
-      var path = sel.value;
-      // 看板（値なし）に戻す。遷移に失敗しても表示が画面名のまま残らないように
-      sel.selectedIndex = 0;
-      if (!path) return;
-      var sep = path.indexOf("?") >= 0 ? "&" : "?";
-      window.location.href = path + sep + "token=" + encodeURIComponent(token || "");
+    var closeTimer = null;
+    function openMenu() {
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      // hidden を外した直後に class を足しても動きは出ない（同じ描画で確定してしまう）。
+      // 1コマ待ってから「開いた」状態にする。
+      global.requestAnimationFrame(function () { menu.classList.add("open"); });
+    }
+    function closeMenu() {
+      if (menu.hidden) return;
+      menu.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+      // しぼむ動きが終わってから消す。すぐ消すと動きが見えない
+      closeTimer = global.setTimeout(function () { menu.hidden = true; closeTimer = null; }, 160);
+    }
+
+    btn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      if (menu.hidden) openMenu(); else closeMenu();
+    });
+    // 外を触ったら閉じる。メニューの中は閉じない
+    doc.addEventListener("pointerdown", function (event) {
+      if (!wrap.contains(event.target)) closeMenu();
+    });
+    doc.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") closeMenu();
     });
 
-    host.appendChild(sel);
+    wrap.appendChild(btn);
+    wrap.appendChild(menu);
+    host.appendChild(wrap);
   }
 
   function showTokenNotice(doc) {

@@ -163,11 +163,16 @@
        `?embed=1` で開かれたとき、この面を `/layout` の1区画にそのまま埋め込めるよう、
        ヘッダ・パラメータUI・下半分のプレースホルダを隠して盤面だけにする。
        ボールの描画・慣性・ジェスチャー（Core/View/Gesture）には一切触っていない。 */
+    /* 区画に埋め込むとき隠すのは、見出し・状態表示・下半分の帯だけ。
+       **歯車と調整パネルは残す。** ここまで隠していたため、レイアウトに置いた
+       トラックボールは感度も慣性も変えられない飾りになっていた。 */
     body.embed .tb-head,
-    body.embed #paramToggle,
-    body.embed .ui-panel,
     body.embed #stateOut,
     body.embed #lower-half { display: none !important; }
+    /* 区画は単独ページより狭いので、パネルの寸法をそれに合わせる */
+    body.embed .ui-panel {
+      max-height: calc(100% - 72px); width: clamp(190px, 92%, 300px);
+    }
     body.embed #stage { height: 100%; }
     /* 単独ページでは下半分に説明帯（#lower-half）が居るため #ball は height:50%。
        埋め込みではその帯を隠すので、**そのままだと球が上半分に寄ったまま**になる。
@@ -283,6 +288,15 @@
     // P-005 段階B: `/layout` の区画に埋め込まれているときは、盤面だけを出す。
     if (new URLSearchParams(location.search).get("embed")) {
       document.body.classList.add("embed");
+      // 区画では最初は球だけを見せる。調整は歯車から開く
+      // （単独ページは今までどおり開いた状態で始める）。
+      var embedPanel = document.getElementById("paramPanel");
+      var embedToggle = document.getElementById("paramToggle");
+      if (embedPanel) embedPanel.hidden = true;
+      if (embedToggle) {
+        embedToggle.classList.remove("on");
+        embedToggle.setAttribute("aria-expanded", "false");
+      }
     }
 
     const params = new URLSearchParams(location.search);
