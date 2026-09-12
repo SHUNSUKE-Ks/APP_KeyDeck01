@@ -176,6 +176,7 @@
            title="長押しすると、いま選んでいるキーボードを『最初に出すもの』にします">keyboard</label>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
+    <button id="addKeyBtn" type="button" title="空いている場所に1つ足します。空きが無ければ1段増やします">＋ キーを追加</button>
     <button id="undoBtn" type="button">1つ戻す</button>
     <button id="revertBtn" type="button">全部戻す</button>
     <button id="saveBtn" type="button" class="primary">保存</button>
@@ -290,6 +291,27 @@
     function updateUndoBtn() {
       const b = document.getElementById("undoBtn");
       if (b) b.disabled = undoStack.length === 0;
+    }
+
+    /// 空いている場所を左上から探す。**盤面が埋まっていたら1段下に増やす。**
+    ///
+    /// これが無いと、隙間の無い盤面（例: 3キーが1行に並んだだけの盤面）には
+    /// キーを1つも足せない。部品を空きへ落とす操作はあるが、そもそも空きが
+    /// 無ければ使えなかった。
+    function findFreeSpot(size) {
+      if (!boardDraft) return null;
+      const cols = boardDraft.cols;
+      const rows = boardDraft.keys.length
+        ? Math.max(...boardDraft.keys.map((k) => k.row + (k.rowSpan || 1) - 1))
+        : 0;
+      for (let r = 1; r <= rows; r += 1) {
+        for (let c = 1; c + (size.colSpan || 1) - 1 <= cols; c += 1) {
+          const spot = { row: r, col: c };
+          if (cellIsFree(spot, size.colSpan, size.rowSpan, null)) return spot;
+        }
+      }
+      // どこも空いていない。1段増やして左端へ置く
+      return { row: rows + 1, col: 1 };
     }
 
     /// 読み直したら、それが新しい出発点。履歴は捨てる。
@@ -1086,6 +1108,24 @@
       layerId = Number(e.target.value); picked = null;
       loadDraft(); clearHistory(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
+    document.getElementById("addKeyBtn").addEventListener("click", () => {
+      if (!boardDraft) { flash("盤面が読み込まれていません"); return; }
+      const size = standardKeySize();
+      const spot = findFreeSpot(size);
+      if (!spot) { flash("置ける場所が見つかりません"); return; }
+      snapshot();
+      const id = newKeyId(spot.row, spot.col);
+      boardDraft.keys.push({
+        id, row: spot.row, col: spot.col,
+        colSpan: size.colSpan, rowSpan: size.rowSpan,
+      });
+      // 中身は空のまま置く。何を入れるかは、そのあと部品から選ぶ
+      draft[id] = { label: "", action: { t: "none" } };
+      renderBoard();
+      flash(id + " を 行" + spot.row + " 列" + spot.col
+        + " に足しました。上の部品から中身を入れてください。");
+    });
+
     document.getElementById("undoBtn").addEventListener("click", undo);
 
     document.getElementById("revertBtn").addEventListener("click", () => {

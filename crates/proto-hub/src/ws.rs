@@ -1419,7 +1419,14 @@ fn active_layers_snapshot(s: &mut HubState, surface: SurfaceKind, keymap_id: Opt
 fn resolved_summary(resolved: &Resolved) -> String {
     match resolved {
         Resolved::Fire(action) | Resolved::FireAndLayerChanged(action) => {
-            canonical_command_id(action).unwrap_or_else(|| "(no command id)".to_string())
+            canonical_command_id(action).unwrap_or_else(|| match action {
+                // OSへは何も送らないので許可リスト用のidを持たない。
+                // それでも「何が起きたか」は追えるようにしておく。
+                Action::LayoutSwitch { id, .. } => {
+                    format!("layout.switch:{}", id.as_deref().unwrap_or("(既定)"))
+                }
+                other => format!("(no command id: {other:?})"),
+            })
         }
         Resolved::LayerChanged => "layer-change".to_string(),
         Resolved::Ignored => "ignored".to_string(),
@@ -1813,6 +1820,46 @@ async fn release_held_keys(state: &SharedState, client_id: ClientId) {
 
 async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
     match &action {
+        // 表示するboardを切り替える。OSへは何も送らない（画面の話なので）。
+        // `fire`があれば**切り替えを先に配ってから**それを撃つ。順序が逆だと、
+        // アプリが前に出た直後に画面がまだ古いboardのまま、という瞬間ができる。
+        Action::LayoutSwitch { id, fire } => {
+            // 実在しないboardへ移すと、端末が空の画面に当たって原因が分からなくなる
+            let resolved = {
+                let s = state.lock().unwrap();
+                match id {
+                    Some(want) if !s.layouts.contains_key(want) => {
+                        drop(s);
+                        emit_error(
+                            state,
+                            client_id,
+                            "T3-3",
+                            INTERNAL,
+                            format!("layout.switch: unknown layoutId '{want}'"),
+                            json!({ "layoutId": want }),
+                        );
+                        return;
+                    }
+                    Some(want) => Some(want.clone()),
+                    // null は「既定へ戻る」。既定が決まっていなければそのまま null を配る
+                    None => s.default_layout.clone(),
+                }
+            };
+            let wire = crate::protocol::LayoutSwitchWire { layout_id: resolved.clone() };
+            match serde_json::to_string(&ServerMessage::LayoutSwitch(wire)) {
+                Ok(text) => {
+                    tracing::info!(chk = "LAYOUTSW", layout = ?resolved, "layout switch; broadcasting");
+                    let s = state.lock().unwrap();
+                    s.broadcast_to(SurfaceKind::Layout, &text);
+                }
+                Err(error) => {
+                    tracing::error!(code = INTERNAL, cause = %error, "failed to serialize layout.switch");
+                }
+            }
+            if let Some(inner) = fire {
+                Box::pin(fire_action(state, client_id, (**inner).clone())).await;
+            }
+        }
         Action::KeymapSwitch { id } => switch_keymap(state, client_id, id.clone()).await,
         Action::KeymapReset => switch_keymap(state, client_id, "default".to_string()).await,
         // マウスのクリックもここを通す。ここに無いと

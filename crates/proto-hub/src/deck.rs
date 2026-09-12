@@ -196,6 +196,49 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
             // T15（brief/keydeck_trackball_gestures_v0.7.md §4の事前警告どおり、今回は
             // 最初からここを直す）: MouseClick/MouseDoubleClick/MouseButton/MouseScrollも
             // 同じ扱い（vk辞書を経由しない・既存Deck JSONには出現しないため無挙動変化）。
+            // 表示するboardを切り替えるだけなので、Deckに置いても問題ない
+            // （押した瞬間に1回で終わる。離す機会を必要としない）。
+            // 中の fire は Key/Chord と同じ規則で vk を検証する。
+            Action::LayoutSwitch { fire, .. } => {
+                if let Some(inner) = fire.as_ref() {
+                    match inner.as_ref() {
+                        Action::Key { vk } => {
+                            if !is_known_vk(vk) {
+                                return Err(DeckError::new(
+                                    LOAD_VK_UNKNOWN,
+                                    format!(
+                                        "{source}: slot '{}': unknown vk '{vk}' in layout.switch",
+                                        slot.slot_id
+                                    ),
+                                ));
+                            }
+                        }
+                        Action::Chord { keys } => {
+                            for vk in keys {
+                                if !is_known_vk(vk) {
+                                    return Err(DeckError::new(
+                                        LOAD_VK_UNKNOWN,
+                                        format!(
+                                            "{source}: slot '{}': unknown vk '{vk}' in layout.switch chord",
+                                            slot.slot_id
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                        Action::Text { .. } => {}
+                        other => {
+                            return Err(DeckError::new(
+                                LOAD_SCHEMA_INVALID,
+                                format!(
+                                    "{source}: slot '{}': layout.switch.fire must be key/chord/text, got {other:?}",
+                                    slot.slot_id
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
             Action::None
             | Action::KeymapSwitch { .. }
             | Action::KeymapReset

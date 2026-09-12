@@ -10,7 +10,6 @@
         "tap1-right": { "t": "mouse.click",       "button": "right" },
         "dtap1":      { "t": "mouse.dblclick",    "button": "left" },
         "tap2-left":  { "t": "chord",             "keys": ["CTRL", "V"] },
-        "tap3":       { "t": "chord",             "keys": ["ALT", "LEFT"] },
         "hold1":      { "t": "mouse.button.hold", "button": "left" },
         "copy1":      { "t": "chord",             "keys": ["CTRL", "C"] }
       }

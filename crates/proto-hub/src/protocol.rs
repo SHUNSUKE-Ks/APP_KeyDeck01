@@ -143,9 +143,19 @@ pub struct SurfaceConfig<'a> {
     pub default_layout: Option<&'a str>,
 }
 
+/// 表示するboardを切り替えろ、という知らせ。
+/// `layoutId`が無ければ「最初に出すboard（既定）へ戻れ」。
+#[derive(Debug, Clone, Serialize)]
+pub struct LayoutSwitchWire {
+    #[serde(rename = "layoutId", skip_serializing_if = "Option::is_none")]
+    pub layout_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum ServerMessage<'a> {
+    #[serde(rename = "layout.switch")]
+    LayoutSwitch(LayoutSwitchWire),
     #[serde(rename = "surface.config")]
     SurfaceConfig(SurfaceConfig<'a>),
     #[serde(rename = "layer.state")]

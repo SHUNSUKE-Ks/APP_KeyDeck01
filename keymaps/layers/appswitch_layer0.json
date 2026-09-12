@@ -1,0 +1,8 @@
+{
+  "layer": 0,
+  "description": "アプリ切り替えの割当。A1はタスクバー1番目のアプリを前に出しつつ ipad_youtube へ移る。A2は id を省いてあるので、Hubが決めた既定のboardへ戻る。",
+  "keys": {
+    "A1": { "label": "YouTube\n へ", "action": {"t": "layout.switch", "id": "ipad_youtube", "fire": {"t": "chord", "keys": ["WIN", "1"]}} },
+    "A2": { "label": "既定\n へ戻る", "action": {"t": "layout.switch"} }
+  }
+}

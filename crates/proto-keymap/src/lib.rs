@@ -208,6 +208,19 @@ pub enum Action {
     /// `fire` に置けるのは葉アクション（key/chord/text）だけ。mo/tg/tg.fire/keymap.* の
     /// 入れ子はロード時に拒否する（再帰と、1打鍵での状態二重変更を防ぐため）。
     /// Deck面には置けない（mo/tgと同じ扱い。`proto-hub::deck` が拒否する）。
+    /// 表示するboardを切り替える。`fire`があれば**先に切り替えてから**それも撃つ。
+    ///
+    /// 「アプリを前に出すキーを送る」と「そのアプリ用のboardへ移る」を
+    /// 1つのボタンでやるための形。Hubが前面のアプリを監視するのではなく、
+    /// **人が押した時だけ**動くので、Hubは画面の中身を一切見ない。
+    #[serde(rename = "layout.switch")]
+    LayoutSwitch {
+        /// 移る先のboard。`null` は「最初に出すboard（既定）へ戻る」。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fire: Option<Box<Action>>,
+    },
     #[serde(rename = "tg.fire")]
     TgFire { layer: u8, fire: Box<Action> },
 }
@@ -736,6 +749,49 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                         }
                     }
                 }
+                // 中の fire は tg.fire と同じ規則で検証する。
+                // 外側の id（移る先のboard）はキーマップ側からは確認できないので、
+                // 起動時に layouts を全部読み終えた startup 側で確認する。
+                Action::LayoutSwitch { fire, .. } => {
+                    if let Some(inner) = fire.as_ref() {
+                        match inner.as_ref() {
+                            Action::Key { vk } => {
+                                if !is_known_vk(vk) {
+                                    return Err(KeymapError::new(
+                                        LOAD_VK_UNKNOWN,
+                                        format!(
+                                            "{source}: layer {} key '{key_id}': unknown vk '{vk}' in layout.switch",
+                                            layer.id
+                                        ),
+                                    ));
+                                }
+                            }
+                            Action::Chord { keys } => {
+                                for vk in keys {
+                                    if !is_known_vk(vk) {
+                                        return Err(KeymapError::new(
+                                            LOAD_VK_UNKNOWN,
+                                            format!(
+                                                "{source}: layer {} key '{key_id}': unknown vk '{vk}' in layout.switch chord",
+                                                layer.id
+                                            ),
+                                        ));
+                                    }
+                                }
+                            }
+                            Action::Text { .. } => {}
+                            other => {
+                                return Err(KeymapError::new(
+                                    LOAD_SCHEMA_INVALID,
+                                    format!(
+                                        "{source}: layer {} key '{key_id}': layout.switch.fire must be key/chord/text, got {other:?}",
+                                        layer.id
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
                 Action::Trans
                 | Action::None
                 | Action::KeymapSwitch { .. }
@@ -897,7 +953,9 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
             vk: vk.clone(),
             down: matches!(edge, Edge::Down),
         }),
-        Action::Key { .. }
+        // 押した瞬間に1回だけ。離したときは何もしない
+        Action::LayoutSwitch { .. }
+        | Action::Key { .. }
         | Action::Chord { .. }
         | Action::KeyButton { .. }
         | Action::Text { .. }

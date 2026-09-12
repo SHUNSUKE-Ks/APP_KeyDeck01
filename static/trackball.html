@@ -299,7 +299,7 @@
     <div id="tapzones" aria-hidden="true">
       <div class="rzone"></div>
       <div class="line"></div>
-      <div class="zlabel l">左: 1本=左クリック / 2本タップ=貼り付け / 2本長押し=コピー / 3本=戻る</div>
+      <div class="zlabel l">左: 1本=左クリック / 2本タップ=貼り付け / 2本長押し=コピー</div>
       <div class="zlabel r">右: 右クリック・スクロール</div>
     </div>
     <div id="lower-half">（下半分：将来ここにキーボード面）</div>
@@ -1012,7 +1012,6 @@
           else if (sessionMaxCount === 2 && sessionTapEligible && sessionSide === "left") {
             hubSink.sendGesture("tap2-left");
           }
-          else if (sessionMaxCount === 3 && sessionTapEligible) hubSink.sendGesture("tap3");
         }
         sessionMaxCount = 0;
         sessionTapEligible = true;

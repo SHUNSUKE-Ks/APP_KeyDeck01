@@ -664,6 +664,25 @@
 
     function handleServerMessage(data) {
       switch (data.type) {
+        // ボタンから「このboardへ移れ」と言われたとき。
+        // 押した人の意図なので、URLの ?id= より優先して移る。
+        case "layout.switch": {
+          const want = data.layoutId || null;
+          if (!want) { log("LAYOUTSW", "OK", "既定が決まっていないので移らない"); break; }
+          if (!config || !config.layouts || !config.layouts[want]) {
+            log("ERR", "LAYOUTSW", "知らないboardなので移らない: " + want);
+            break;
+          }
+          layoutId = want;
+          savePref(STORE_LAYOUT, layoutId);
+          const u = new URL(location.href);
+          u.searchParams.set("id", layoutId);
+          history.replaceState(null, "", u);
+          render();
+          setStatus("board: " + layoutId);
+          log("LAYOUTSW", "OK", "boardを切り替えた", { layoutId });
+          break;
+        }
         case "surface.config":
           // Hubが配るテーマを当てる。切り替えると全端末が同時に変わる
           KDComponents.applyTheme(data.theme);

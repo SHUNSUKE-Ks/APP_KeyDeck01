@@ -1,0 +1,15 @@
+{
+  "keymapId": "appswitch",
+  "kind": "single",
+  "description": "アプリ切り替えボタン。押すと『そのアプリを前に出す』と『そのアプリ用のboardへ移る』をまとめてやる。\n\n■ Hubは画面を見ていない\n前面のアプリをHubが監視する作りにはしていない。**人が押した時だけ**動くので、Hubはあなたが今何を使っているかを一切知らない。\n\n■ Win+数字はタスクバーの順番\nfire に入れている Win+1 などは『タスクバーの左から何番目を開くか』。並べ替えると行き先も変わるので、タスクバー側を固定してから割り当てること。\n\n■ 戻る\n『既定へ戻る』は layout.switch の id を省くと、Hubが決めた既定のboardへ戻る。",
+  "board": {
+    "cols": 2,
+    "keys": [
+      { "id": "A1", "row": 1, "col": 1 },
+      { "id": "A2", "row": 1, "col": 2 }
+    ]
+  },
+  "layerFiles": [
+    "layers/appswitch_layer0.json"
+  ]
+}
