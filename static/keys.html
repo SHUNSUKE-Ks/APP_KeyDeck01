@@ -171,10 +171,11 @@
 <body>
   <div class="head">
     <span id="navHost"></span>
-    <label class="cap" for="keymapSel" id="keymapCap"
-           style="cursor:pointer;font-size:10px;color:var(--ink-dim);letter-spacing:.06em"
-           title="長押しすると、いま選んでいるキーボードを『最初に出すもの』にします">keyboard</label>
+    <label class="cap" for="keymapSel"
+           style="font-size:10px;color:var(--ink-dim);letter-spacing:.06em">keyboard</label>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
+    <button id="setDefaultKeymapBtn" type="button"
+            title="いま選んでいるキーボードを『最初に出すもの』にします">default にする</button>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
     <button id="addKeyBtn" type="button" title="空いている場所に1つ足します。空きが無ければ1段増やします">＋ キーを追加</button>
     <button id="undoBtn" type="button">1つ戻す</button>
@@ -217,10 +218,8 @@
       })
       .catch(() => { /* 取れなくても編集はできる */ });
 
-    KDComponents.bindLongPressDefault(
-      document.getElementById("keymapCap"),
-      () => keymapId,
-      async (id) => {
+    /// **長押しではなくボタン。** 押せば結果が出る方が確かめられる。
+    async function setDefaultKeymap(id) {
         try {
           const res = await fetch("/api/defaults?token=" + encodeURIComponent(token), {
             method: "POST", headers: { "content-type": "application/json" },
@@ -234,7 +233,40 @@
         } catch (error) {
           flash("通信エラー: " + error);
         }
-      });
+    }
+
+    /// 新しいキーボードを1枚作る。
+    /// 名前の初期値は keyboard_1（既にあれば次の番号）。
+    async function createKeymap() {
+      const ids = Object.keys((CONFIG && CONFIG.keymaps) || {});
+      const suggested = nextKeymapName(ids);
+      const raw = prompt("新しいキーボードの名前（英小文字・数字・_ のみ）", suggested);
+      if (raw === null) return;
+      const id = raw.trim();
+      if (!/^[a-z0-9_]{1,64}$/.test(id)) {
+        flash("名前に使えるのは英小文字・数字・_ だけです（1〜64文字）");
+        return;
+      }
+      try {
+        const res = await fetch("/api/keymap/new?token=" + encodeURIComponent(token), {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ keymapId: id }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          flash("作れません: " + (body.code || res.status) + " — " + (body.cause || ""));
+          return;
+        }
+        // 保存の再配信で一覧が更新される。そこへ切り替える
+        keymapId = id;
+        flash(id + " を作りました（空のキーが3つ置いてあります）");
+      } catch (error) {
+        flash("通信エラー: " + error);
+      }
+    }
+
+    document.getElementById("setDefaultKeymapBtn")
+      .addEventListener("click", () => setDefaultKeymap(keymapId));
 
     function log(kind, code, message, context) {
       const line = "[KD][" + kind + "][" + code + "] " + message;
@@ -1024,6 +1056,20 @@
     // 選択（キーボード / レイヤー）
     // ================================================================
 
+    /// キーボード一覧の中に置く「新規」の印。実在のidと衝突しない形。
+    const NEW_KEYMAP = "__new_keymap__";
+
+    /// 次に使う名前。keyboard_1 から始め、空いている番号まで進める。
+    /// 名前を考えるのは後でよく、まず作って触れる方が早いため。
+    function nextKeymapName(ids) {
+      const used = new Set(ids);
+      for (let n = 1; n < 1000; n += 1) {
+        const name = "keyboard_" + n;
+        if (!used.has(name)) return name;
+      }
+      return "keyboard_" + Date.now();
+    }
+
     /// "ipad01_vol13" → { base: "ipad01", ver: 13 }。版が付いていなければ 0。
     function versionOf(id) {
       const m = /^(.*?)_vol(\d+)$/.exec(id);
@@ -1034,14 +1080,14 @@
     let HUB_DEFAULT_KEYMAP = null;
 
     /// URLで指定が無いときに最初に出すキーボード。
-    /// 1. **Hubが決めた既定**があれば、それ（全端末で揃う）
-    /// 2. 無ければ前にこの画面で選んだもの
-    /// 3. それも無ければ**版が一番新しいもの**（vol13 > vol12 > 版なし）
-    /// 古い版が既定だと、直したつもりが実機に出ない事故になる。
+    ///
+    /// **決め手はHubの既定ひとつだけ。** 以前は「端末が前に選んだもの」も
+    /// 見ていたが、端末ごとに違う物が出るうえ、どの規則で選ばれたのかが
+    /// 本人にも分からなくなっていた。
+    /// 既定が決まっていないときだけ、版が一番新しいものを仮に出す
+    /// （古い版が出ると、直したつもりが実機に出ない事故になるため）。
     function defaultKeymapId(ids) {
       if (HUB_DEFAULT_KEYMAP && ids.includes(HUB_DEFAULT_KEYMAP)) return HUB_DEFAULT_KEYMAP;
-      const last = localStorage.getItem("keydeck.lastKeymap");
-      if (last && ids.includes(last)) return last;
       return ids.reduce((best, id) =>
         versionOf(id).ver > versionOf(best).ver ? id : best, ids[0]);
     }
@@ -1064,6 +1110,14 @@
         if (id === keymapId) o.selected = true;
         keymapSel.appendChild(o);
       }
+      // 新規はこの一覧の中に置く（boardの一覧と同じ形にそろえる）
+      const sep = document.createElement("option");
+      sep.disabled = true; sep.textContent = "──────────";
+      keymapSel.appendChild(sep);
+      const add = document.createElement("option");
+      add.value = NEW_KEYMAP;
+      add.textContent = "＋ 新しいキーボードを作る…";
+      keymapSel.appendChild(add);
       if (!keymapId && ids.length) {
         keymapId = defaultKeymapId(ids);
         keymapSel.value = keymapId;
@@ -1099,8 +1153,12 @@
     }
 
     document.getElementById("keymapSel").addEventListener("change", (e) => {
+      if (e.target.value === NEW_KEYMAP) {
+        e.target.value = keymapId;      // 看板を戻してから作る
+        createKeymap();
+        return;
+      }
       keymapId = e.target.value; picked = null;
-      localStorage.setItem("keydeck.lastKeymap", keymapId);
       fillSelectors(); loadDraft(); loadBoardDraft(); clearHistory();
       rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });

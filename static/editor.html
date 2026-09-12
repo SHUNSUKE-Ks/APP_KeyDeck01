@@ -321,9 +321,10 @@
 <div class="head">
   <span id="navHost"></span>
 
-  <label class="cap" for="layoutSel" id="boardCap"
-         style="cursor:pointer" title="長押しすると、いま選んでいるboardを『最初に出すもの』にします">board</label>
+  <label class="cap" for="layoutSel">board</label>
   <select id="layoutSel" aria-label="表示するboard"></select>
+  <button id="setDefaultBtn" type="button"
+          title="いま選んでいるboardを『最初に出すもの』にします">default にする</button>
   <!-- **いま編集しているレイアウトの**QR。ここに置くのが要点で、
        ギャラリーから別のレイアウトのQRを読んでしまう取り違えを防ぐ
        （実際に ipad_v13 を編集して ipad_main のQRを読む事故が起きた）。 -->
@@ -1348,10 +1349,10 @@ async function loadDefaults() {
   } catch (error) { /* 取れなくても編集はできる */ }
 }
 
-KDComponents.bindLongPressDefault(
-  document.getElementById("boardCap"),
-  () => layoutId,
-  async (id) => {
+/// いま選んでいる board を「最初に出すもの」にする。
+/// **長押しではなくボタンにしてある。** 長押しは押した本人にしか分からず、
+/// 「いま設定されたのか」も分からない。押せば結果が出るボタンの方が確かめられる。
+async function setDefaultBoard(id) {
     try {
       const res = await fetch("/api/defaults?token=" + encodeURIComponent(token), {
         method: "POST", headers: { "content-type": "application/json" },
@@ -1365,7 +1366,10 @@ KDComponents.bindLongPressDefault(
     } catch (error) {
       notifyReverted("通信エラー: " + error);
     }
-  });
+}
+
+document.getElementById("setDefaultBtn")
+  .addEventListener("click", () => setDefaultBoard(layoutId));
 
 loadDefaults();
 

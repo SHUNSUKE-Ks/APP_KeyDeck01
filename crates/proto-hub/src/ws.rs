@@ -70,6 +70,8 @@ pub fn router(state: SharedState) -> Router {
         // キーの位置編集（P-007 段階B）: 盤面（board）だけを書き戻す。
         // 不変条件6の keymaps/keymap_<id>.json 追加ぶん（2026-09-07 裁定）。
         .route("/api/keymap/board/save", post(board_save_handler))
+        // 新しいキーボードを1枚作る。書き先は許可済みの2箇所だけ。
+        .route("/api/keymap/new", post(keymap_new_handler))
         .route("/ws", get(ws_handler))
         .route("/api/deck/export", get(deck_export))
         .route_service("/kb", ServeFile::new("static/kb.html"))
@@ -1122,6 +1124,181 @@ async fn board_save_handler(
             "path": path.display().to_string(),
             "keys": keys,
         })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct KeymapNewBody {
+    #[serde(rename = "keymapId")]
+    keymap_id: String,
+}
+
+/// 新しいキーボードを1枚作る。
+///
+/// 書くのは `keymaps/keymap_<id>.json` と `keymaps/layers/<id>_layer0.json` の
+/// **2つだけ**。どちらも書き込みを許されている場所で、ファイル名は
+/// クライアントから受け取らず、検証済みのidから組み立てる。
+///
+/// 空の盤面はロード時に弾かれるので、押せるキーを3つ置いた状態で作る。
+/// 中身は空（none）にしておき、何を入れるかは編集画面で選ばせる。
+async fn keymap_new_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    Json(body): Json<KeymapNewBody>,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting keymap new");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+
+    let id = body.keymap_id.trim().to_string();
+    // layoutId と同じ規則。**パスを組み立てる前の唯一の関門**
+    if !layout_id_is_safe(&id) {
+        let cause = format!("keymapId '{id}' must match [a-z0-9_] and be 1..=64 chars");
+        tracing::error!(chk = "P007N", code = BOARD_SAVE_REJECTED, cause = %cause, "keymap new rejected");
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": BOARD_SAVE_REJECTED, "cause": cause })),
+        )
+            .into_response();
+    }
+    {
+        let s = state.lock().unwrap();
+        if s.keymaps.contains_key(&id) {
+            let cause = format!("keymap '{id}' already exists");
+            tracing::error!(chk = "P007N", code = BOARD_SAVE_REJECTED, cause = %cause, "keymap new rejected");
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "code": BOARD_SAVE_REJECTED, "cause": cause })),
+            )
+                .into_response();
+        }
+    }
+
+    let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
+    let manifest_path = keymaps_dir.join(format!("keymap_{id}.json"));
+    let layer_rel = format!("layers/{id}_layer0.json");
+    let layer_path = keymaps_dir.join(&layer_rel);
+
+    // 既にファイルだけ在る（読み込みに失敗していた等）場合は上書きしない
+    if manifest_path.exists() || layer_path.exists() {
+        let cause = format!("{} or {} already exists on disk", manifest_path.display(), layer_path.display());
+        tracing::error!(chk = "P007N", code = BOARD_SAVE_REJECTED, cause = %cause, "keymap new rejected");
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": BOARD_SAVE_REJECTED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    let manifest = format!(
+        concat!(
+            "{{\n",
+            "  \"keymapId\": \"{id}\",\n",
+            "  \"kind\": \"single\",\n",
+            "  \"description\": \"新しいキーボード。1行目がこの部品の名前になるので、",
+            "何のための盤面かを短く書き換えること。\",\n",
+            "  \"board\": {{\n",
+            "    \"cols\": 3,\n",
+            "    \"keys\": [\n",
+            "      {{ \"id\": \"K101\", \"row\": 1, \"col\": 1 }},\n",
+            "      {{ \"id\": \"K102\", \"row\": 1, \"col\": 2 }},\n",
+            "      {{ \"id\": \"K103\", \"row\": 1, \"col\": 3 }}\n",
+            "    ]\n",
+            "  }},\n",
+            "  \"layerFiles\": [\n",
+            "    \"{layer_rel}\"\n",
+            "  ]\n",
+            "}}\n"
+        ),
+        id = id,
+        layer_rel = layer_rel
+    );
+    let layer = concat!(
+        "{\n",
+        "  \"layer\": 0,\n",
+        "  \"description\": \"新しいキーボードの基盤。上の部品からキーへ中身を入れる。\",\n",
+        "  \"keys\": {\n",
+        "    \"K101\": { \"label\": \"\", \"action\": {\"t\": \"none\"} },\n",
+        "    \"K102\": { \"label\": \"\", \"action\": {\"t\": \"none\"} },\n",
+        "    \"K103\": { \"label\": \"\", \"action\": {\"t\": \"none\"} }\n",
+        "  }\n",
+        "}\n"
+    );
+
+    let cleanup = || {
+        let _ = std::fs::remove_file(&manifest_path);
+        let _ = std::fs::remove_file(&layer_path);
+    };
+
+    if let Err(error) = std::fs::write(&layer_path, layer) {
+        let cause = format!("failed to write {}: {error}", layer_path.display());
+        tracing::error!(chk = "P007N", code = BOARD_SAVE_FAILED, cause = %cause, "keymap new failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+    if let Err(error) = std::fs::write(&manifest_path, &manifest) {
+        let cause = format!("failed to write {}: {error}", manifest_path.display());
+        cleanup();
+        tracing::error!(chk = "P007N", code = BOARD_SAVE_FAILED, cause = %cause, "keymap new failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": BOARD_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    // **書いた後に全体を読み直す。** 通らなければ置いた2つとも消す。
+    // 新規なので巻き戻し先は「無かった状態」になる。
+    let loaded = match crate::startup::load_startup_data(
+        keymaps_dir,
+        std::path::Path::new(crate::DECKS_DIR),
+        std::path::Path::new(crate::SURFACES_DIR),
+        std::path::Path::new(crate::LAYOUTS_DIR),
+    ) {
+        Ok(data) => data,
+        Err(errors) => {
+            cleanup();
+            let cause = errors.join("; ");
+            tracing::error!(
+                chk = "P007N", code = BOARD_SAVE_REJECTED, cause = %cause,
+                "keymap new rejected after reload; files removed"
+            );
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "code": BOARD_SAVE_REJECTED, "cause": cause,
+                    "errors": errors, "rolledBack": true,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    {
+        let mut s = state.lock().unwrap();
+        s.keymaps = loaded.keymaps;
+        s.decks = loaded.decks;
+        s.command_registry = loaded.command_registry;
+        s.surfaces = loaded.surfaces;
+        s.layouts = loaded.layouts;
+        s.layer_state.reset();
+        s.ipad_layer_state.reset();
+        s.layer_states.clear();
+    }
+
+    tracing::info!(chk = "P007N", keymap_id = %id, "keymap created; broadcasting surface.config");
+    broadcast_surface_config_for(&state, SurfaceKind::Split);
+    broadcast_surface_config_for(&state, SurfaceKind::Ipad);
+    broadcast_surface_config_for(&state, SurfaceKind::Layout);
+
+    (
+        StatusCode::OK,
+        Json(json!({ "keymapId": id, "path": manifest_path.display().to_string() })),
     )
         .into_response()
 }
