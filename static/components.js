@@ -50,6 +50,18 @@
     "  min-width: 0; min-height: 0;",
     "}",
 
+    // ---- 画面切り替え（タイトル兼用のプルダウン） ----
+    // 見出しと画面切り替えを2つ並べると同じ言葉が二度出る。
+    // **タイトルそのものを選べるようにして1つにまとめる。**
+    ".kd-nav-select {",
+    "  background: var(--kd-panel); color: var(--kd-ink);",
+    "  border: 1px solid var(--kd-line); border-radius: 8px;",
+    "  font: inherit; font-size: 15px; font-weight: 700; letter-spacing: .01em;",
+    "  padding: 4px 8px; max-width: 46vw; min-height: 30px;",
+    "}",
+    ".kd-nav-select:hover { border-color: var(--kd-accent); }",
+    ".kd-brand { font-size: 12px; font-weight: 600; color: var(--kd-ink-dim); margin: 0; }",
+
     // ---- ダイヤル（jog） ----
     ".kd-surface .jogwrap { display: flex; flex-direction: column; align-items: center;",
     "  justify-content: center; gap: 8px; height: 100%; min-height: 0; }",
@@ -168,6 +180,17 @@
     return null;
   }
 
+  /// 1行目を「右上の小さな印」として出すか、「上下2段」にするかを決める。
+  ///
+  /// 右上の印にするのは**数字ヒント**（vol1.3のQ〜Pの 1〜0）と
+  /// **記号1文字**（📁 のような目印）だけ。どちらも主役ではなく添え物で、
+  /// 2段にすると本文と同じ重さになって読みにくい。
+  /// 「日本語/英数」「10秒/戻る」のような**言葉の2段**はそのまま2段で出す。
+  function isCornerBadge(line) {
+    if (/^[0-9]+$/.test(line)) return true;
+    return Array.from(line).length === 1 && !/[\p{L}\p{N}]/u.test(line);
+  }
+
   function renderLabel(btn, label) {
     btn.textContent = "";
     var lines = String(label == null ? "" : label).split("\n");
@@ -176,9 +199,7 @@
       small.textContent = lines[0];
       btn.appendChild(small);
       btn.appendChild(btn.ownerDocument.createTextNode(lines.slice(1).join("\n")));
-      // 上下の主従を入れ替えるのは「小さい行が日本語側の代替表記」のときだけ。
-      // vol1.3のQ〜Pは小さい行が数字ヒントなので、入れ替えると数字が主になって読めない。
-      if (!/^[0-9]+$/.test(lines[0])) btn.classList.add("dual");
+      if (!isCornerBadge(lines[0])) btn.classList.add("dual");
     } else {
       btn.textContent = lines[0];
     }
@@ -519,6 +540,7 @@
   /// host に2階層のセレクトを1つ描く。選ぶと token を引き継いで画面遷移する。
   /// currentPath はハイライト用（今の画面を選択済みにする）。
   function renderNav(host, currentPath, token) {
+    injectStyles(host.ownerDocument);
     var sel = host.ownerDocument.createElement("select");
     sel.setAttribute("aria-label", "画面を切り替え");
     sel.className = "kd-nav-select";

@@ -1,12 +1,12 @@
 {
   "layer": 0,
-  "description": "YouTubeボタンの割当。\n\n再生/一時停止に MEDIA_PLAY を使うのは、フォーカスが無くても効き、文字も入力されないため。YouTube専用の K に変えたい場合はキー編集画面で差し替えられる（ただしページにフォーカスが必要になる）。",
+  "description": "YouTubeボタンの割当。\n\n再生/一時停止に MEDIA_PLAY を使うのは、フォーカスが無くても効き、文字も入力されないため。YouTube専用の K に変えたい場合はキー編集画面で差し替えられる（ただしページにフォーカスが必要になる）。\n\n■ スクショ（Y202）の保存先\n目的地: C:\\Users\\enjoy\\InBox2026\\Inbox0821\\ScreenShot\n\nWIN+PRTSC の保存先を決めているのはWindowsであって、KeyDeck側からは指定できない。上の場所へ保存させるには、Windowsの「スクリーンショット」フォルダーの場所そのものを一度だけ移す。\n  1. エクスプローラーで ピクチャ\\スクリーンショット を右クリック → プロパティ\n  2. 「場所」タブ → 移動 → 上の目的地を選ぶ → 適用\n以後このボタンで撮った画像はその場所に入る。ボタン右上のフォルダー印は「押すと1枚がファイルとして保存される」ことの目印。",
   "keys": {
-    "Y101": { "label": "10秒\n戻る", "action": { "t": "key", "vk": "J" } },
-    "Y102": { "label": "再生\n一時停止", "action": { "t": "key", "vk": "MEDIA_PLAY" } },
-    "Y103": { "label": "10秒\n進む", "action": { "t": "key", "vk": "L" } },
-    "Y201": { "label": "前の\nコマ", "action": { "t": "key", "vk": "COMMA" } },
-    "Y202": { "label": "スクショ", "action": { "t": "chord", "keys": ["WIN", "PRTSC"] } },
-    "Y203": { "label": "次の\nコマ", "action": { "t": "key", "vk": "PERIOD" } }
+    "Y101": { "label": "10秒\n戻る", "action": {"t": "key", "vk": "J"} },
+    "Y102": { "label": "再生\n一時停止", "action": {"t": "key", "vk": "MEDIA_PLAY"} },
+    "Y103": { "label": "10秒\n進む", "action": {"t": "key", "vk": "L"} },
+    "Y201": { "label": "前の\nコマ", "action": {"t": "key", "vk": "COMMA"} },
+    "Y202": { "label": "📁\nスクショ", "action": {"t": "chord", "keys": ["WIN", "PRTSC"]} },
+    "Y203": { "label": "次の\nコマ", "action": {"t": "key", "vk": "PERIOD"} }
   }
 }

@@ -169,6 +169,10 @@
     body.embed #stateOut,
     body.embed #lower-half { display: none !important; }
     body.embed #stage { height: 100%; }
+    /* 単独ページでは下半分に説明帯（#lower-half）が居るため #ball は height:50%。
+       埋め込みではその帯を隠すので、**そのままだと球が上半分に寄ったまま**になる。
+       区画いっぱいに広げて、縦横とも中心に来るようにする。 */
+    body.embed #ball { height: 100%; }
 
     /* ===== QRモーダル（D25。ipad.htmlと同一構造・値。z-indexのみ本ページの
        既存オーバーレイ(#paramToggle:30/.ui-panel:20)より上に出るよう引き上げてある） ===== */

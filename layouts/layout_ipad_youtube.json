@@ -9,9 +9,9 @@
     {
       "id": "SEC-JOG",
       "row": 1,
-      "col": 1,
+      "col": 9,
       "colSpan": 4,
-      "rowSpan": 5,
+      "rowSpan": 4,
       "component": {
         "kind": "jog",
         "ref": "jog_frame"
@@ -20,7 +20,7 @@
     {
       "id": "SEC-BUTTONS",
       "row": 1,
-      "col": 5,
+      "col": 1,
       "colSpan": 8,
       "rowSpan": 5,
       "component": {
@@ -29,21 +29,10 @@
       }
     },
     {
-      "id": "SEC-VOL",
-      "row": 6,
-      "col": 1,
-      "colSpan": 4,
-      "rowSpan": 4,
-      "component": {
-        "kind": "jog",
-        "ref": "jog_volume"
-      }
-    },
-    {
       "id": "SEC-BALL",
       "row": 6,
-      "col": 5,
-      "colSpan": 8,
+      "col": 9,
+      "colSpan": 4,
       "rowSpan": 4,
       "component": {
         "kind": "trackball",
