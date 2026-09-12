@@ -50,6 +50,20 @@
     "  min-width: 0; min-height: 0;",
     "}",
 
+    // ---- ダイヤル（jog） ----
+    ".kd-surface .jogwrap { display: flex; flex-direction: column; align-items: center;",
+    "  justify-content: center; gap: 8px; height: 100%; min-height: 0; }",
+    ".kd-surface .jogsvg { flex: 0 1 auto; min-height: 0; max-width: 100%; max-height: 78%;",
+    "  touch-action: none; cursor: grab; aspect-ratio: 1; }",
+    ".kd-surface .jogsvg:active { cursor: grabbing; }",
+    ".kd-surface .jogtick { stroke: var(--kd-line); stroke-width: 2; stroke-linecap: round; }",
+    ".kd-surface .jogtick.major { stroke: var(--kd-ink-dim); }",
+    ".kd-surface .jogprog { fill: none; stroke: var(--kd-accent); stroke-width: 4; stroke-linecap: round; }",
+    ".kd-surface .joglabels { display: flex; gap: 10px; align-items: center; font-size: 12px;",
+    "  color: var(--kd-ink-muted); white-space: nowrap; }",
+    ".kd-surface .joglabels b { color: var(--kd-ink); font-weight: 600; }",
+    ".kd-surface.kd-preview .jogsvg { cursor: default; }",
+
     // ---- キーボード ----
     ".kd-surface .kbgrid { display: grid; grid-auto-rows: minmax(0, 1fr); gap: var(--kd-key-gap); height: 100%; }",
     ".kd-surface .kbgrid.tiny .key { font-size: 22px; }",
@@ -180,6 +194,144 @@
   /// キーボードを描く。
   /// `keymap` は board を持つもの、`state` は {momentary, toggled}。
   /// options: { interactive, onDown(keyId, def), onUp(keyId, def), press(el, ev), release(el) }
+  // ------------------------------------------------------------------
+  // ダイヤル（jog）。
+  //
+  // **これはキーが2つしかないキーボードでしかない。** 目盛りを1つ越えるたびに
+  // CW（時計回り）か CCW（反時計回り）を1回押す。何が起きるかはキーマップが
+  // 決めるので、コマ送りにも音量にも化ける（不変条件1: 送るのは位置IDだけ）。
+  //
+  // 角度は**差分**を足していく。絶対角度で判定すると、つまみのどこを掴んだかで
+  // 手ごたえが変わってしまう。0°/360°をまたぐ飛びは -180〜180 に畳んで防ぐ。
+  // ------------------------------------------------------------------
+  function renderJog(host, keymap, state, options) {
+    var opt = options || {};
+    injectStyles(host.ownerDocument);
+    host.classList.add("kd-surface");
+    if (!opt.interactive && !opt.editable) host.classList.add("kd-preview");
+
+    if (!keymap || !keymap.jog || !keymap.board) {
+      oops(host, "ダイヤルが見つかりません");
+      return null;
+    }
+
+    var doc = host.ownerDocument;
+    var NS = "http://www.w3.org/2000/svg";
+    var DETENT = keymap.jog.detentDeg || 15;
+    var C = 90, R_TICK = 76, R_PROG = 70, R_KNOB = 55;
+
+    function el(tag, attrs) {
+      var e = doc.createElementNS(NS, tag);
+      for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
+      return e;
+    }
+    function polar(r, deg) {
+      var a = deg * Math.PI / 180;
+      return [C + r * Math.sin(a), C - r * Math.cos(a)];
+    }
+
+    var wrap = doc.createElement("div");
+    wrap.className = "jogwrap";
+    var svg = el("svg", { class: "jogsvg", viewBox: "0 0 180 180" });
+
+    var uid = "jog-" + (keymap.keymapId || "x").replace(/[^a-z0-9_]/gi, "");
+    var defs = el("defs");
+    var grad = el("radialGradient", { id: uid + "-k", cx: "38%", cy: "30%", r: "75%" });
+    grad.appendChild(el("stop", { offset: "0%", "stop-color": "#6a7184" }));
+    grad.appendChild(el("stop", { offset: "55%", "stop-color": "#2a3040" }));
+    grad.appendChild(el("stop", { offset: "100%", "stop-color": "#141824" }));
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    svg.appendChild(el("circle", { cx: C, cy: C, r: 86, fill: "#0b0e18" }));
+    // 目盛りは detentDeg のとおりに刻む。見た目と手ごたえを必ず一致させる
+    // （見た目が15°刻みなのに30°で1段だと、回しても進まない不良品に見える）。
+    var count = Math.max(1, Math.round(360 / DETENT));
+    for (var i = 0; i < count; i++) {
+      var deg = i * (360 / count);
+      var a = polar(R_TICK, deg), b = polar(i % 3 === 0 ? 84 : 81, deg);
+      svg.appendChild(el("line", {
+        class: "jogtick" + (i % 3 === 0 ? " major" : ""),
+        x1: a[0], y1: a[1], x2: b[0], y2: b[1],
+      }));
+    }
+    var CIRC = 2 * Math.PI * R_PROG;
+    var prog = el("circle", {
+      class: "jogprog", cx: C, cy: C, r: R_PROG,
+      "stroke-dasharray": CIRC, "stroke-dashoffset": CIRC,
+      transform: "rotate(-90 " + C + " " + C + ")",
+    });
+    svg.appendChild(prog);
+    var knob = el("g");
+    knob.appendChild(el("circle", { cx: C, cy: C, r: 60, fill: "#1a1f2e" }));
+    knob.appendChild(el("circle", { cx: C, cy: C, r: R_KNOB, fill: "url(#" + uid + "-k)" }));
+    knob.appendChild(el("circle", { cx: C, cy: C - 40, r: 5, fill: "var(--kd-accent)" }));
+    svg.appendChild(knob);
+    wrap.appendChild(svg);
+
+    // 回すと何が起きるかを添える。ダイヤルは見ただけでは用途が分からない
+    var labels = doc.createElement("div");
+    labels.className = "joglabels";
+    var ccwDef = resolveDisplay(keymap, state, "CCW");
+    var cwDef = resolveDisplay(keymap, state, "CW");
+    var left = doc.createElement("span");
+    left.textContent = "◀ " + ((ccwDef && ccwDef.label) || "CCW").split("\n")[0];
+    var right = doc.createElement("b");
+    right.textContent = ((cwDef && cwDef.label) || "CW").split("\n")[0] + " ▶";
+    labels.appendChild(left);
+    labels.appendChild(right);
+    wrap.appendChild(labels);
+    host.appendChild(wrap);
+
+    if (!opt.interactive) return wrap;
+
+    var dragging = false, lastAng = 0, total = 0, carry = 0;
+    var EPS = 1e-6;
+
+    function angleAt(event) {
+      var r = svg.getBoundingClientRect();
+      var dx = event.clientX - (r.left + r.width / 2);
+      var dy = event.clientY - (r.top + r.height / 2);
+      return Math.atan2(dx, -dy) * 180 / Math.PI;
+    }
+    function draw() {
+      knob.setAttribute("transform", "rotate(" + total + " " + C + " " + C + ")");
+      var frac = (((total % 360) + 360) % 360) / 360;
+      prog.setAttribute("stroke-dashoffset", CIRC * (1 - frac));
+    }
+    /// 指の位置から回転を足す。**離した瞬間の位置も必ず通す**（最後の動きを取りこぼさない）。
+    function applyMove(event) {
+      var a = angleAt(event);
+      var d = a - lastAng;
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      lastAng = a;
+      total += d;
+      carry += d;
+      while (carry >= DETENT - EPS) { carry -= DETENT; if (opt.onDetent) opt.onDetent("CW"); }
+      while (carry <= -DETENT + EPS) { carry += DETENT; if (opt.onDetent) opt.onDetent("CCW"); }
+      draw();
+    }
+
+    svg.addEventListener("pointerdown", function (event) {
+      event.preventDefault();
+      dragging = true;
+      lastAng = angleAt(event);
+      try { svg.setPointerCapture(event.pointerId); } catch (e) { /* 未対応環境 */ }
+    });
+    svg.addEventListener("pointermove", function (event) {
+      if (dragging) applyMove(event);
+    });
+    svg.addEventListener("pointerup", function (event) {
+      if (!dragging) return;
+      applyMove(event);
+      dragging = false;
+    });
+    svg.addEventListener("pointercancel", function () { dragging = false; });
+    draw();
+    return wrap;
+  }
+
   function renderKeyboard(host, keymap, state, options) {
     var opt = options || {};
     injectStyles(host.ownerDocument);
@@ -440,6 +592,7 @@
   }
 
   global.KDComponents = {
+    renderJog: renderJog,
     renderNav: renderNav,
     showTokenNotice: showTokenNotice,
     injectStyles: injectStyles,

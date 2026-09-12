@@ -1,0 +1,8 @@
+{
+  "layer": 0,
+  "description": "音量ダイヤルの割当。時計回り=音量を上げる／反時計回り=下げる。WindowsのVOL_UP/VOL_DOWNなので、フォーカスがどこにあっても効く。",
+  "keys": {
+    "CCW": { "label": "音量 −", "action": { "t": "key", "vk": "VOL_DOWN" } },
+    "CW": { "label": "音量 ＋", "action": { "t": "key", "vk": "VOL_UP" } }
+  }
+}

@@ -955,7 +955,7 @@ fn format_keymap_manifest(doc: &serde_json::Value) -> String {
     // board が先頭に来て keymapId が中ほどへ行く。既存ファイルの読み味を保つため、
     // 意味の順（何のキーマップか → どんな種類か → 説明 → 盤面 → レイヤー）に固定する。
     // ここに無いキーは後ろへ回す（将来フィールドが増えても落とさない）。
-    const ORDER: [&str; 5] = ["keymapId", "kind", "description", "board", "layerFiles"];
+    const ORDER: [&str; 6] = ["keymapId", "kind", "description", "jog", "board", "layerFiles"];
     let mut ordered: Vec<(&String, &serde_json::Value)> = Vec::new();
     for name in ORDER {
         if let Some((k, v)) = obj.get_key_value(name) {

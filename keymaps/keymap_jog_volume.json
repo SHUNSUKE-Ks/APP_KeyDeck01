@@ -1,0 +1,18 @@
+{
+  "keymapId": "jog_volume",
+  "kind": "single",
+  "description": "音量ダイヤル。Windowsの音量そのものを上げ下げするので、YouTubeに限らずどのアプリの音にも効く。\n\n■ 目盛りの細かさ\ndetentDeg = 30 は「1周で12段」。音量はコマ送りほど細かく刻む必要がなく、粗いほうが狙った大きさで止めやすい。\n\n■ 別用途に変えるとき\nCW / CCW の中身をキー編集画面で差し替えれば、そのまま『プロパティを上げ下げするダイヤル』になる（例: UP/DOWN や RIGHT/LEFT）。盤面もdetentDegもそのまま使える。",
+  "jog": {
+    "detentDeg": 30
+  },
+  "board": {
+    "cols": 2,
+    "keys": [
+      { "id": "CCW", "row": 1, "col": 1 },
+      { "id": "CW", "row": 1, "col": 2 }
+    ]
+  },
+  "layerFiles": [
+    "layers/jog_volume_layer0.json"
+  ]
+}

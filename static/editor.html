@@ -403,6 +403,8 @@ function cellSize(grid) {
 /// トラックボールは中身から寸法が出ない。**人が決めるしかない**既定値。
 /// 相対移動を指で出すのに要る面積として置いている。
 const TRACKBALL_MIN_PX = { w: 220, h: 220 };
+/// ダイヤルの下限。丸＋下のラベル1行が読める大きさ。
+const JOG_MIN_PX = { w: 200, h: 240 };
 
 function buildComponentTable(config) {
   const table = {};
@@ -410,6 +412,11 @@ function buildComponentTable(config) {
   for (const [id, keymap] of Object.entries(config.keymaps || {})) {
     // 分割キーボードは board を持たず halves で持つ。区画に置けないので飛ばす。
     if (!keymap.board || !keymap.board.keys.length) continue;
+    // ダイヤルは盤面を持つが並べるものではない。丸が潰れない下限だけ持たせる。
+    if (keymap.jog) {
+      table[id] = { type: "floor", label: "ダイヤル", pxW: JOG_MIN_PX.w, pxH: JOG_MIN_PX.h };
+      continue;
+    }
     const keys = keymap.board.keys;
     table[id] = {
       type: "floor",
@@ -452,7 +459,8 @@ function buildComponentTable(config) {
 function buildPalette(config, table) {
   const items = [];
   for (const [id, keymap] of Object.entries(config.keymaps || {})) {
-    if (table[id] && keymap.board) items.push({ kind: "keyboard", ref: id });
+    if (!table[id] || !keymap.board) continue;
+    items.push({ kind: keymap.jog ? "jog" : "keyboard", ref: id });
   }
   for (const id of Object.keys(config.decks || {})) items.push({ kind: "deck", ref: id });
   for (const [id, meta] of Object.entries(table)) {
@@ -565,6 +573,11 @@ const ICON = {
   trackball:
     '<circle cx="8" cy="8" r="5.7" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
     '<circle cx="8" cy="8" r="2.1" fill="currentColor"/>',
+  jog:
+    '<circle cx="8" cy="8" r="5.7" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
+    '<circle cx="8" cy="4.6" r="1.3" fill="currentColor"/>' +
+    '<path d="M8 1.1v1.3M14.9 8h-1.3M8 14.9v-1.3M1.1 8h1.3" ' +
+    'stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
 };
 
 /// 区画の中身を実物で描く。押せない（interactive: false）。
@@ -588,6 +601,9 @@ function renderPreview(host, sec) {
         requestAnimationFrame(() =>
           KDComponents.fitDeck(host, grid, deck.grid.cols, deck.grid.rows, 0));
       }
+    } else if (kind === "jog") {
+      KDComponents.renderJog(host, (CONFIG.keymaps || {})[ref],
+        { momentary: [], toggled: [] }, { interactive: false });
     } else if (kind === "trackball") {
       // トラックボールは実機ではiframeを埋めている。プレビューで2本目のWSを
       // 張るのは重いので、ここは形だけ（ギャラリーと同じ丸）。

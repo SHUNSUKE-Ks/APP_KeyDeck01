@@ -1,0 +1,8 @@
+{
+  "layer": 0,
+  "description": "コマ送りダイヤルの割当。時計回り=次のコマ（.）／反時計回り=前のコマ（,）。YouTubeのコマ送りは一時停止中のみ効く。",
+  "keys": {
+    "CCW": { "label": "前のコマ", "action": { "t": "key", "vk": "COMMA" } },
+    "CW": { "label": "次のコマ", "action": { "t": "key", "vk": "PERIOD" } }
+  }
+}

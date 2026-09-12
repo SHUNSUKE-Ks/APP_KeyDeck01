@@ -107,6 +107,7 @@ pub fn vk_code(vk: &str) -> Option<u16> {
         "VOL_UP" => 0xAF,
         "VOL_DOWN" => 0xAE,
         "MUTE" => 0xAD,
+        "PRTSC" => 0x2C,
         "MEDIA_PLAY" => 0xB3,
         "MEDIA_NEXT" => 0xB0,
         "MEDIA_PREV" => 0xB1,

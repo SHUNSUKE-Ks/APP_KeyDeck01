@@ -56,6 +56,9 @@ pub enum ComponentKind {
     Deck,
     /// `ref` = surfaceId（`surfaces/*.json`）。D28のstate駆動面をそのまま区画に埋める。
     Trackball,
+    /// `ref` = keymapId（`jog` を持つもの）。回すと `CW`/`CCW` の2キーを押すだけの部品で、
+    /// 送るものはキーマップが決める。新しい通信は増やさない（不変条件1）。
+    Jog,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

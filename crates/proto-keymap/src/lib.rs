@@ -119,6 +119,9 @@ pub const VK_DICTIONARY: &[&str] = &[
     "BACKSLASH", "GRAVE",
     // メディア
     "VOL_UP", "VOL_DOWN", "MUTE", "MEDIA_PLAY", "MEDIA_NEXT", "MEDIA_PREV",
+    // 画面取り込み。WIN+PRTSC で「ピクチャ\スクリーンショット」へ1枚保存される。
+    // 単独のPRTSCはWindows11の設定次第で切り取りツールが開くため、chordで使う前提。
+    "PRTSC",
 ];
 
 pub fn is_known_vk(vk: &str) -> bool {
@@ -285,6 +288,24 @@ pub enum KeymapKind {
     Single,
 }
 
+/// ダイヤル（jog）部品の設定。**この項目があるキーマップだけがダイヤルとして置ける。**
+///
+/// ダイヤルは盤面の2つのキー（`CW`=時計回り / `CCW`=反時計回り）を、
+/// 目盛りを1つ越えるたびに1回押す部品でしかない。何が起きるかは
+/// そのキーに割り当てたactionが決めるので、コマ送りにも音量にも化ける
+/// （不変条件1: クライアントは位置IDしか送らない）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JogConfig {
+    /// 1目盛りの角度。小さいほど少し回すだけで送れるが、狙って止めにくくなる。
+    #[serde(rename = "detentDeg")]
+    pub detent_deg: u16,
+}
+
+/// ダイヤルが押す2つのキーのid。盤面に必ずこの2つが要る。
+pub const JOG_CW: &str = "CW";
+pub const JOG_CCW: &str = "CCW";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Keymap {
@@ -297,6 +318,9 @@ pub struct Keymap {
     pub halves: Option<Halves>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board: Option<Board>,
+    /// ダイヤルとして置けるキーマップだけが持つ。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jog: Option<JogConfig>,
     pub layers: Vec<Layer>,
 }
 
@@ -324,6 +348,8 @@ struct KeymapManifest {
     halves: Option<Halves>,
     #[serde(default)]
     board: Option<Board>,
+    #[serde(default)]
+    jog: Option<JogConfig>,
     #[serde(rename = "layerFiles")]
     layer_files: Vec<String>,
 }
@@ -525,8 +551,36 @@ pub fn load_keymap_with(
         kind: manifest.kind,
         halves: manifest.halves,
         board: manifest.board,
+        jog: manifest.jog,
         layers,
     };
+
+    // ダイヤルの成立条件。ここで止めないと、実機で「回しても何も起きない丸」が出る。
+    if let Some(jog) = &keymap.jog {
+        if !(5..=90).contains(&jog.detent_deg) {
+            return Err(KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!(
+                    "{source}: jog.detentDeg must be between 5 and 90 (got {})",
+                    jog.detent_deg
+                ),
+            ));
+        }
+        let board = keymap.board.as_ref().ok_or_else(|| {
+            KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!("{source}: a keymap with 'jog' must have a 'board'"),
+            )
+        })?;
+        for needed in [JOG_CW, JOG_CCW] {
+            if !board.keys.iter().any(|k| k.id == needed) {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: jog board must contain a key with id '{needed}'"),
+                ));
+            }
+        }
+    }
 
     // 結合後の検証（D13: 全ファイル読込後に結合して従来どおり実施）。
     validate_merged(source, &keymap)?;
@@ -883,6 +937,7 @@ mod tests {
                 right: half(&["K3"]),
             }),
             board: None,
+            jog: None,
             layers: vec![
                 layer_with(
                     0,

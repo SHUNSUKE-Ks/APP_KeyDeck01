@@ -434,6 +434,7 @@
         case "keyboard": return renderKeyboard(body, effectiveRef || component.ref);
         case "deck":     return renderDeck(body, component.ref);
         case "trackball":return renderTrackball(body, component.ref);
+        case "jog":      return renderJog(body, component.ref);
         default: {
           const oops = document.createElement("div");
           oops.className = "oops";
@@ -531,6 +532,21 @@
         requestAnimationFrame(() =>
           KDComponents.fitDeck(body, grid, deck.grid.cols, deck.grid.rows, 40));
       }
+    }
+
+    // ---- ダイヤル部品 -------------------------------------------------
+    // 目盛りを1つ越えるたびに、CW/CCW を「押して離す」1回分として送る。
+    // 送るのは位置IDだけで、何が起きるかはHub側のキーマップが決める。
+    function renderJog(body, keymapId) {
+      const keymap = (config.keymaps || {})[keymapId];
+      const state = layerStates[keymapId] || { momentary: [], toggled: [] };
+      KDComponents.renderJog(body, keymap, state, {
+        interactive: true,
+        onDetent: (keyId) => {
+          sendKeyPress(keymapId, keyId, "down");
+          sendKeyPress(keymapId, keyId, "up");
+        },
+      });
     }
 
     // ---- トラックボール部品 -----------------------------------------

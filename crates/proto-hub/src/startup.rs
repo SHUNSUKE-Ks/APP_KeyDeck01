@@ -207,6 +207,11 @@ pub fn load_startup_data(
                     crate::layout::ComponentKind::Trackball => surfaces
                         .as_ref()
                         .is_some_and(|registry| registry.get(reference).is_some()),
+                    // ダイヤルは「jogを持つキーマップ」だけ。普通のキーボードを
+                    // ダイヤルとして置くと、回しても押すキーが無く黙って無反応になる。
+                    crate::layout::ComponentKind::Jog => {
+                        keymaps.get(reference).is_some_and(|k| k.jog.is_some())
+                    }
                 };
                 if !found {
                     errors.push(format!(

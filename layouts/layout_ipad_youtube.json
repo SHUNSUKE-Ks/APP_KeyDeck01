@@ -1,0 +1,54 @@
+{
+  "layoutId": "ipad_youtube",
+  "description": "YouTube視聴用のレイアウト。ダイヤル2つ＋ボタン盤＋トラックボールの組み合わせ。\n\n■ 部品の組み替え\nこの画面の区画は、レイアウト編集（/）でドラッグして位置も大きさも変えられる。ボタンの並びはキー編集（/keys、キーボード ＝ youtube01）で入れ替えられる。ダイヤルの中身も同じ画面で差し替えられる（jog_frame / jog_volume を選ぶ）。\n\n■ 使う順番\n1. PCでYouTubeを開き、動画をクリックしてページにフォーカスを当てる\n2. 再生/一時停止ボタンで止める（コマ送りは一時停止中のみ効く）\n3. 左のダイヤルを回してコマを送る／戻す\n4. 気に入った画で「スクショ」を押すと、ピクチャ\\スクリーンショット に1枚保存される\n\n■ 注意\n10秒送り・コマ送りはYouTubeのページにフォーカスが要る。検索欄にフォーカスがあると文字が入力されるため、動画の上を一度クリックしてから使うこと。トラックボールはそのクリックに使える。",
+  "grid": {
+    "cols": 12,
+    "rows": 9
+  },
+  "sections": [
+    {
+      "id": "SEC-JOG",
+      "row": 1,
+      "col": 1,
+      "colSpan": 4,
+      "rowSpan": 5,
+      "component": {
+        "kind": "jog",
+        "ref": "jog_frame"
+      }
+    },
+    {
+      "id": "SEC-BUTTONS",
+      "row": 1,
+      "col": 5,
+      "colSpan": 8,
+      "rowSpan": 5,
+      "component": {
+        "kind": "keyboard",
+        "ref": "youtube01"
+      }
+    },
+    {
+      "id": "SEC-VOL",
+      "row": 6,
+      "col": 1,
+      "colSpan": 4,
+      "rowSpan": 4,
+      "component": {
+        "kind": "jog",
+        "ref": "jog_volume"
+      }
+    },
+    {
+      "id": "SEC-BALL",
+      "row": 6,
+      "col": 5,
+      "colSpan": 8,
+      "rowSpan": 4,
+      "component": {
+        "kind": "trackball",
+        "ref": "tb01"
+      }
+    }
+  ]
+}

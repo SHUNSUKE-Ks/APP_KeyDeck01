@@ -164,6 +164,11 @@
       box-shadow: inset 0 2px 6px rgba(0,0,0,.6); padding: 4px 0; color: #e8edf8;
     }
     .jogunit { font-size: 10px; color: var(--ink-dim); text-align: center; }
+    .jogsel { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--ink-dim); }
+    .jogsel select {
+      background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+      border-radius: 6px; font: inherit; font-size: 11px; padding: 3px 4px;
+    }
 
     .skip { opacity: .75; }
     .skip .stage { display: none; }
@@ -250,7 +255,17 @@
         <svg id="jogSvg" viewBox="0 0 180 180"></svg>
         <div class="jogside">
           <div class="jogcount" id="jogCount">0</div>
-          <div class="jogunit">目盛り（15°＝1）</div>
+          <div class="jogunit" id="jogUnit">目盛り（15°＝1）</div>
+          <label class="jogsel">
+            <span>細かさ</span>
+            <select id="jogDetent" aria-label="1目盛りの角度">
+              <option value="5">5°（1周72）</option>
+              <option value="10">10°（1周36）</option>
+              <option value="15" selected>15°（1周24）</option>
+              <option value="30">30°（1周12）</option>
+              <option value="45">45°（1周8）</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="readout" id="jogReadout">つまみを掴んで回してください。</div>
@@ -594,7 +609,9 @@
       const svg = document.getElementById("jogSvg");
       const countEl = document.getElementById("jogCount");
       const readout = document.getElementById("jogReadout");
-      const DETENT = 15;   // 1目盛りの角度
+      // **1目盛りの角度は変えられる。** 細かいほど少し回すだけで送れるが、
+      // 狙った数で止めにくくなる。実機側はキーマップの detentDeg が同じ役割を持つ。
+      let DETENT = 15;
       const EPS = 1e-6;
       const C = 90;
 
@@ -609,13 +626,24 @@
       rim.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#0b0e18" }));
       defs.appendChild(rim);
 
-      // 台座と目盛り
+      // 台座と目盛り。**見た目の刻みと手ごたえは必ず一致させる。**
+      // 15°刻みに見えるのに30°で1段だと、回しても進まない不良品に見える。
       svg.appendChild(svgEl("circle", { cx: C, cy: C, r: 86, fill: "#0b0e18" }));
-      for (let i = 0; i < 360 / DETENT; i++) {
-        const deg = i * DETENT;
-        const [x0, y0] = polar(C, C, 76, deg), [x1, y1] = polar(C, C, i % 6 === 0 ? 84 : 81, deg);
-        svg.appendChild(svgEl("line", { class: "jtick" + (i % 6 === 0 ? " major" : ""), x1: x0, y1: y0, x2: x1, y2: y1 }));
+      const tickGroup = svgEl("g");
+      svg.appendChild(tickGroup);
+      function drawTicks() {
+        tickGroup.textContent = "";
+        const n = Math.round(360 / DETENT);
+        for (let i = 0; i < n; i++) {
+          const deg = i * (360 / n);
+          const major = i % (n >= 24 ? 6 : 3) === 0;
+          const [x0, y0] = polar(C, C, 76, deg), [x1, y1] = polar(C, C, major ? 84 : 81, deg);
+          tickGroup.appendChild(svgEl("line", {
+            class: "jtick" + (major ? " major" : ""), x1: x0, y1: y0, x2: x1, y2: y1,
+          }));
+        }
       }
+      drawTicks();
       // 進み具合の青い弧（1周で一巡）
       const RP = 70, CIRC = 2 * Math.PI * RP;
       const prog = svgEl("circle", {
@@ -644,6 +672,15 @@
         prog.setAttribute("stroke-dashoffset", CIRC * (1 - frac));
         countEl.textContent = (detents > 0 ? "+" : "") + detents;
       }
+
+      document.getElementById("jogDetent").addEventListener("change", (e) => {
+        DETENT = Number(e.target.value);
+        carry = 0;                       // 刻みが変わったら端数は持ち越さない
+        drawTicks();
+        document.getElementById("jogUnit").textContent = "目盛り（" + DETENT + "°＝1）";
+        readout.textContent = "1目盛り " + DETENT + "° にしました（1周で "
+          + Math.round(360 / DETENT) + " 目盛り）。";
+      });
 
       svg.addEventListener("pointerdown", (event) => {
         dragging = true; lastAng = angleAt(event);
