@@ -74,6 +74,23 @@
     "}",
     ":root[data-kd-theme=\"red\"] .kd-surface .key.fn { color: var(--kd-accent); }",
 
+    // 緑。Unity開発中の盤面。赤と同じ「厚みのある黒い板」の作りに揃え、
+    // 差し色だけを替える（作りまで変えると、同じ道具に見えなくなる）。
+    ":root[data-kd-theme=\"green\"] {",
+    "  --bg: #141a16; --panel: #1e2721; --panel2: #18201a;",
+    "  --ink: #f1f7f2; --ink-muted: #bccabf; --ink-dim: #7d8d82;",
+    "  --accent: #35b46a; --accent-soft: #1d5c39; --line: #334037;",
+    "  --empty: #161d18; --key-radius: 12px;",
+    "}",
+    ":root[data-kd-theme=\"green\"] .kd-surface .key {",
+    "  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 6px rgba(0,0,0,.55);",
+    "}",
+    ":root[data-kd-theme=\"green\"] .kd-surface .key.pressed,",
+    ":root[data-kd-theme=\"green\"] .kd-surface .key.pressing {",
+    "  box-shadow: inset 0 2px 8px rgba(0,0,0,.7);",
+    "}",
+    ":root[data-kd-theme=\"green\"] .kd-surface .key.fn { color: var(--kd-accent); }",
+
     // ---- サブheader（2段目） ----
     // 左に「いまどこに居るか」、右にその画面でしかやらない操作。
     // 画面ごとにボタンの居場所が変わると、毎回探すことになる。
@@ -735,7 +752,7 @@
   /// Hubが配ってきたテーマを画面へ当てる。
   /// **知らない名前は当てない**（配信が壊れたときに色が消えるより、
   /// 既定のままの方が操作を続けられる）。
-  var THEMES = ["blue", "red"];
+  var THEMES = ["blue", "red", "green"];
   function applyTheme(name) {
     var doc = global.document;
     var root = (doc || {}).documentElement;

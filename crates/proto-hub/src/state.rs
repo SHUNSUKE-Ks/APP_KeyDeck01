@@ -99,7 +99,11 @@ fn button_id(button: &proto_keymap::MouseButtonKind) -> &'static str {
 }
 
 /// 使えるテーマの一覧。**コード内の固定リスト**で、JSONからは増やせない。
-pub const THEMES: &[&str] = &["blue", "red"];
+/// 選べるテーマ。**盤面の色でどの仕事中かを見分けるため**に増やしている
+/// （緑=Unity開発）。増やすときは static/components.js の THEMES と
+/// `:root[data-kd-theme="<name>"]` も同時に足すこと。片方だけだと
+/// Hubは受け付けるのに画面の色が変わらない、という食い違いになる。
+pub const THEMES: &[&str] = &["blue", "red", "green"];
 pub const DEFAULT_THEME: &str = "blue";
 
 pub fn canonical_command_id(action: &Action) -> Option<String> {
