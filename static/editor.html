@@ -196,7 +196,6 @@
   }
   .note { font-size: 11px; color: var(--ink-dim); margin: 8px 0 0; }
   .targetinfo { font-size: 11px; color: var(--ink-dim); }
-  .navlink { color: var(--ink-muted); font-size: 12px; }
   .cap { font-size: 10px; color: var(--ink-dim); letter-spacing: .06em; text-transform: uppercase; }
 
   /* QRモーダル。画面中央に1枚だけ大きく出す（設定画面と同じ作法）。 */
@@ -221,11 +220,6 @@
     font-size: 10px; color: var(--ink-dim); border: 1px solid var(--line);
     border-radius: 999px; padding: 1px 8px;
   }
-  #flash {
-    margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 12px;
-    background: #3a2f14; color: var(--warn); border: 1px solid #6b4c17;
-  }
-  #flash[hidden] { display: none; }
 
   /* パレット＝まだ置いていない部品の置き場。置いたものは印を付ける */
   .palette-item.placed { opacity: .62; }
@@ -323,8 +317,6 @@
 
   <label class="cap" for="layoutSel">board</label>
   <select id="layoutSel" aria-label="表示するboard"></select>
-  <button id="setDefaultBtn" type="button"
-          title="いま選んでいるboardを『最初に出すもの』にします">default にする</button>
   <!-- **いま編集しているレイアウトの**QR。ここに置くのが要点で、
        ギャラリーから別のレイアウトのQRを読んでしまう取り違えを防ぐ
        （実際に ipad_v13 を編集して ipad_main のQRを読む事故が起きた）。 -->
@@ -332,12 +324,10 @@
   <button id="resetBtn" type="button">元に戻す</button>
   <button id="saveBtn" type="button" class="primary">保存</button>
   <span id="conn" class="targetinfo"></span>
-  <a href="/connect" class="navlink">QRギャラリー →</a>
-  <a href="/settings" class="navlink">設定 →</a>
 </div>
-<!-- 差し戻し・追加拒否などの通知。パレットのすぐ上に固定で置く。
-     判定行（格子の下）だけだと、パレットを押した人の視線から遠い。 -->
-<p id="flash" hidden></p>
+<!-- 2段目。左に現在地、右にこの画面固有の操作。知らせはこの帯の上に浮かぶ。
+     行き先のリンクが画面ごとに違う場所にあると毎回探すので、ここへ集約した。 -->
+<div id="subhead"></div>
 <p class="note">区画はドラッグで移動、右下のつまみでリサイズできます。重なり・はみ出しはその場で赤くなり、指を離すと元へ戻ります（Hubの <code>layout.rs</code> が実際に弾く条件と同じ）。<strong>掴んだまま「置ける部品」へ放り込むと、その区画を外して部品へ戻します。</strong></p>
 
 <div id="qrmodal" hidden>
@@ -790,15 +780,31 @@ function returnToPalette(sec) {
   notifyReverted(ref + " を置ける部品へ戻しました（" + sec.id + " を削除）");
 }
 
-/// 直前の状態へ戻したことを伝える。次の操作で通常の判定表示に上書きされる。
-const flashEl = document.getElementById("flash");
+/// 2段目の帯。左が現在地、右がこの画面固有の操作。
+/// setDefaultBoard は関数宣言なので、ここから先に参照できる。
+const SUB = KDComponents.renderSubHeader(document.getElementById("subhead"), {
+  token,
+  crumbs: [
+    { label: "ホーム", path: "/connect" },
+    { label: "PC部門" },
+    { label: "Layout編集" },
+  ],
+  actions: [
+    { label: "default にする", id: "setDefaultBtn",
+      title: "いま選んでいるboardを、次に開いたとき最初に出すものにします",
+      onClick: () => setDefaultBoard(layoutId) },
+    { label: "QRギャラリー", onClick: () => go("/connect") },
+    { label: "設定", onClick: () => go("/settings") },
+  ],
+});
+/// tokenを引き継いで移る。引き継がないと移った先で繋がらない。
+function go(path) { location.href = path + "?token=" + encodeURIComponent(token); }
+
 const dropVeil = document.getElementById("dropveil");
-function notifyReverted(message) {
-  flashEl.hidden = false;
-  flashEl.textContent = "↩ " + message;
-}
-/// 次に何か操作したら消す。読む前に消えないよう、時間では消さない。
-function clearFlash() { flashEl.hidden = true; }
+/// 直前の状態へ戻したことを伝える。2段目の上に浮かび、2秒で消える。
+function notifyReverted(message) { SUB.toast("↩ " + message); }
+/// 次に何か操作したら消す。
+function clearFlash() { SUB.hideToast(); }
 
 /// その区画がいま不正か（重なり・下限割れ・はみ出し）を判定する。
 /// validate() が全区画の `_bad` を付け直すので、対象の1件だけを見ればよい。
@@ -1339,6 +1345,18 @@ const NEW_BOARD = "__new__";
 /// Hubが持っている「最初に出すboard」。緑の印を付けるために覚えておく。
 let DEFAULT_LAYOUT = null;
 
+/// 最初に出すboardを決める。**順番がそのまま優先順位**。
+///   1. URLの ?id=  … 人が名指しで開いた。何よりも優先する
+///   2. Hubの既定   … 「defaultにする」で決めたもの。全端末で揃う
+///   3. 一覧の先頭  … 既定が未設定のときだけの保険
+/// 以前は 1 が無ければ即 3 に落ちていたため、既定を変えても常に
+/// ipad_main（名前順の先頭）が開く、という食い違いになっていた。
+function initialLayoutId(ids) {
+  if (layoutId && ids.includes(layoutId)) return layoutId;
+  if (DEFAULT_LAYOUT && ids.includes(DEFAULT_LAYOUT)) return DEFAULT_LAYOUT;
+  return ids[0];
+}
+
 async function loadDefaults() {
   try {
     const res = await fetch("/api/defaults?token=" + encodeURIComponent(token));
@@ -1368,10 +1386,6 @@ async function setDefaultBoard(id) {
     }
 }
 
-document.getElementById("setDefaultBtn")
-  .addEventListener("click", () => setDefaultBoard(layoutId));
-
-loadDefaults();
 
 function fillLayoutSelect() {
   const sel = document.getElementById("layoutSel");
@@ -1621,7 +1635,7 @@ function connect() {
       setConn("レイアウトが1件もありません（layouts/ にJSONを置いてください）", "bad");
       return;
     }
-    if (!SOURCE[layoutId]) layoutId = ids[0];
+    layoutId = initialLayoutId(ids);
     model = clone(SOURCE[layoutId]);
     selectedId = null;
     fillLayoutSelect();
@@ -1649,11 +1663,6 @@ function connect() {
 // 見えないところに隠すと「なぜこの大きさで止まるのか」が分からなくなる。
 // このモックの版。画面に出しておくと「古いページを見ている」かどうかを
 // 推測ではなく事実で切り分けられる（iPadのキャッシュ事故と同じ構図。T29）。
-// リンクにトークンを引き継ぐ（手で貼り直さなくて済むように）
-for (const a of document.querySelectorAll(".navlink")) {
-  a.href = a.getAttribute("href") + "?token=" + encodeURIComponent(token);
-}
-
 // 描画は構成が届いてから。決め打ちのデータを持っていないので、
 // 届く前に描くものは何も無い。
 window.addEventListener("error", (event) => {
@@ -1664,7 +1673,10 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 setConn("接続中…");
-connect();
+// **既定を取り終えてから繋ぐ。** 後回しにすると、最初の surface.config が
+// 届く時点で既定が分からず、一覧の先頭へ落ちてしまう。
+// 取れなかったとき（Hubが古い等）も繋ぎには行く。
+loadDefaults().finally(connect);
 </script>
 </body>
 </html>

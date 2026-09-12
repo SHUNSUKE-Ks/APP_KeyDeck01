@@ -72,15 +72,6 @@
     #conn { font-size: 11px; color: var(--ink-dim); }
     #conn.bad { color: var(--err); }
 
-    /* 知らせは**盤面の上に重ねて**出す。1行を占めると、その分だけ
-       盤面が縮んでキーの高さが変わる（操作のたびに一瞬動いていた）。 */
-    #flash {
-      position: absolute; left: 0; right: 0; top: 0; z-index: 20;
-      margin: 0; padding: 7px 14px; font-size: 12px;
-      background: #3a2f14; color: var(--warn); border-bottom: 1px solid #6b4c17;
-    }
-    #flash[hidden] { display: none !important; }
-
     /* ---- 部品エリア（上） ---- */
     .parts {
       flex: 0 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid var(--line);
@@ -174,17 +165,15 @@
     <label class="cap" for="keymapSel"
            style="font-size:10px;color:var(--ink-dim);letter-spacing:.06em">keyboard</label>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
-    <button id="setDefaultKeymapBtn" type="button"
-            title="いま選んでいるキーボードを『最初に出すもの』にします">default にする</button>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
-    <button id="addKeyBtn" type="button" title="空いている場所に1つ足します。空きが無ければ1段増やします">＋ キーを追加</button>
     <button id="undoBtn" type="button">1つ戻す</button>
     <button id="revertBtn" type="button">全部戻す</button>
     <button id="saveBtn" type="button" class="primary">保存</button>
     <span class="sp"></span>
     <span id="conn"></span>
-    <a href="/" class="navlink">← レイアウト編集</a>
   </div>
+  <!-- 2段目。左に現在地、右にこの画面固有の操作。知らせはこの帯の上に浮かぶ。 -->
+  <div id="subhead"></div>
   <div class="parts">
     <div class="dropveil" id="dropveil" hidden><span>ここへ放すと、そのキーを空にする</span></div>
     <div class="tabs" id="tabs"></div>
@@ -194,7 +183,6 @@
   <div id="dragghost" hidden></div>
 
   <div class="boardwrap">
-    <p id="flash" hidden></p>
     <div class="boardhint" id="hint"></div>
     <div id="board"></div>
   </div>
@@ -204,6 +192,25 @@
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
     KDComponents.renderNav(document.getElementById("navHost"), "/keys", token);
+    /// 2段目の帯。左が現在地、右がこの画面固有の操作。
+    /// 中で呼ぶ setDefaultKeymap / addKey は関数宣言なので、ここから参照できる。
+    const SUB = KDComponents.renderSubHeader(document.getElementById("subhead"), {
+      token,
+      crumbs: [
+        { label: "ホーム", path: "/connect" },
+        { label: "PC部門" },
+        { label: "Layout編集", path: "/" },
+        { label: "編集" },
+      ],
+      actions: [
+        { label: "スロットを追加する", id: "addKeyBtn",
+          title: "空いている場所に1つ足します。空きが無ければ1段増やします",
+          onClick: () => addKey() },
+        { label: "default にする", id: "setDefaultKeymapBtn",
+          title: "いま選んでいるキーボードを、次に開いたとき最初に出すものにします",
+          onClick: () => setDefaultKeymap(keymapId) },
+      ],
+    });
     KDComponents.syncTheme(token);
 
     // Hubが持つ「最初に出すキーボード」を先に取りに行く。
@@ -265,8 +272,7 @@
       }
     }
 
-    document.getElementById("setDefaultKeymapBtn")
-      .addEventListener("click", () => setDefaultKeymap(keymapId));
+
 
     function log(kind, code, message, context) {
       const line = "[KD][" + kind + "][" + code + "] " + message;
@@ -352,13 +358,14 @@
       updateUndoBtn();
     }
 
-    const flashEl = document.getElementById("flash");
     const connEl = document.getElementById("conn");
     const boardEl = document.getElementById("board");
     const dropVeil = document.getElementById("dropveil");
 
-    function flash(msg) { flashEl.hidden = false; flashEl.textContent = msg; }
-    function clearFlash() { flashEl.hidden = true; }
+    /// 知らせは2段目の帯の上に浮かべ、2秒で消す。**行を占めない**ので、
+    /// 出るたびに盤面が縮んでキーの高さが変わることがない。
+    function flash(msg) { SUB.toast(msg); }
+    function clearFlash() { SUB.hideToast(); }
     function setConn(text, bad) {
       connEl.textContent = text;
       connEl.className = bad ? "bad" : "";
@@ -1166,7 +1173,9 @@
       layerId = Number(e.target.value); picked = null;
       loadDraft(); clearHistory(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
     });
-    document.getElementById("addKeyBtn").addEventListener("click", () => {
+    /// 空いている所へキーを1つ足す。空きが無ければ1段増やす。
+    /// 「3つしか無い盤面に4つ目を足せない」という行き止まりを無くすための口。
+    function addKey() {
       if (!boardDraft) { flash("盤面が読み込まれていません"); return; }
       const size = standardKeySize();
       const spot = findFreeSpot(size);
@@ -1182,7 +1191,7 @@
       renderBoard();
       flash(id + " を 行" + spot.row + " 列" + spot.col
         + " に足しました。上の部品から中身を入れてください。");
-    });
+    }
 
     document.getElementById("undoBtn").addEventListener("click", undo);
 
@@ -1305,9 +1314,6 @@
       });
     }
 
-    for (const a of document.querySelectorAll(".navlink")) {
-      a.href = a.getAttribute("href") + "?token=" + encodeURIComponent(token);
-    }
     window.addEventListener("error", (e) => log("ERR", "INTERNAL", "uncaught: " + e.message, e.error));
     window.addEventListener("unhandledrejection", (e) => log("ERR", "INTERNAL", "unhandled: " + e.reason));
 

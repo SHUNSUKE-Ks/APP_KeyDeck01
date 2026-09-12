@@ -74,6 +74,37 @@
     "}",
     ":root[data-kd-theme=\"red\"] .kd-surface .key.fn { color: var(--kd-accent); }",
 
+    // ---- サブheader（2段目） ----
+    // 左に「いまどこに居るか」、右にその画面でしかやらない操作。
+    // 画面ごとにボタンの居場所が変わると、毎回探すことになる。
+    // 色はページ側の変数を直に見る（--kd-* は .kd-surface の中にしか無い）。
+    ".kd-subhead {",
+    "  position: relative; display: flex; align-items: center; gap: 10px;",
+    "  flex-wrap: wrap; margin: 8px 0 10px; padding: 5px 12px; min-height: 34px;",
+    "  background: var(--panel2, #161c2e); border: 1px solid var(--line, #2d3550);",
+    "  border-radius: 8px;",
+    "}",
+    ".kd-crumbs { display: flex; align-items: center; gap: 6px; font-size: 12px; }",
+    ".kd-crumbs a { color: var(--ink-muted, #b7bfd6); text-decoration: none; }",
+    ".kd-crumbs a:hover { color: var(--ink, #f4f7ff); text-decoration: underline; }",
+    ".kd-crumbs .sep { color: var(--ink-dim, #6b7590); }",
+    ".kd-crumbs .here { color: var(--ink, #f4f7ff); font-weight: 700; }",
+    ".kd-subactions { margin-left: auto; display: flex; align-items: center;",
+    "  gap: 6px; flex-wrap: wrap; }",
+    // 知らせはこの帯の**上に浮かせる**。1行を占めると、出るたびに下の中身が
+    // 押し下げられ、キーの高さまで変わる（実際に一瞬動く不具合になっていた）。
+    ".kd-toast {",
+    "  position: absolute; left: -1px; right: -1px; top: -1px; z-index: 30;",
+    "  margin: 0; padding: 7px 12px; border-radius: 8px; font-size: 12px;",
+    "  background: #3a2f14; color: var(--warn, #e8b44a); border: 1px solid #6b4c17;",
+    "  box-shadow: 0 8px 20px rgba(0,0,0,.5);",
+    "  opacity: 0; transform: translateY(-4px); pointer-events: none;",
+    "  transition: opacity .16s ease-out, transform .16s ease-out;",
+    "}",
+    ".kd-toast.show { opacity: 1; transform: none; }",
+    ".kd-toast[hidden] { display: none !important; }",
+    "@media (prefers-reduced-motion: reduce) { .kd-toast { transition: none; } }",
+
     // ---- 画面切り替え（看板ボタン＋自前のメニュー） ----
     ".kd-nav { position: relative; display: inline-block; }",
     ".kd-nav-btn {",
@@ -737,6 +768,95 @@
     }
   }
 
+  /// サブheader（2段目）を描く。どの画面でも同じ形・同じ場所に出す。
+  ///
+  ///   crumbs  … [{label, path}] ホームから始まる道筋。最後の1つが「いま居る所」
+  ///   actions … [{label, id, title, primary, onClick}] その画面固有の操作。右寄せ
+  ///
+  /// 戻り値の `toast(text)` で、この帯の上に知らせを浮かせる。**行を占めない**の
+  /// が要点で、占めると出るたびに下の中身が押し下げられる。
+  function renderSubHeader(host, options) {
+    injectStyles(host.ownerDocument);
+    var doc = host.ownerDocument;
+    var opt = options || {};
+    var crumbList = opt.crumbs || [];
+    var suffix = opt.token ? "?token=" + encodeURIComponent(opt.token) : "";
+
+    var bar = doc.createElement("div");
+    bar.className = "kd-subhead";
+
+    var crumbs = doc.createElement("nav");
+    crumbs.className = "kd-crumbs";
+    crumbs.setAttribute("aria-label", "現在地");
+    crumbList.forEach(function (c, i) {
+      if (i > 0) {
+        var sep = doc.createElement("span");
+        sep.className = "sep";
+        sep.textContent = "›";
+        crumbs.appendChild(sep);
+      }
+      // 最後の1つは「いま居る所」なので、自分自身への行き先にはしない
+      if (c.path && i < crumbList.length - 1) {
+        var a = doc.createElement("a");
+        a.href = c.path + suffix;
+        a.textContent = c.label;
+        crumbs.appendChild(a);
+      } else {
+        var span = doc.createElement("span");
+        if (i === crumbList.length - 1) span.className = "here";
+        span.textContent = c.label;
+        crumbs.appendChild(span);
+      }
+    });
+    bar.appendChild(crumbs);
+
+    var actions = doc.createElement("div");
+    actions.className = "kd-subactions";
+    (opt.actions || []).forEach(function (a) {
+      var b = doc.createElement("button");
+      b.type = "button";
+      b.textContent = a.label;
+      if (a.id) b.id = a.id;
+      if (a.title) b.title = a.title;
+      if (a.primary) b.className = "primary";
+      b.addEventListener("click", a.onClick);
+      actions.appendChild(b);
+    });
+    bar.appendChild(actions);
+
+    var toastEl = doc.createElement("p");
+    toastEl.className = "kd-toast";
+    toastEl.hidden = true;
+    toastEl.setAttribute("role", "status");
+    bar.appendChild(toastEl);
+
+    host.appendChild(bar);
+
+    var timer = null;
+    function hideNow() {
+      if (timer) { global.clearTimeout(timer); timer = null; }
+      toastEl.classList.remove("show");
+      toastEl.hidden = true;
+    }
+    /// 出して、既定では2秒で自分から消す。出すたびに数え直すので、
+    /// 続けて知らせても前の残り時間で消えることはない。
+    function toast(text, ms) {
+      if (!text) return;
+      if (timer) { global.clearTimeout(timer); timer = null; }
+      toastEl.textContent = text;
+      toastEl.hidden = false;
+      // hidden を外した直後に class を足しても遷移しないので、1フレーム待つ
+      global.requestAnimationFrame(function () { toastEl.classList.add("show"); });
+      timer = global.setTimeout(function () {
+        toastEl.classList.remove("show");
+        timer = global.setTimeout(function () {
+          toastEl.hidden = true; timer = null;
+        }, 200);
+      }, ms || 2000);
+    }
+    return { bar: bar, toast: toast, hideToast: hideNow };
+  }
+
   function renderNav(host, currentPath, token) {
     injectStyles(host.ownerDocument);
     var doc = host.ownerDocument;
@@ -866,6 +986,7 @@
     syncTheme: syncTheme,
     renderJog: renderJog,
     renderNav: renderNav,
+    renderSubHeader: renderSubHeader,
     showTokenNotice: showTokenNotice,
     injectStyles: injectStyles,
     resolveDisplay: resolveDisplay,
