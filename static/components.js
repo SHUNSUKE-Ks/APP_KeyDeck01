@@ -225,6 +225,59 @@
   // 角度は**差分**を足していく。絶対角度で判定すると、つまみのどこを掴んだかで
   // 手ごたえが変わってしまう。0°/360°をまたぐ飛びは -180〜180 に畳んで防ぐ。
   // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // 目盛り音。
+  //
+  // **なぜ <audio> ではなく Web Audio か**: 目盛りは1秒に何度も鳴る。
+  // <audio> は再生中に同じ要素をもう一度鳴らせず、毎回作り直すと詰まる。
+  // Web Audio なら1つの音を何重にも重ねて鳴らせる。
+  //
+  // **iPadで鳴るか**: 音を出す仕掛けは「指が触れた瞬間」に作らないと
+  // iOSが止める。そのため最初の pointerdown で用意する。
+  // ただし**本体横の消音スイッチが入っていると鳴らない**（ブラウザからは
+  // 解除できない）。鳴らないときはまずそこを疑うこと。
+  // ------------------------------------------------------------------
+  var Click = {
+    ctx: null, buffer: null, failed: false,
+    /// 指が触れた瞬間に呼ぶ。2回目以降は何もしない。
+    arm: function () {
+      if (this.ctx || this.failed) return;
+      var Ctor = global.AudioContext || global.webkitAudioContext;
+      if (!Ctor) { this.failed = true; return; }
+      var self = this;
+      try {
+        this.ctx = new Ctor();
+        // iOSは触った瞬間に resume しないと止まったままになる
+        if (this.ctx.state === "suspended") this.ctx.resume();
+        global.fetch("/sounds/detent.mp3")
+          .then(function (r) { return r.arrayBuffer(); })
+          .then(function (b) { return self.ctx.decodeAudioData(b); })
+          .then(function (buf) { self.buffer = buf; })
+          .catch(function (error) {
+            self.failed = true;
+            console.error("[KD][ERR][SOUND] 目盛り音を読み込めません", error);
+          });
+      } catch (error) {
+        this.failed = true;
+        console.error("[KD][ERR][SOUND] 音を用意できません", error);
+      }
+    },
+    /// 先頭の一瞬だけを鳴らす。
+    /// 用意した音は全体で1.08秒あるが、実際に音が出ているのは**先頭40msだけ**で
+    /// 残りは無音。全部を再生すると、目盛りのたびに1秒生き続ける無音の再生が
+    /// 積み上がるので、頭だけを切り出して鳴らす。
+    play: function (gain) {
+      if (!this.ctx || !this.buffer) return;
+      var src = this.ctx.createBufferSource();
+      src.buffer = this.buffer;
+      var vol = this.ctx.createGain();
+      vol.gain.value = gain == null ? 0.5 : gain;
+      src.connect(vol);
+      vol.connect(this.ctx.destination);
+      src.start(0, 0, Math.min(0.06, this.buffer.duration));
+    },
+  };
+
   function renderJog(host, keymap, state, options) {
     var opt = options || {};
     injectStyles(host.ownerDocument);
@@ -276,13 +329,18 @@
         x1: a[0], y1: a[1], x2: b[0], y2: b[1],
       }));
     }
+    // 進み具合の弧。1周で一巡する値（音量など）にだけ意味があるので、
+    // コマ送りのように終わりの無いダイヤルでは出さない。
     var CIRC = 2 * Math.PI * R_PROG;
-    var prog = el("circle", {
-      class: "jogprog", cx: C, cy: C, r: R_PROG,
-      "stroke-dasharray": CIRC, "stroke-dashoffset": CIRC,
-      transform: "rotate(-90 " + C + " " + C + ")",
-    });
-    svg.appendChild(prog);
+    var prog = null;
+    if (keymap.jog.ring !== false) {
+      prog = el("circle", {
+        class: "jogprog", cx: C, cy: C, r: R_PROG,
+        "stroke-dasharray": CIRC, "stroke-dashoffset": CIRC,
+        transform: "rotate(-90 " + C + " " + C + ")",
+      });
+      svg.appendChild(prog);
+    }
     var knob = el("g");
     knob.appendChild(el("circle", { cx: C, cy: C, r: 60, fill: "#1a1f2e" }));
     knob.appendChild(el("circle", { cx: C, cy: C, r: R_KNOB, fill: "url(#" + uid + "-k)" }));
@@ -306,8 +364,21 @@
 
     if (!opt.interactive) return wrap;
 
-    var dragging = false, lastAng = 0, total = 0, carry = 0;
+    // ---- 手ごたえ ----------------------------------------------------
+    // 指の角度（want）と、つまみの角度（total）を**分けて持つ**。
+    // つまみは want へ向かって少しずつ近づくだけなので、重いほど遅れて
+    // 付いてくる。**目盛りは「つまみ」の角度で数える**ので、指を速く回しても
+    // 段は飛ばず、1段ずつ順に鳴る。指を離したあとも、残りを回り切ってから止まる。
+    //
+    // 勢い（慣性）は入れていない。行き過ぎるとコマ送りが1コマ余分に進み、
+    // 狙った画で止められなくなるため。
+    var dragging = false, lastAng = 0;
+    var want = 0;      // 指が示している角度（累積）
+    var total = 0;     // つまみの角度（累積）。目盛りはこちらで数える
+    var carry = 0;
     var EPS = 1e-6;
+    var chase = 1 - Math.min(95, Math.max(0, keymap.jog.weight || 0)) / 100;
+    var frame = null;
 
     function angleAt(event) {
       var r = svg.getBoundingClientRect();
@@ -317,27 +388,49 @@
     }
     function draw() {
       knob.setAttribute("transform", "rotate(" + total + " " + C + " " + C + ")");
-      var frac = (((total % 360) + 360) % 360) / 360;
-      prog.setAttribute("stroke-dashoffset", CIRC * (1 - frac));
+      if (prog) {
+        var frac = (((total % 360) + 360) % 360) / 360;
+        prog.setAttribute("stroke-dashoffset", CIRC * (1 - frac));
+      }
     }
-    /// 指の位置から回転を足す。**離した瞬間の位置も必ず通す**（最後の動きを取りこぼさない）。
+    /// つまみを want へ少し近づけ、越えた目盛りぶんだけ鳴らす。
+    function step() {
+      frame = null;
+      var diff = want - total;
+      var move = diff * chase;
+      // 近づき切ったら終わり。止め時を決めないと永久に微動し続ける
+      if (Math.abs(diff) < 0.01) { move = diff; }
+      total += move;
+      carry += move;
+      var fired = 0;
+      while (carry >= DETENT - EPS) { carry -= DETENT; fired += 1; if (opt.onDetent) opt.onDetent("CW"); }
+      while (carry <= -DETENT + EPS) { carry += DETENT; fired += 1; if (opt.onDetent) opt.onDetent("CCW"); }
+      if (fired > 0 && keymap.jog.sound) {
+        // 一度に何段も越えたときは、うるさくならないよう1回だけ鳴らす
+        Click.play(0.5);
+      }
+      draw();
+      if (Math.abs(want - total) >= 0.01) schedule();
+    }
+    function schedule() {
+      if (frame === null) frame = global.requestAnimationFrame(step);
+    }
+    /// 指の動きを want に足す。**離した瞬間の位置も必ず通す**（最後の動きを取りこぼさない）。
     function applyMove(event) {
       var a = angleAt(event);
       var d = a - lastAng;
       if (d > 180) d -= 360;
       if (d < -180) d += 360;
       lastAng = a;
-      total += d;
-      carry += d;
-      while (carry >= DETENT - EPS) { carry -= DETENT; if (opt.onDetent) opt.onDetent("CW"); }
-      while (carry <= -DETENT + EPS) { carry += DETENT; if (opt.onDetent) opt.onDetent("CCW"); }
-      draw();
+      want += d;
+      schedule();
     }
 
     svg.addEventListener("pointerdown", function (event) {
       event.preventDefault();
       dragging = true;
       lastAng = angleAt(event);
+      if (keymap.jog.sound) Click.arm();   // 触れた瞬間でないとiOSが音を止める
       try { svg.setPointerCapture(event.pointerId); } catch (e) { /* 未対応環境 */ }
     });
     svg.addEventListener("pointermove", function (event) {
@@ -537,37 +630,51 @@
     },
   ];
 
-  /// host に2階層のセレクトを1つ描く。選ぶと token を引き継いで画面遷移する。
-  /// currentPath はハイライト用（今の画面を選択済みにする）。
+  /// host に「KeyDeck」と出ているボタンを1つ描く。押すと候補が下に出て、
+  /// 選ぶと token を引き継いで画面遷移する。
+  ///
+  /// **表示は常に「KeyDeck」のまま**にする。ここは看板であって現在地表示ではない。
+  /// いまどの画面に居るかは候補の側に ● を付けて示す。
+  /// （選ぶと画面が変わって読み込み直されるので、表示は自然と「KeyDeck」へ戻る）
   function renderNav(host, currentPath, token) {
     injectStyles(host.ownerDocument);
-    var sel = host.ownerDocument.createElement("select");
+    var doc = host.ownerDocument;
+    var sel = doc.createElement("select");
     sel.setAttribute("aria-label", "画面を切り替え");
     sel.className = "kd-nav-select";
+
+    var brand = doc.createElement("option");
+    brand.value = "";
+    brand.textContent = "KeyDeck";
+    brand.selected = true;
+    sel.appendChild(brand);
 
     NAV_TREE.forEach(function (dept) {
       var group = host.ownerDocument.createElement("optgroup");
       group.label = dept.dept;
       if (dept.items.length === 0) {
-        var placeholder = host.ownerDocument.createElement("option");
+        var placeholder = doc.createElement("option");
         placeholder.textContent = "（未実装）";
         placeholder.disabled = true;
         group.appendChild(placeholder);
       }
       dept.items.forEach(function (item) {
-        var opt = host.ownerDocument.createElement("option");
+        var opt = doc.createElement("option");
         opt.value = item.path;
-        opt.textContent = item.label;
-        if (item.path === currentPath) opt.selected = true;
+        // いま居る画面には印を付ける。選択状態にはしない（看板を上書きしてしまうため）
+        opt.textContent = (item.path === currentPath ? "● " : "　") + item.label;
         group.appendChild(opt);
       });
       sel.appendChild(group);
     });
 
     sel.addEventListener("change", function () {
-      if (!sel.value) return;
-      var sep = sel.value.indexOf("?") >= 0 ? "&" : "?";
-      window.location.href = sel.value + sep + "token=" + encodeURIComponent(token || "");
+      var path = sel.value;
+      // 看板（値なし）に戻す。遷移に失敗しても表示が画面名のまま残らないように
+      sel.selectedIndex = 0;
+      if (!path) return;
+      var sep = path.indexOf("?") >= 0 ? "&" : "?";
+      window.location.href = path + sep + "token=" + encodeURIComponent(token || "");
     });
 
     host.appendChild(sel);

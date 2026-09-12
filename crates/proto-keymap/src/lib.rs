@@ -300,6 +300,23 @@ pub struct JogConfig {
     /// 1目盛りの角度。小さいほど少し回すだけで送れるが、狙って止めにくくなる。
     #[serde(rename = "detentDeg")]
     pub detent_deg: u16,
+    /// 外周に進み具合の弧を出すか。既定は出す。
+    /// 1周で一巡する値（音量・明るさ等）には意味があるが、コマ送りのように
+    /// 終わりの無いものに出すと、何の進捗なのか嘘になるので消せるようにする。
+    #[serde(default = "default_true")]
+    pub ring: bool,
+    /// 重み（0〜95）。0は指にぴったり付いてくる。大きいほど遅れて付いてきて、
+    /// 指を止めたあとも少しだけ回り切る。**目盛りはつまみの角度で数える**ので、
+    /// 重いほど「ぬるっと1段ずつ」進む手ごたえになる。
+    #[serde(default)]
+    pub weight: u8,
+    /// 目盛りを1つ越えるたびに音を鳴らすか。
+    #[serde(default)]
+    pub sound: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// ダイヤルが押す2つのキーのid。盤面に必ずこの2つが要る。
@@ -557,6 +574,12 @@ pub fn load_keymap_with(
 
     // ダイヤルの成立条件。ここで止めないと、実機で「回しても何も起きない丸」が出る。
     if let Some(jog) = &keymap.jog {
+        if jog.weight > 95 {
+            return Err(KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!("{source}: jog.weight must be 0..=95 (got {})", jog.weight),
+            ));
+        }
         if !(5..=90).contains(&jog.detent_deg) {
             return Err(KeymapError::new(
                 LOAD_SCHEMA_INVALID,

@@ -82,6 +82,9 @@ pub fn router(state: SharedState) -> Router {
         // 部品の描画は static/components.js が唯一の実装。実機の面とエディタが
         // これを共有するので、プレビューと実機の絵がズレない。
         .route_service("/components.js", ServeFile::new("static/components.js"))
+        // ダイヤルの目盛り音。**この1本だけ**を配る（音の置き場をディレクトリごと
+        // 開けると、置いたつもりのない物まで配ることになる）。
+        .route_service("/sounds/detent.mp3", ServeFile::new("static/sounds/detent.mp3"))
         // ギャラリーに実機スクショを出すための置き場。ファイルが無ければ
         // クライアント側が簡易図へ自動で切り替えるので、空でも動く。
         .nest_service("/shots", ServeDir::new("static/shots"))
