@@ -26,6 +26,8 @@ pub struct StartupData {
     /// P-005 段階B: `layouts/layout_*.json`。キーは`layoutId`。0件でも起動する
     /// （既存の面はレイアウトを使わないため）。
     pub layouts: BTreeMap<String, crate::layout::Layout>,
+    /// 起動してよいアプリ（`apps/apps.json`）。0件でも起動する。
+    pub apps: crate::app_launch::AppRegistry,
 }
 
 /// `dir`直下（サブディレクトリは対象外＝`layers/`はここに含まれない）の
@@ -90,6 +92,7 @@ pub fn load_startup_data(
     decks_dir: &Path,
     surfaces_dir: &Path,
     layouts_dir: &Path,
+    apps_dir: &Path,
 ) -> Result<StartupData, Vec<String>> {
     let mut errors: Vec<String> = Vec::new();
     let mut keymaps: BTreeMap<String, Keymap> = BTreeMap::new();
@@ -195,6 +198,15 @@ pub fn load_startup_data(
         }
     }
 
+    // 起動してよいアプリの許可リスト。無ければ0件で正常（この機能を使わない人を止めない）。
+    let apps = match crate::app_launch::load_app_registry(apps_dir) {
+        Ok(registry) => Some(registry),
+        Err(error) => {
+            errors.push(error.to_string());
+            None
+        }
+    };
+
     // 参照先（keymapId / deckId / surfaceId）の実在確認。全部ロードし終えた今しかできない。
     // ここで止めないと、実機で開いた瞬間に空の区画が出て原因が分からない形で壊れる。
     if errors.is_empty() {
@@ -226,11 +238,29 @@ pub fn load_startup_data(
         }
     }
 
+    // `app.launch` の参照先。キーマップ単体では確認できないので、ここでまとめて見る。
+    // 押した時に初めて「そんなアプリは無い」と分かるのでは、原因が遠すぎる。
+    if errors.is_empty() {
+        if let Some(registry) = apps.as_ref() {
+            for (source, action) in all_actions_with_source(&keymaps, &decks) {
+                if let Action::AppLaunch { id, .. } = action {
+                    if !registry.contains(id) {
+                        errors.push(format!(
+                            "[{}] {source}: app.launch references unknown app id '{id}' (add it to apps/apps.json)",
+                            crate::app_launch::APP_LAUNCH_UNKNOWN
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
 
     let surfaces = surfaces.expect("surfaces load succeeded because errors is empty");
+    let apps = apps.expect("apps load succeeded because errors is empty");
     let command_ids: Vec<String> = all_actions(&keymaps, &decks)
         .filter_map(canonical_command_id)
         .collect();
@@ -242,7 +272,34 @@ pub fn load_startup_data(
         layouts,
         command_registry,
         surfaces,
+        apps,
     })
+}
+
+/// `all_actions` と同じものを、**どのファイル由来か**を付けて返す。
+/// 「どのアプリが無い」だけでは、どのキーを直せばよいか分からないため。
+fn all_actions_with_source<'a>(
+    keymaps: &'a BTreeMap<String, Keymap>,
+    decks: &'a BTreeMap<String, DeckSetlist>,
+) -> impl Iterator<Item = (String, &'a Action)> {
+    keymaps
+        .iter()
+        .flat_map(|(id, keymap)| {
+            keymap.layers.iter().flat_map(move |layer| {
+                layer
+                    .keys
+                    .iter()
+                    .map(move |(key_id, key_def)| {
+                        (
+                            format!("keymap '{id}' layer {} key '{key_id}'", layer.id),
+                            &key_def.action,
+                        )
+                    })
+            })
+        })
+        .chain(decks.iter().flat_map(|(id, deck)| {
+            deck.actions().map(move |action| (format!("deck '{id}'"), action))
+        }))
 }
 
 fn all_actions<'a>(
@@ -290,6 +347,11 @@ mod tests {
         /// P-005 段階B: レイアウトは0件でも起動するので、既定では作らない。
         fn layouts_dir(&self) -> PathBuf {
             self.0.join("layouts")
+        }
+
+        /// 意図的に作成しない。apps.json が無くても起動することを一緒に確認する。
+        fn apps_dir(&self) -> PathBuf {
+            self.0.join("apps")
         }
 
         /// T11: 意図的に作成しない（未作成のまま渡すことで空レジストリ経路も一緒に確認する）。
@@ -343,7 +405,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "brand_new_format_added_by_dropping_a_file");
         write_empty_deck(&dir);
 
-        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
             .expect("both keymaps + empty deck must load");
         assert_eq!(data.keymaps.len(), 2);
         assert!(data.keymaps.contains_key("ipad01_vol12"));
@@ -367,7 +429,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "some_other_format");
         write_empty_deck(&dir);
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir()).unwrap_err();
         assert!(errors.iter().any(|e| e.contains(IPAD_KEYMAP_ID)));
     }
 
@@ -379,7 +441,7 @@ mod tests {
         dir.write("keymaps/keymap_broken.json", "{ this is not json");
         write_empty_deck(&dir);
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir()).unwrap_err();
         assert!(!errors.is_empty());
     }
 
@@ -388,7 +450,7 @@ mod tests {
     fn empty_keymaps_dir_is_rejected() {
         let dir = TempDir::new("empty_dir");
         write_empty_deck(&dir);
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir()).unwrap_err();
         assert!(!errors.is_empty());
     }
 
@@ -399,7 +461,7 @@ mod tests {
         write_minimal_single_keymap(&dir, "ipad01_vol12");
         write_empty_deck(&dir);
 
-        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
             .expect("missing surfaces dir must not block startup");
         assert!(data.surfaces.is_empty());
     }
@@ -416,6 +478,7 @@ mod tests {
             &root.join("decks"),
             &root.join("surfaces"),
             &root.join("layouts"),
+            &root.join("apps"),
         )
         .expect("repository data must load");
 
@@ -439,7 +502,7 @@ mod tests {
                    { "slotId": "S01", "label": "p", "action": { "t": "text", "string": "C:/x" } } ] } ] }"#,
         );
 
-        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
             .expect("both decks must load");
         assert_eq!(data.decks.len(), 2);
         assert!(data.decks.contains_key("default"));
@@ -456,7 +519,7 @@ mod tests {
             r#"{ "deckId": "other", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
         );
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
             .unwrap_err();
         assert!(errors.iter().any(|e| e.contains("default")), "errors: {errors:?}");
     }
@@ -472,7 +535,7 @@ mod tests {
             r#"{ "deckId": "default", "grid": { "cols": 1, "rows": 1 }, "pages": [] }"#,
         );
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir())
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
             .unwrap_err();
         assert!(errors.iter().any(|e| e.contains("duplicate deckId")), "errors: {errors:?}");
     }
@@ -490,7 +553,7 @@ mod tests {
             r#"{ "surfaces": [ { "id": "tb01", "type": "trackball", "binding": { "t": "not.allowed" } } ] }"#,
         );
 
-        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir()).unwrap_err();
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir()).unwrap_err();
         assert!(errors.iter().any(|e| e.contains("LOAD_SURFACE_BINDING_UNKNOWN")));
     }
 }

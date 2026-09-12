@@ -318,6 +318,7 @@ async fn schema_handler(State(state): State<SharedState>, Query(query): Query<To
         { "t": "keymap.switch","fields": ["id"],            "note": "別のキーマップへ切り替える" },
         { "t": "keymap.reset", "fields": [],                "note": "default へ戻す" },
         { "t": "layout.switch","fields": ["id?", "fire?"],  "note": "表示するboardを切り替える。idを省くと既定へ戻る。fireがあれば切り替えたあとそれも撃つ" },
+        { "t": "app.launch",   "fields": ["id", "fire?"],   "note": "登録済みのアプリを起動する。起動できるのは apps/apps.json に書いたものだけ" },
         { "t": "mouse.click",  "fields": ["button"],        "note": "left / right" },
         { "t": "mouse.dblclick","fields": ["button"],       "note": "left / right" },
     ]);
@@ -344,6 +345,11 @@ async fn schema_handler(State(state): State<SharedState>, Query(query): Query<To
             "surfaceBindings": ["mouse.move", "mouse.scroll"],
             "componentKinds": ["keyboard", "deck", "trackball", "jog"],
             "themes": crate::state::THEMES,
+            // 起動できるアプリ。**id と label だけ。** exe と args は出さない
+            // （端末にPCの中の配置を教える必要は無く、教えれば攻撃者への地図になる）。
+            "apps": s.apps.manifest().into_iter()
+                .map(|(id, label)| json!({ "id": id, "label": label }))
+                .collect::<Vec<_>>(),
             "jog": { "detentDeg": [5, 90], "weight": [0, 95], "requiredKeys": ["CW", "CCW"] },
             "ids": {
                 "layoutId": "[a-z0-9_]{1,64}",
@@ -687,7 +693,8 @@ async fn layout_save_handler(
     let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
     let decks_dir = std::path::Path::new(crate::DECKS_DIR);
     let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
-    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, dir) {
+    let apps_dir = std::path::Path::new(crate::APPS_DIR);
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, dir, apps_dir) {
         Ok(data) => data,
         Err(errors) => {
             // 巻き戻す。壊れた構成をディスクに残さない
@@ -890,8 +897,9 @@ async fn layer_save_handler(
     let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
     let decks_dir = std::path::Path::new(crate::DECKS_DIR);
     let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
+    let apps_dir = std::path::Path::new(crate::APPS_DIR);
     let layouts_dir = std::path::Path::new(crate::LAYOUTS_DIR);
-    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir) {
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir, apps_dir) {
         Ok(data) => data,
         Err(errors) => {
             let restored = if had_previous {
@@ -1076,8 +1084,9 @@ async fn board_save_handler(
     let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
     let decks_dir = std::path::Path::new(crate::DECKS_DIR);
     let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
+    let apps_dir = std::path::Path::new(crate::APPS_DIR);
     let layouts_dir = std::path::Path::new(crate::LAYOUTS_DIR);
-    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir) {
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir, apps_dir) {
         Ok(data) => data,
         Err(errors) => {
             let restored = std::fs::copy(&backup, &path).is_ok();
@@ -1260,6 +1269,7 @@ async fn keymap_new_handler(
         std::path::Path::new(crate::DECKS_DIR),
         std::path::Path::new(crate::SURFACES_DIR),
         std::path::Path::new(crate::LAYOUTS_DIR),
+        std::path::Path::new(crate::APPS_DIR),
     ) {
         Ok(data) => data,
         Err(errors) => {
@@ -1397,9 +1407,10 @@ async fn reload_handler(State(state): State<SharedState>, Query(query): Query<To
     let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
     let decks_dir = std::path::Path::new(crate::DECKS_DIR);
     let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
+    let apps_dir = std::path::Path::new(crate::APPS_DIR);
     let layouts_dir = std::path::Path::new(crate::LAYOUTS_DIR);
 
-    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir) {
+    let loaded = match crate::startup::load_startup_data(keymaps_dir, decks_dir, surfaces_dir, layouts_dir, apps_dir) {
         Ok(data) => data,
         Err(errors) => {
             let cause = errors.join("; ");
@@ -2001,6 +2012,37 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
         // 表示するboardを切り替える。OSへは何も送らない（画面の話なので）。
         // `fire`があれば**切り替えを先に配ってから**それを撃つ。順序が逆だと、
         // アプリが前に出た直後に画面がまだ古いboardのまま、という瞬間ができる。
+        // 登録済みのアプリを起動する。**送られてくるのはidだけ**で、実行ファイルの
+        // パスも引数も apps/apps.json が持つ（不変条件1と同じ形）。
+        // 起動を先にやってから fire を撃つ。逆にすると、アプリが前に出る前に
+        // キーが飛んで別のアプリが受け取る。
+        Action::AppLaunch { id, fire } => {
+            let result = {
+                let s = state.lock().unwrap();
+                crate::app_launch::launch(&s.apps, id)
+            };
+            match result {
+                Ok(()) => {
+                    tracing::info!(chk = "APPLAUNCH", app = %id, "app launched");
+                }
+                Err(error) => {
+                    // ここで落とさない（不変条件3: ランタイム入力起因のpanic禁止）。
+                    // 押した人には何が起きなかったのかを返す。
+                    emit_error(
+                        state,
+                        client_id,
+                        "APPLAUNCH",
+                        error.code,
+                        error.cause.clone(),
+                        json!({ "appId": id }),
+                    );
+                    return;
+                }
+            }
+            if let Some(inner) = fire {
+                Box::pin(fire_action(state, client_id, (**inner).clone())).await;
+            }
+        }
         Action::LayoutSwitch { id, fire } => {
             // 実在しないboardへ移すと、端末が空の画面に当たって原因が分からなくなる
             let resolved = {
@@ -2312,6 +2354,7 @@ mod tests {
             hub_core::CommandRegistry::new(Vec::<String>::new()),
             surfaces,
             std::collections::BTreeMap::new(),
+            crate::app_launch::AppRegistry::empty(),
             AccessToken::generate(),
             tx,
             "127.0.0.1".to_string(),

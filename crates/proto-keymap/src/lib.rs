@@ -221,6 +221,20 @@ pub enum Action {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fire: Option<Box<Action>>,
     },
+    /// 登録済みのアプリを起動する（2026-09-12・ユーザー裁定）。
+    ///
+    /// **送れるのはidだけ。** 実行ファイルのパスも引数も `apps/apps.json` が持ち、
+    /// クライアントからは受け取らない。不変条件1（位置IDしか送れない）と同じ形で、
+    /// 「何が起きるか」はPC側のJSONだけが決める。
+    ///
+    /// `fire` があれば起動のあとに撃つ（`layout.switch` と同じ並び）。
+    /// 「Unityを起動して、Unity用のboardへ移る」を1ボタンにするために要る。
+    #[serde(rename = "app.launch")]
+    AppLaunch {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fire: Option<Box<Action>>,
+    },
     #[serde(rename = "tg.fire")]
     TgFire { layer: u8, fire: Box<Action> },
 }
@@ -626,6 +640,55 @@ pub fn load_keymap_with(
 
 /// Layer0必須／L0にtrans禁止／vk辞書／mo・tg参照先。従来のload_keymap_str相当の検証を、
 /// マニフェスト＋複数レイヤーファイルを結合した後のKeymapに対して1回だけ行う。
+/// `fire` に置けるのは葉アクション（key/chord/text）だけ。
+///
+/// mo/tg/tg.fire/keymap.* の入れ子はロード時に拒否する。再帰と、
+/// **1打鍵での状態二重変更**を防ぐため。`layout.switch` と `app.launch` で
+/// 同じ規則を使う（同じ規則を2か所に書くと、いつか片方だけ緩む）。
+fn check_nested_fire(
+    source: &str,
+    layer_id: u8,
+    key_id: &str,
+    fire: Option<&Action>,
+    what: &str,
+) -> Result<(), KeymapError> {
+    let Some(inner) = fire else {
+        return Ok(());
+    };
+    match inner {
+        Action::Key { vk } => {
+            if !is_known_vk(vk) {
+                return Err(KeymapError::new(
+                    LOAD_VK_UNKNOWN,
+                    format!("{source}: layer {layer_id} key '{key_id}': unknown vk '{vk}' in {what}"),
+                ));
+            }
+        }
+        Action::Chord { keys } => {
+            for vk in keys {
+                if !is_known_vk(vk) {
+                    return Err(KeymapError::new(
+                        LOAD_VK_UNKNOWN,
+                        format!(
+                            "{source}: layer {layer_id} key '{key_id}': unknown vk '{vk}' in {what} chord"
+                        ),
+                    ));
+                }
+            }
+        }
+        Action::Text { .. } => {}
+        other => {
+            return Err(KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!(
+                    "{source}: layer {layer_id} key '{key_id}': {what}.fire must be key/chord/text, got {other:?}"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
     // Layer0必須
     if keymap.layer(0).is_none() {
@@ -750,47 +813,13 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                     }
                 }
                 // 中の fire は tg.fire と同じ規則で検証する。
-                // 外側の id（移る先のboard）はキーマップ側からは確認できないので、
-                // 起動時に layouts を全部読み終えた startup 側で確認する。
+                // 外側の id（移る先のboard／起動するアプリ）はキーマップ側からは
+                // 確認できないので、起動時に全部読み終えた startup 側で確認する。
                 Action::LayoutSwitch { fire, .. } => {
-                    if let Some(inner) = fire.as_ref() {
-                        match inner.as_ref() {
-                            Action::Key { vk } => {
-                                if !is_known_vk(vk) {
-                                    return Err(KeymapError::new(
-                                        LOAD_VK_UNKNOWN,
-                                        format!(
-                                            "{source}: layer {} key '{key_id}': unknown vk '{vk}' in layout.switch",
-                                            layer.id
-                                        ),
-                                    ));
-                                }
-                            }
-                            Action::Chord { keys } => {
-                                for vk in keys {
-                                    if !is_known_vk(vk) {
-                                        return Err(KeymapError::new(
-                                            LOAD_VK_UNKNOWN,
-                                            format!(
-                                                "{source}: layer {} key '{key_id}': unknown vk '{vk}' in layout.switch chord",
-                                                layer.id
-                                            ),
-                                        ));
-                                    }
-                                }
-                            }
-                            Action::Text { .. } => {}
-                            other => {
-                                return Err(KeymapError::new(
-                                    LOAD_SCHEMA_INVALID,
-                                    format!(
-                                        "{source}: layer {} key '{key_id}': layout.switch.fire must be key/chord/text, got {other:?}",
-                                        layer.id
-                                    ),
-                                ));
-                            }
-                        }
-                    }
+                    check_nested_fire(source, layer.id, key_id, fire.as_deref(), "layout.switch")?;
+                }
+                Action::AppLaunch { fire, .. } => {
+                    check_nested_fire(source, layer.id, key_id, fire.as_deref(), "app.launch")?;
                 }
                 Action::Trans
                 | Action::None
@@ -954,7 +983,8 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
             down: matches!(edge, Edge::Down),
         }),
         // 押した瞬間に1回だけ。離したときは何もしない
-        Action::LayoutSwitch { .. }
+        Action::AppLaunch { .. }
+        | Action::LayoutSwitch { .. }
         | Action::Key { .. }
         | Action::Chord { .. }
         | Action::KeyButton { .. }

@@ -109,6 +109,9 @@ pub const DEFAULT_THEME: &str = "blue";
 pub fn canonical_command_id(action: &Action) -> Option<String> {
     match action {
         Action::Key { vk } => Some(format!("key:{vk}")),
+        // アプリ起動も**キーと同じ強さの許可リストに載せる**。載せないと、
+        // 起動時に読んだキーマップに書かれていないものが撃てる余地が残る。
+        Action::AppLaunch { id, .. } => Some(format!("app:{id}")),
         // キーマップからマウスのクリックを撃てるようにしたぶん、**許可リストの
         // 対象にもする**（D5）。起動時に読み込んだキーマップに書かれているものだけが
         // 実行できる、という防御をキーと同じ強さで掛けるため。
@@ -157,6 +160,9 @@ pub struct HubState {
     /// T11（D28）: `surfaces/trackball.json`から構築したレジストリ。T12でsurface.state
     /// 受信時にsurfaceIdを引くために使う。
     pub surfaces: crate::surface::SurfaceRegistry,
+    /// 起動してよいアプリ（`apps/apps.json`）。**ここに載っているものしか起動しない。**
+    /// 実行ファイルのパスと引数はここだけが持ち、端末へは id と label しか出さない。
+    pub apps: crate::app_launch::AppRegistry,
     /// P-005 段階C: いま押しっぱなしになっているキー（クライアント別）。
     /// これが無いと、十字キーを押したまま切断・画面を閉じる・電波が切れる、で
     /// **キーが押されっぱなしになりPCが操作不能になる**。切断時にここを見て全部離す。
@@ -197,6 +203,7 @@ impl HubState {
         command_registry: hub_core::CommandRegistry,
         surfaces: crate::surface::SurfaceRegistry,
         layouts: BTreeMap<String, crate::layout::Layout>,
+        apps: crate::app_launch::AppRegistry,
         token: AccessToken,
         adapter_tx: mpsc::UnboundedSender<AdapterJob>,
         lan_ip: String,
@@ -211,6 +218,7 @@ impl HubState {
             layer_states: BTreeMap::new(),
             command_registry,
             surfaces,
+            apps,
             held_keys: HashMap::new(),
             clients: HashMap::new(),
             next_client_id: 0,
@@ -425,6 +433,7 @@ mod tests {
             hub_core::CommandRegistry::new(Vec::<String>::new()),
             surfaces,
             BTreeMap::new(),
+            crate::app_launch::AppRegistry::empty(),
             AccessToken::generate(),
             tx,
             "192.168.0.5".to_string(),

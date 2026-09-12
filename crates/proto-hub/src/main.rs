@@ -3,6 +3,7 @@
 //! 設計書D5/D6/D8/D9/D10/D11。チェックポイントT3-1..T3-5はtracingログとサブモジュールの
 //! 実装箇所コメントに残している（ws.rsを参照）。
 
+mod app_launch;
 mod deck;
 mod layout;
 mod error;
@@ -31,6 +32,10 @@ const SURFACES_DIR: &str = "surfaces";
 /// P-005 段階B: 画面の区画割り（`layouts/layout_*.json`）。無くても起動する。
 const LAYOUTS_DIR: &str = "layouts";
 
+/// 起動してよいアプリの許可リスト（`apps/apps.json`）。無くても起動する
+/// （その場合は起動できるアプリが0件になるだけ）。
+const APPS_DIR: &str = "apps";
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -48,6 +53,7 @@ async fn main() {
         Path::new(DECKS_DIR),
         Path::new(SURFACES_DIR),
         Path::new(LAYOUTS_DIR),
+        Path::new(APPS_DIR),
     ) {
         Ok(data) => data,
         Err(startup_errors) => {
@@ -64,6 +70,7 @@ async fn main() {
         command_registry,
         surfaces,
         layouts,
+        apps,
     } = startup_data;
 
     tracing::info!(
@@ -72,6 +79,7 @@ async fn main() {
         decks = decks.len(),
         surfaces = surfaces.len(),
         layouts = layouts.len(),
+        apps = apps.len(),
         "startup data loaded successfully"
     );
     tracing::info!(
@@ -114,6 +122,7 @@ async fn main() {
         command_registry,
         surfaces,
         layouts,
+        apps,
         token.clone(),
         adapter_tx,
         lan_ip.clone(),

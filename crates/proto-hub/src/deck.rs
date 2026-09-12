@@ -196,6 +196,10 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
             // T15（brief/keydeck_trackball_gestures_v0.7.md §4の事前警告どおり、今回は
             // 最初からここを直す）: MouseClick/MouseDoubleClick/MouseButton/MouseScrollも
             // 同じ扱い（vk辞書を経由しない・既存Deck JSONには出現しないため無挙動変化）。
+            // アプリ起動も押した瞬間に1回で終わるので、Deckに置いてよい。
+            // 参照先のアプリが実在するかは startup 側でまとめて確認する
+            // （ここからは apps/apps.json が見えないため）。
+            Action::AppLaunch { .. } => {}
             // 表示するboardを切り替えるだけなので、Deckに置いても問題ない
             // （押した瞬間に1回で終わる。離す機会を必要としない）。
             // 中の fire は Key/Chord と同じ規則で vk を検証する。
