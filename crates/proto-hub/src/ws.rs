@@ -55,6 +55,8 @@ pub fn router(state: SharedState) -> Router {
         // QRの宛先をそのどれにするかを選ぶための2本。
         // 見た目のテーマ。読むのは全画面、変えるのは設定画面から。
         .route("/api/theme", get(theme_get_handler).post(theme_set_handler))
+        // 書ける物の辞書と、いま読み込まれている中身の丸見え。**読み取り専用**。
+        .route("/api/schema", get(schema_handler))
         .route("/api/hosts", get(hosts_handler))
         .route("/api/host", post(host_set_handler))
         // P-005 段階D: レイアウトの保存。**書き込みはこの1本だけ**。
@@ -79,6 +81,7 @@ pub fn router(state: SharedState) -> Router {
         .route_service("/layout", ServeFile::new("static/layout.html"))
         .route_service("/settings", ServeFile::new("static/settings.html"))
         .route_service("/catalog", ServeFile::new("static/catalog.html"))
+        .route_service("/schema", ServeFile::new("static/schema.html"))
         // P-007: キー編集。PCでもiPadでも同じURLで開ける
         .route_service("/keys", ServeFile::new("static/keys.html"))
         // 部品の描画は static/components.js が唯一の実装。実機の面とエディタが
@@ -223,6 +226,72 @@ async fn ping_handler(State(state): State<SharedState>, Query(query): Query<Toke
 ///   `keymaps`   … 読み込み済みキーボードとその規模
 ///   `decks`     … Deckと描き方・スロット数
 ///   `layouts`   … 画面の区画割り（どの部品がどこに置かれているか）
+/// 「何を書いてよいか」の辞書と、「いま何が入っているか」の中身。
+///
+/// **読み取り専用**で、ファイルは一切触らない。返すのは
+/// (1) コード内の固定リスト（vk辞書・action種別など。ここが正）
+/// (2) 起動時に読み込み済みの構造（keymap/layout/deck）をそのままJSONにしたもの
+///
+/// 辞書を画面から見られるようにするのは、JSONを手で書くときに
+/// 「使える名前」を探してソースを読む必要をなくすため。
+async fn schema_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting schema request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let s = state.lock().unwrap();
+
+    // actionの種別。**enumの並びと同じ順**で、JSONに書ける物だけを載せる。
+    // 内部専用（resolve()が組み立てるもの）は「書かない」と明記する。
+    let actions = json!([
+        { "t": "key",          "fields": ["vk"],            "note": "1キーを押して離す" },
+        { "t": "chord",        "fields": ["keys[]"],        "note": "同時押し（Ctrl+C など）" },
+        { "t": "key.hold",     "fields": ["vk"],            "note": "押している間ずっと押しっぱなし" },
+        { "t": "text",         "fields": ["string"],        "note": "文字を直接入れる（vk辞書を通らない）" },
+        { "t": "mo",           "fields": ["layer"],         "note": "押している間だけそのレイヤー" },
+        { "t": "tg",           "fields": ["layer"],         "note": "押すたびに切り替わる" },
+        { "t": "tg.fire",      "fields": ["layer", "fire"], "note": "切り替えと同時に fire も撃つ" },
+        { "t": "trans",        "fields": [],                "note": "下のレイヤーへ素通し（layer0には置けない）" },
+        { "t": "none",         "fields": [],                "note": "何も起きない（空きマス）" },
+        { "t": "keymap.switch","fields": ["id"],            "note": "別のキーマップへ切り替える" },
+        { "t": "keymap.reset", "fields": [],                "note": "default へ戻す" },
+        { "t": "mouse.click",  "fields": ["button"],        "note": "left / right" },
+        { "t": "mouse.dblclick","fields": ["button"],       "note": "left / right" },
+    ]);
+    let internal_actions = json!([
+        "mouse.move", "mouse.scroll", "mouse.button", "key.button"
+    ]);
+
+    let keymaps: serde_json::Value = serde_json::to_value(&s.keymaps).unwrap_or(json!({}));
+    let layouts: serde_json::Value = serde_json::to_value(&s.layouts).unwrap_or(json!({}));
+    let decks: serde_json::Value = serde_json::to_value(&s.decks).unwrap_or(json!({}));
+
+    Json(json!({
+        "dictionary": {
+            "vk": proto_keymap::VK_DICTIONARY,
+            "actions": actions,
+            "actionsInternalOnly": internal_actions,
+            "gestureTypes": [
+                { "t": "mouse.click",       "fields": ["button"] },
+                { "t": "mouse.dblclick",    "fields": ["button"] },
+                { "t": "mouse.button.hold", "fields": ["button"] },
+                { "t": "key",               "fields": ["vk"] },
+                { "t": "chord",             "fields": ["keys[]"] }
+            ],
+            "surfaceBindings": ["mouse.move", "mouse.scroll"],
+            "componentKinds": ["keyboard", "deck", "trackball", "jog"],
+            "themes": crate::state::THEMES,
+            "jog": { "detentDeg": [5, 90], "weight": [0, 95], "requiredKeys": ["CW", "CCW"] },
+            "ids": {
+                "layoutId": "[a-z0-9_]{1,64}",
+                "keymapId": "いま読み込まれているものだけ（新規はファイルを置いて再読込）"
+            }
+        },
+        "loaded": { "keymaps": keymaps, "layouts": layouts, "decks": decks }
+    }))
+    .into_response()
+}
+
 /// いまのテーマと、選べる一覧。
 async fn theme_get_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
     if !token_ok(&state, query.token.as_deref()) {

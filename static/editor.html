@@ -303,9 +303,8 @@
 <div class="head">
   <span id="navHost"></span>
 
-  <span class="cap">board</span>
+  <label class="cap" for="layoutSel" style="cursor:pointer">board</label>
   <select id="layoutSel" aria-label="表示するboard"></select>
-  <button id="newBtn" type="button">＋ 新規</button>
   <!-- **いま編集しているレイアウトの**QR。ここに置くのが要点で、
        ギャラリーから別のレイアウトのQRを読んでしまう取り違えを防ぐ
        （実際に ipad_v13 を編集して ipad_main のQRを読む事故が起きた）。 -->
@@ -1258,6 +1257,9 @@ function addSection(item) {
 }
 
 // ---- 操作の配線 -------------------------------------------------------
+/// board一覧の中に置く「新規」の印。実在のidと衝突しない形にしてある。
+const NEW_BOARD = "__new__";
+
 function fillLayoutSelect() {
   const sel = document.getElementById("layoutSel");
   sel.textContent = "";
@@ -1267,10 +1269,27 @@ function fillLayoutSelect() {
     if (id === layoutId) option.selected = true;
     sel.appendChild(option);
   }
-  sel.disabled = Object.keys(SOURCE).length <= 1;
+  // **新規はこの一覧の中に置く。**別のボタンにしておくと、
+  // boardを選ぶ操作と作る操作が別々の場所に散る。
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+  const add = document.createElement("option");
+  add.value = NEW_BOARD;
+  add.textContent = "＋ 新しいboardを作る…";
+  sel.appendChild(add);
+  // 1つしか無くても「新規」を選べる必要があるので、もう無効にしない
+  sel.disabled = false;
 }
 
 document.getElementById("layoutSel").addEventListener("change", (event) => {
+  if (event.target.value === NEW_BOARD) {
+    // 選んだ見た目のまま残さない。作る前に今のboardへ戻しておく
+    event.target.value = layoutId;
+    createBoard();
+    return;
+  }
   layoutId = event.target.value;
   model = clone(SOURCE[layoutId]);
   selectedId = null;
@@ -1314,7 +1333,8 @@ function closeQr() { qrModal.hidden = true; }
 // 保存まで一度に行うのは、作っただけで保存し忘れると
 // 「作ったのに次に開いたら無い」ことになるため。
 // ================================================================
-document.getElementById("newBtn").addEventListener("click", async () => {
+/// 一覧から「＋ 新しいboardを作る…」を選んだときの流れ。
+async function createBoard() {
   const raw = prompt("新しいboardの名前（英小文字・数字・_ のみ）", "");
   if (raw === null) return;
   const id = raw.trim();
@@ -1355,7 +1375,7 @@ document.getElementById("newBtn").addEventListener("click", async () => {
   } catch (error) {
     notifyReverted("通信エラー: " + error);
   }
-});
+}
 
 document.getElementById("qrBtn").addEventListener("click", openQr);
 // 画面外（覆いそのもの）を押したら閉じる。カードの中を押しても閉じない

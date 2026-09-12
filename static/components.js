@@ -676,6 +676,7 @@
         { label: "キー編集", path: "/keys" },
         { label: "接続（Gallery）", path: "/connect" },
         { label: "操作カタログ", path: "/catalog" },
+        { label: "スキーマ・辞書", path: "/schema" },
         { label: "設定", path: "/settings" },
       ],
     },

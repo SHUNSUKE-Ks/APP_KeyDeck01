@@ -21,8 +21,8 @@
       "id": "SEC-BUTTONS",
       "row": 1,
       "col": 1,
-      "colSpan": 8,
-      "rowSpan": 4,
+      "colSpan": 6,
+      "rowSpan": 2,
       "component": {
         "kind": "keyboard",
         "ref": "youtube01"

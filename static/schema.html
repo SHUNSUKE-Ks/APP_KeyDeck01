@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  schema.html — 「何を書いてよいか」と「いま何が入っているか」を見る画面。
+  素のHTML+JSのみ（D2）。URL: /schema?token=…
+
+  ■ この画面の役割
+    JSONを手で書くとき、使える名前（vk・action種別など）を探すのに
+    ソースを読む必要があった。それをやめるための一覧。
+
+  ■ 出どころ
+    GET /api/schema?token=…（読み取り専用。ファイルは一切触らない）
+      dictionary … コード内の固定リスト。**ここが正**
+      loaded     … 起動時に読み込み済みの構造そのまま
+
+  ■ 書き換えはしない
+    この画面は読むだけ。保存も再読込もしない。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — スキーマ</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel2:#161c30; --ink:#f4f7ff; --ink-muted:#b7bfd6;
+      --ink-dim:#6b7590; --accent:#2d67d9; --accent-soft:#24478f; --ok:#35c47a;
+      --warn:#e8b44a; --err:#e2555a; --line:#2d3550;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); padding: 16px 20px 60px;
+      font-size: 13px; line-height: 1.6;
+    }
+    .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+    .note { color: var(--ink-dim); font-size: 12px; margin: 10px 0 18px; max-width: 820px; }
+    h2 {
+      font-size: 12px; margin: 26px 0 8px; padding-bottom: 6px;
+      border-bottom: 1px solid var(--line); color: var(--ink-muted);
+      letter-spacing: .06em;
+    }
+    .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--ink-dim); font-weight: 600; font-size: 11px; }
+    td code { color: var(--ok); }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip {
+      background: var(--panel2); border: 1px solid var(--line); border-radius: 5px;
+      padding: 1px 6px; font-size: 11px; font-family: ui-monospace, monospace; color: var(--ink-muted);
+      cursor: pointer;
+    }
+    .chip:hover { border-color: var(--accent); color: var(--ink); }
+    .chip.copied { border-color: var(--ok); color: var(--ok); }
+    select, button {
+      min-height: 30px; border: 1px solid var(--line); border-radius: 7px;
+      background: var(--panel); color: var(--ink); font: inherit; font-size: 12px; padding: 3px 8px;
+    }
+    pre {
+      background: #0c111f; border: 1px solid var(--line); border-radius: 8px;
+      padding: 10px; font-size: 11px; line-height: 1.5; overflow: auto; max-height: 420px;
+      margin: 8px 0 0; color: var(--ink-muted); white-space: pre;
+    }
+    .err { color: var(--err); }
+    .hint { font-size: 11px; color: var(--ink-dim); margin: 4px 0 0; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <span id="navHost"></span>
+  </div>
+  <p class="note">
+    JSONを手で書くときの<b>辞書</b>と、<b>いまHubに入っている中身</b>です。
+    この画面は読むだけで、保存も再読込もしません。名前を押すと写せます。
+  </p>
+
+  <h2>いま入っている中身</h2>
+  <div class="card">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="kindSel" aria-label="種類"></select>
+      <select id="itemSel" aria-label="中身"></select>
+      <button id="copyBtn" type="button">JSONを写す</button>
+      <span id="copyMsg" class="hint"></span>
+    </div>
+    <pre id="jsonOut">読み込み中…</pre>
+  </div>
+
+  <h2>書ける物の辞書</h2>
+  <div class="cols">
+    <div class="card">
+      <h3 style="font-size:12px;margin:0 0 6px">キーに書ける action</h3>
+      <table id="actionTable"></table>
+      <p class="hint" id="internalNote"></p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:12px;margin:0 0 6px">vk（キー名）</h3>
+      <div class="chips" id="vkChips"></div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:12px;margin:0 0 6px">面のジェスチャー</h3>
+      <table id="gestureTable"></table>
+      <p class="hint" id="bindingNote"></p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:12px;margin:0 0 6px">その他の決まり</h3>
+      <table id="miscTable"></table>
+    </div>
+  </div>
+
+  <script src="/components.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+    if (!token) { KDComponents.showTokenNotice(); }
+    KDComponents.renderNav(document.getElementById("navHost"), "/schema", token);
+    KDComponents.syncTheme(token);
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") console.error(line, context ?? "");
+      else console.info(line, context ?? "");
+    }
+
+    const el = (tag, cls, text) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+
+    /// 押すと写せる名前。JSONを手で書くときに打ち間違えないため。
+    function chip(text) {
+      const c = el("span", "chip", text);
+      c.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          c.classList.add("copied");
+          setTimeout(() => c.classList.remove("copied"), 900);
+        } catch (error) {
+          log("ERR", "CLIPBOARD", "写せません: " + error);
+        }
+      });
+      return c;
+    }
+
+    function fillTable(table, rows, headers) {
+      table.textContent = "";
+      const head = document.createElement("tr");
+      for (const h of headers) head.appendChild(el("th", null, h));
+      table.appendChild(head);
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        for (const cell of row) {
+          const td = document.createElement("td");
+          if (cell && cell.code) td.appendChild(el("code", null, cell.code));
+          else td.textContent = cell == null ? "" : String(cell);
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+    }
+
+    let LOADED = {};
+
+    function renderItems() {
+      const kind = document.getElementById("kindSel").value;
+      const itemSel = document.getElementById("itemSel");
+      itemSel.textContent = "";
+      for (const id of Object.keys(LOADED[kind] || {})) {
+        const o = document.createElement("option");
+        o.value = id; o.textContent = id;
+        itemSel.appendChild(o);
+      }
+      renderJson();
+    }
+
+    function renderJson() {
+      const kind = document.getElementById("kindSel").value;
+      const id = document.getElementById("itemSel").value;
+      const data = (LOADED[kind] || {})[id];
+      document.getElementById("jsonOut").textContent =
+        data ? JSON.stringify(data, null, 2) : "（選べる物がありません）";
+    }
+
+    document.getElementById("kindSel").addEventListener("change", renderItems);
+    document.getElementById("itemSel").addEventListener("change", renderJson);
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      const msg = document.getElementById("copyMsg");
+      try {
+        await navigator.clipboard.writeText(document.getElementById("jsonOut").textContent);
+        msg.textContent = "写しました";
+      } catch (error) {
+        msg.textContent = "写せません: " + error;
+      }
+      setTimeout(() => { msg.textContent = ""; }, 1600);
+    });
+
+    async function load() {
+      const res = await fetch("/api/schema?token=" + encodeURIComponent(token));
+      if (!res.ok) {
+        document.getElementById("jsonOut").textContent =
+          "取得できません（" + res.status + "）。URLのトークンが古い可能性があります。";
+        document.getElementById("jsonOut").classList.add("err");
+        return;
+      }
+      const data = await res.json();
+      log("SCHEMA", "OK", "schema received", {
+        keymaps: Object.keys(data.loaded.keymaps).length,
+        layouts: Object.keys(data.loaded.layouts).length,
+        decks: Object.keys(data.loaded.decks).length,
+      });
+      LOADED = data.loaded;
+
+      const kindSel = document.getElementById("kindSel");
+      kindSel.textContent = "";
+      for (const [key, label] of [["layouts", "board（区画割り）"], ["keymaps", "キーボード"], ["decks", "Deck"]]) {
+        const o = document.createElement("option");
+        o.value = key; o.textContent = label + "（" + Object.keys(data.loaded[key] || {}).length + "）";
+        kindSel.appendChild(o);
+      }
+      renderItems();
+
+      const d = data.dictionary;
+      fillTable(document.getElementById("actionTable"),
+        d.actions.map((a) => [{ code: a.t }, (a.fields || []).join(", "), a.note]),
+        ["t", "一緒に書く物", "意味"]);
+      document.getElementById("internalNote").textContent =
+        "JSONに書かない（Hubが内部で組み立てる）: " + d.actionsInternalOnly.join(" / ");
+
+      const vk = document.getElementById("vkChips");
+      vk.textContent = "";
+      for (const name of d.vk) vk.appendChild(chip(name));
+
+      fillTable(document.getElementById("gestureTable"),
+        d.gestureTypes.map((g) => [{ code: g.t }, (g.fields || []).join(", ")]),
+        ["t", "一緒に書く物"]);
+      document.getElementById("bindingNote").textContent =
+        "面の binding.t に書けるもの: " + d.surfaceBindings.join(" / ");
+
+      fillTable(document.getElementById("miscTable"), [
+        ["部品の種類", d.componentKinds.join(" / ")],
+        ["テーマ", d.themes.join(" / ")],
+        ["ダイヤル detentDeg", d.jog.detentDeg[0] + " 〜 " + d.jog.detentDeg[1]],
+        ["ダイヤル weight", d.jog.weight[0] + " 〜 " + d.jog.weight[1]],
+        ["ダイヤルに必須のキー", d.jog.requiredKeys.join(" / ")],
+        ["layoutId", { code: d.ids.layoutId }],
+        ["keymapId", d.ids.keymapId],
+      ], ["項目", "値"]);
+    }
+
+    load().catch((error) => {
+      document.getElementById("jsonOut").textContent = "読み込みに失敗: " + error;
+      log("ERR", "INTERNAL", "schema load failed: " + error);
+    });
+  </script>
+</body>
+</html>
