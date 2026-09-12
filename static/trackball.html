@@ -100,15 +100,24 @@
       pointer-events: none; z-index: 5;
     }
     #tapzones .line {
-      position: absolute; left: 50%; top: 6%; bottom: 6%; width: 1px;
+      position: absolute; left: 80%; top: 6%; bottom: 6%; width: 1px;
       background: linear-gradient(transparent, rgba(255,255,255,.22) 20%, rgba(255,255,255,.22) 80%, transparent);
+    }
+    /* 右の帯は狭い（全体の1/5）ので、薄く塗って境目が触る前に分かるようにする */
+    #tapzones .rzone {
+      position: absolute; left: 80%; right: 0; top: 0; bottom: 0;
+      background: rgba(255,255,255,.035);
     }
     #tapzones .zlabel {
       position: absolute; bottom: 6px; font-size: 10px; color: rgba(255,255,255,.42);
       white-space: nowrap;
     }
     #tapzones .zlabel.l { left: 10px; }
-    #tapzones .zlabel.r { right: 10px; }
+    /* 右の帯は狭いので、ラベルは縦書きにして帯の中へ収める */
+    #tapzones .zlabel.r {
+      right: 4px; top: 8px; bottom: auto;
+      writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1px;
+    }
     body.embed #tapzones .zlabel { font-size: 9px; }
 
     #lower-half {
@@ -288,9 +297,10 @@
 
     <canvas id="ball"></canvas>
     <div id="tapzones" aria-hidden="true">
+      <div class="rzone"></div>
       <div class="line"></div>
-      <div class="zlabel l">左: 左クリック / 2本タップ=戻る</div>
-      <div class="zlabel r">右: 右クリック / 2本上下=スクロール</div>
+      <div class="zlabel l">左: 1本タップ=左クリック / 2本タップ=戻る / 2本長押し=コピー</div>
+      <div class="zlabel r">右: 右クリック・スクロール</div>
     </div>
     <div id="lower-half">（下半分：将来ここにキーボード面）</div>
   </div>
@@ -569,6 +579,12 @@
       // （#ball{width:100%;height:50%} の実測値=#stage基準）から取る。
       function resize() {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        // **測る前に自分で書いた寸法を消す。**
+        // 前回 style.width/height を入れているため、そのまま測ると
+        // 前回の値がそのまま返ってきて、置き場所が広がっても球は広がらない。
+        // （区画の大きさを変えても・端末を回しても、古い幅のまま残っていた）
+        canvas.style.width = "";
+        canvas.style.height = "";
         const rect = canvas.getBoundingClientRect();
         W = rect.width;
         H = rect.height;
@@ -929,16 +945,27 @@
       // 触れた場所が左右どちらの領域か。**判定に使うのは最初に触れた指の位置だけ**。
       // 途中で指が反対側へ動いても、始めた側の意味のままにする（動かすたびに
       // 意味が変わると、なぞっている最中に別の操作へ化けてしまう）。
+      // 左:右 = 4:1。右は「右クリックとスクロールだけの細い帯」で、
+      // 広い左側をカーソル操作に使う。
+      const SPLIT = 0.8;
       function sideOf(clientX) {
         const r = View.canvas.getBoundingClientRect();
-        return (clientX - r.left) < r.width / 2 ? "left" : "right";
+        return (clientX - r.left) < r.width * SPLIT ? "left" : "right";
       }
       /// セッション（全部の指が離れるまで）で最初に触れた側
       let sessionSide = "left";
 
+      /// コピー開始。左ボタンを押したままにして、以後の指の動きで範囲を選ぶ。
+      /// 動かす基準は**1本だけ**にする（2本ぶん足すと倍の速さで飛ぶ）。
+      let copyDriverId = null;
       function fireHoldDown(pointerId) {
         holdActivePointerId = pointerId;
         sessionHoldFired = true;
+        sessionTapEligible = false;   // 長押しは「2本タップ＝戻る」に数えない
+        copyDriverId = pointerId;
+        dragging = true;
+        primaryPointerId = null;      // 1本用の経路とは別物として扱う
+        Core.begin();
         hubSink.sendGesture("hold1", "down");
       }
 
@@ -948,6 +975,7 @@
       function fireHoldUp() {
         if (holdActivePointerId === null) return;
         holdActivePointerId = null;
+        copyDriverId = null;
         hubSink.sendGesture("hold1", "up");
         hubSink.sendGesture("copy1");
       }
@@ -997,17 +1025,23 @@
         sessionMaxCount = Math.max(sessionMaxCount, pointers.size);
 
         if (pointers.size === 1) {
+          // **1本指はカーソル操作だけ。** 以前はここで長押しの計測も始めていたが、
+          // 「指を置いて一呼吸おく」だけで左ボタンが押され、そのあとの移動が
+          // カーソル移動ではなく範囲選択に化けていた。責務を分けるため廃止した。
           beginDrag(e);
-          holdTimer = setTimeout(() => {
-            holdTimer = null;
-            const record = pointers.get(e.pointerId);
-            if (record && !record.moved && pointers.size === 1) fireHoldDown(e.pointerId);
-          }, T_HOLD);
         } else if (pointers.size === 2) {
           // 2本目が乗った瞬間、1本ドラッグ用のCoreは打ち切る（§6）。
           clearHoldTimer();
-          fireHoldUp();
           endDrag();
+          // 左側の2本長押し = コピー開始。右側は右クリックとスクロール専用なので測らない。
+          if (sessionSide === "left") {
+            holdTimer = setTimeout(() => {
+              holdTimer = null;
+              if (pointers.size !== 2) return;
+              for (const rec of pointers.values()) if (rec.moved) return;
+              fireHoldDown(e.pointerId);
+            }, T_HOLD);
+          }
         }
         // 3本目以降は追加のCore操作なし（tapのみ対象。§0のVer1範囲）。
       }
@@ -1020,6 +1054,16 @@
           record.moved = true;
           sessionTapEligible = false;
           if (e.pointerId === primaryPointerId) clearHoldTimer();
+        }
+
+        // コピー中は、基準の指の動きでカーソルを動かして範囲を選ぶ。
+        // スクロールにも1本ドラッグにも渡さない（同時に走ると選択が飛ぶ）。
+        if (holdActivePointerId !== null) {
+          if (e.pointerId === copyDriverId) {
+            Core.move(e.clientX - record.lastX, e.clientY - record.lastY);
+          }
+          record.lastX = e.clientX; record.lastY = e.clientY;
+          return;
         }
 
         if (pointers.size === 1 && e.pointerId === primaryPointerId && dragging) {
@@ -1051,11 +1095,15 @@
         const now = performance.now();
         if (now - record.downAt > T_TAP_MAX) sessionTapEligible = false;
 
-        if (e.pointerId === holdActivePointerId) fireHoldUp();
+        // コピー中はどちらの指が離れても終わり。離した時点で選択を確定させる。
+        if (holdActivePointerId !== null) {
+          fireHoldUp();
+          endDrag();
+        }
         if (e.pointerId === primaryPointerId) {
           endDrag();
-          clearHoldTimer();
         }
+        clearHoldTimer();
         try { View.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 既に解放済み */ }
 
         pointers.delete(e.pointerId);
