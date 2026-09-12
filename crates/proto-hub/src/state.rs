@@ -91,9 +91,25 @@ impl AccessToken {
 /// レイヤー制御アクションはHub内部状態遷移でしかないため、この許可リストの対象外。
 /// D20: textは`text:<string>`形式でcanonical化する（ロード済みJSON由来の文字列のみが
 /// 許可リストに載るため、任意文字列を受け付けるAPIにはならない）。
+fn button_id(button: &proto_keymap::MouseButtonKind) -> &'static str {
+    match button {
+        proto_keymap::MouseButtonKind::Left => "left",
+        proto_keymap::MouseButtonKind::Right => "right",
+    }
+}
+
 pub fn canonical_command_id(action: &Action) -> Option<String> {
     match action {
         Action::Key { vk } => Some(format!("key:{vk}")),
+        // キーマップからマウスのクリックを撃てるようにしたぶん、**許可リストの
+        // 対象にもする**（D5）。起動時に読み込んだキーマップに書かれているものだけが
+        // 実行できる、という防御をキーと同じ強さで掛けるため。
+        // トラックボール面のジェスチャーは別経路（handle_surface_gesture）で
+        // surfaces/*.json の検証を通っており、ここは通らない。
+        Action::MouseClick { button } => Some(format!("mouse.click:{}", button_id(button))),
+        Action::MouseDoubleClick { button } => {
+            Some(format!("mouse.dblclick:{}", button_id(button)))
+        }
         Action::Chord { keys } => Some(format!("chord:{}", keys.join("+"))),
         Action::Text { string } => Some(format!("text:{string}")),
         // T21: tg.fire自体はOSへ届かないが、**中の`fire`は届く**。ここで潜らないと

@@ -22,7 +22,7 @@
       "row": 1,
       "col": 1,
       "colSpan": 8,
-      "rowSpan": 5,
+      "rowSpan": 4,
       "component": {
         "kind": "keyboard",
         "ref": "youtube01"
@@ -37,6 +37,24 @@
       "component": {
         "kind": "trackball",
         "ref": "tb01"
+      }
+    },
+    {
+      "id": "SEC-CLICK-L",
+      "row": 5,
+      "col": 9,
+      "component": {
+        "kind": "keyboard",
+        "ref": "mouse_left"
+      }
+    },
+    {
+      "id": "SEC-CLICK-R",
+      "row": 5,
+      "col": 10,
+      "component": {
+        "kind": "keyboard",
+        "ref": "mouse_right"
       }
     }
   ]

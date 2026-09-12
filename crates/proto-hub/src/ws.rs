@@ -1623,7 +1623,14 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
     match &action {
         Action::KeymapSwitch { id } => switch_keymap(state, client_id, id.clone()).await,
         Action::KeymapReset => switch_keymap(state, client_id, "default".to_string()).await,
-        Action::Key { .. } | Action::Chord { .. } | Action::Text { .. } | Action::KeyButton { .. } => {
+        // マウスのクリックもここを通す。ここに無いと
+        // 「キーマップにmouse.clickを書いた瞬間、押すとHubが落ちる」ことになる。
+        Action::Key { .. }
+        | Action::Chord { .. }
+        | Action::Text { .. }
+        | Action::KeyButton { .. }
+        | Action::MouseClick { .. }
+        | Action::MouseDoubleClick { .. } => {
             let Some(command_id) = canonical_command_id(&action) else {
                 emit_error(
                     state,
@@ -1699,8 +1706,16 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
                 ),
             }
         }
-        other => unreachable!(
-            "resolve() only Fires Key/Chord/Text/KeymapSwitch/KeymapReset; got {other:?}"
+        // 想定外のActionでもpanicしない（不変条件3: 入力起因のpanic禁止）。
+        // ここへ来るのはキーマップに書けてしまった未対応のActionで、
+        // 黙って無視すると原因が分からなくなるため1行残して捨てる。
+        other => emit_error(
+            state,
+            client_id,
+            "T3-3",
+            INTERNAL,
+            format!("this action cannot be fired from a keymap: {other:?}"),
+            json!({}),
         ),
     }
 }

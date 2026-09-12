@@ -1,0 +1,14 @@
+{
+  "keymapId": "mouse_right",
+  "kind": "single",
+  "description": "右クリック1つだけの部品。mouse_left と対になる。\n\n詳しい考え方は keymap_mouse_left.json の説明を参照。こちらは button を right にしただけで、盤面の形も置き方もまったく同じ。",
+  "board": {
+    "cols": 1,
+    "keys": [
+      { "id": "MR", "row": 1, "col": 1 }
+    ]
+  },
+  "layerFiles": [
+    "layers/mouse_right_layer0.json"
+  ]
+}

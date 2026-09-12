@@ -1,0 +1,7 @@
+{
+  "layer": 0,
+  "description": "右クリック1つ。mouse.click は押した瞬間に1回だけ発火する。",
+  "keys": {
+    "MR": { "label": "右\nクリック", "action": {"t": "mouse.click", "button": "right"} }
+  }
+}
