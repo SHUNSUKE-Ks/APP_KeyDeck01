@@ -1520,6 +1520,17 @@ async fn handle_surface_gesture(
         return;
     };
 
+    // **触れたジェスチャーを必ず1行残す。**
+    // キー押下と同じ理由で、成功したものを記録していないと
+    // 「タップしたのに何も起きない」を後から追えない。
+    tracing::info!(
+        chk = "T18",
+        surface_id,
+        gesture_id,
+        ?edge,
+        "surface gesture"
+    );
+
     // ③ GestureAction + edge から proto_keymap::Action を組み立てる。
     let action = match gesture {
         GestureAction::Click { button } => Action::MouseClick { button: to_mouse_button_kind(button) },
@@ -1527,6 +1538,7 @@ async fn handle_surface_gesture(
             Action::MouseDoubleClick { button: to_mouse_button_kind(button) }
         }
         GestureAction::Key { vk } => Action::Key { vk },
+        GestureAction::Chord { keys } => Action::Chord { keys },
         GestureAction::ButtonHold { button } => match edge {
             Some(Edge::Down) => Action::MouseButton { button: to_mouse_button_kind(button), down: true },
             Some(Edge::Up) => Action::MouseButton { button: to_mouse_button_kind(button), down: false },

@@ -83,6 +83,9 @@ pub enum GestureAction {
     ButtonHold { button: ClickButton },
     /// `is_known_vk()`で既存vk辞書と同じ検証を通す。
     Key { vk: String },
+    /// 複数キー同時押し（Ctrl+V など）。キーマップの`chord`と同じ形。
+    /// 「貼り付け」「ブラウザの戻る」のように、1キーでは表せない操作に要る。
+    Chord { keys: Vec<String> },
 }
 
 /// ロード済みの1面ぶんの定義。`binding_t`は許可リスト検証済みの文字列
@@ -204,6 +207,8 @@ struct GestureWire {
     button: Option<String>,
     #[serde(default)]
     vk: Option<String>,
+    #[serde(default)]
+    keys: Option<Vec<String>>,
 }
 
 // ============================================================================
@@ -358,6 +363,28 @@ fn parse_gesture_wire(
                 ));
             }
             Ok(GestureAction::Key { vk: vk.to_string() })
+        }
+        "chord" => {
+            let keys = wire.keys.clone().unwrap_or_default();
+            if keys.is_empty() {
+                return Err(SurfaceError::new(
+                    LOAD_SURFACE_GESTURE_INVALID,
+                    format!(
+                        "{source}: surface '{surface_id}': gesture '{gesture_id}': t=\"chord\" requires a non-empty 'keys'"
+                    ),
+                ));
+            }
+            for vk in &keys {
+                if !proto_keymap::is_known_vk(vk) {
+                    return Err(SurfaceError::new(
+                        LOAD_SURFACE_GESTURE_INVALID,
+                        format!(
+                            "{source}: surface '{surface_id}': gesture '{gesture_id}': unknown vk '{vk}' in chord"
+                        ),
+                    ));
+                }
+            }
+            Ok(GestureAction::Chord { keys })
         }
         other => Err(SurfaceError::new(
             LOAD_SURFACE_GESTURE_INVALID,

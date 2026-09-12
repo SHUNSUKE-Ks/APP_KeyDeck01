@@ -93,6 +93,24 @@
       touch-action: none; /* ドラッグ中にページがスクロールしないように */
     }
 
+    /* タップ領域の見取り図。**球の操作は一切邪魔しない**ので pointer-events は殺す。
+       どちらを叩けば何が出るかは、触る前に見えていないと分からない。 */
+    #tapzones {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 5;
+    }
+    #tapzones .line {
+      position: absolute; left: 50%; top: 6%; bottom: 6%; width: 1px;
+      background: linear-gradient(transparent, rgba(255,255,255,.22) 20%, rgba(255,255,255,.22) 80%, transparent);
+    }
+    #tapzones .zlabel {
+      position: absolute; bottom: 6px; font-size: 10px; color: rgba(255,255,255,.42);
+      white-space: nowrap;
+    }
+    #tapzones .zlabel.l { left: 10px; }
+    #tapzones .zlabel.r { right: 10px; }
+    body.embed #tapzones .zlabel { font-size: 9px; }
+
     #lower-half {
       position: absolute; top: 50%; left: 0;
       width: 100%; height: 50%; background: #0c1120;
@@ -269,6 +287,11 @@
     <div id="stateOut"></div>
 
     <canvas id="ball"></canvas>
+    <div id="tapzones" aria-hidden="true">
+      <div class="line"></div>
+      <div class="zlabel l">左: 左クリック / 2本タップ=戻る</div>
+      <div class="zlabel r">右: 右クリック / 2本上下=スクロール</div>
+    </div>
     <div id="lower-half">（下半分：将来ここにキーボード面）</div>
   </div>
 
@@ -903,16 +926,30 @@
       }
 
       // 長押し（hold1）: down→edge:"down"、finger up/cancel→edge:"up"。
+      // 触れた場所が左右どちらの領域か。**判定に使うのは最初に触れた指の位置だけ**。
+      // 途中で指が反対側へ動いても、始めた側の意味のままにする（動かすたびに
+      // 意味が変わると、なぞっている最中に別の操作へ化けてしまう）。
+      function sideOf(clientX) {
+        const r = View.canvas.getBoundingClientRect();
+        return (clientX - r.left) < r.width / 2 ? "left" : "right";
+      }
+      /// セッション（全部の指が離れるまで）で最初に触れた側
+      let sessionSide = "left";
+
       function fireHoldDown(pointerId) {
         holdActivePointerId = pointerId;
         sessionHoldFired = true;
         hubSink.sendGesture("hold1", "down");
       }
 
+      /// 長押しで左ボタンを押し、なぞった範囲を選び、離すとコピーまで済ませる。
+      /// 離すときに送るのは2つ。**先にボタンを離し**（選択を確定させ）、
+      /// そのあとコピーを送る。順番が逆だと、選択が確定する前にコピーが走る。
       function fireHoldUp() {
         if (holdActivePointerId === null) return;
         holdActivePointerId = null;
         hubSink.sendGesture("hold1", "up");
+        hubSink.sendGesture("copy1");
       }
 
       // 1本タップ/ダブルタップ: タップ完了をT_DTAP_MAX待ってから確定する
@@ -928,7 +965,7 @@
         pendingTapTimer = setTimeout(() => {
           pendingTapTimer = null;
           awaitingSecondTap = false;
-          hubSink.sendGesture("tap1");
+          hubSink.sendGesture(sessionSide === "left" ? "tap1-left" : "tap1-right");
         }, T_DTAP_MAX);
       }
 
@@ -938,7 +975,11 @@
         if (pointers.size > 0) return;
         if (!sessionHoldFired) {
           if (sessionMaxCount === 1 && sessionTapEligible) completeSingleTap();
-          else if (sessionMaxCount === 2 && sessionTapEligible) hubSink.sendGesture("tap2");
+          // 2本タップは左側だけに意味がある（戻る）。右側は割り当てが無いので
+          // **何も送らない**。送るとHubに「知らないジェスチャー」のエラーが並ぶ。
+          else if (sessionMaxCount === 2 && sessionTapEligible && sessionSide === "left") {
+            hubSink.sendGesture("tap2-left");
+          }
           else if (sessionMaxCount === 3 && sessionTapEligible) hubSink.sendGesture("tap3");
         }
         sessionMaxCount = 0;
@@ -952,6 +993,7 @@
           startX: e.clientX, startY: e.clientY, downAt: performance.now(),
           lastX: e.clientX, lastY: e.clientY, lastDy: 0, moved: false
         });
+        if (pointers.size === 1) sessionSide = sideOf(e.clientX);
         sessionMaxCount = Math.max(sessionMaxCount, pointers.size);
 
         if (pointers.size === 1) {
@@ -987,8 +1029,8 @@
           prev = { x: e.clientX, y: e.clientY };
           readoutSink.setRaw(rawX, rawY);
           Core.move(rawX, rawY);
-        } else if (pointers.size === 2) {
-          // 2本上下スクロール: 2本のdyの平均をtb01-scrollへ送る（§3）。
+        } else if (pointers.size === 2 && sessionSide === "right") {
+          // 2本上下スクロールは**右側で始めたときだけ**。左側の2本上下は未割り当て。
           const thisDy = e.clientY - record.lastY;
           record.lastX = e.clientX; record.lastY = e.clientY;
           let otherDy = 0;
