@@ -135,6 +135,9 @@ pub struct SurfaceConfig<'a> {
     pub layouts: Option<&'a BTreeMap<String, crate::layout::Layout>>,
     #[serde(rename = "layerStates", skip_serializing_if = "Option::is_none")]
     pub layer_states: Option<BTreeMap<String, LayerStateWire>>,
+    /// 見た目のテーマ名。**Hubが1つだけ持ち、全部の端末へ同じものを配る。**
+    /// 端末ごとに違う見た目にできると、どれが今の設定か分からなくなるため。
+    pub theme: &'a str,
 }
 
 #[derive(Debug, Clone, Serialize)]

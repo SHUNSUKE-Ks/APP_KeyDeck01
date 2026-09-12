@@ -118,6 +118,14 @@
   </div>
   <p id="reloadStatus" role="status"></p>
 
+  <h2>見た目のテーマ</h2>
+  <p style="color:var(--ink-dim);font-size:12px;margin:0 0 8px">
+    Hubが1つだけ持ち、繋がっている端末すべてに同じものを配ります。切り替えると即座に全部の画面が変わります。
+    <b style="color:var(--warn)">Hubを終了すると既定（青）へ戻ります。</b>
+  </p>
+  <div id="themeRow" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"></div>
+  <p id="themeMsg" style="font-size:12px;color:var(--ink-muted);min-height:18px;margin:0 0 18px"></p>
+
   <h2>接続先<span class="count" id="targetCount"></span></h2>
   <p class="note">QRのURLにはトークンが入ります。トークンは<strong>Hubを起動するたびに作り直される</strong>ため、QR画像を保存しても次回は使えません（D8）。</p>
   <div id="targets"></div>
@@ -145,7 +153,46 @@
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
     KDComponents.renderNav(document.getElementById("navHost"), "/settings", token);
+    KDComponents.syncTheme(token);
     const reloadBtn = document.getElementById("reloadBtn");
+
+    // ---- 見た目のテーマ ------------------------------------------------
+    // 選べる名前はHubが返すものだけを並べる（画面側で勝手に増やさない）。
+    const THEME_LABEL = { blue: "青（既定）", red: "赤" };
+    async function loadThemes() {
+      const row = document.getElementById("themeRow");
+      const msg = document.getElementById("themeMsg");
+      const res = await fetch("/api/theme?token=" + encodeURIComponent(token));
+      if (!res.ok) { msg.textContent = "テーマを取得できません（" + res.status + "）"; return; }
+      const data = await res.json();
+      row.textContent = "";
+      for (const name of data.themes) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = THEME_LABEL[name] || name;
+        if (name === data.theme) b.classList.add("primary");
+        b.addEventListener("click", async () => {
+          const r = await fetch("/api/theme?token=" + encodeURIComponent(token), {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ theme: name }),
+          });
+          const body = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            msg.textContent = "切り替えできません: " + (body.cause || r.status);
+            return;
+          }
+          KDComponents.applyTheme(body.theme);
+          msg.textContent = "「" + (THEME_LABEL[body.theme] || body.theme)
+            + "」にしました。繋がっている端末にも反映されます。";
+          loadThemes();
+        });
+        row.appendChild(b);
+      }
+    }
+    loadThemes().catch((e) => {
+      document.getElementById("themeMsg").textContent = "テーマの読み込みに失敗: " + e;
+    });
+
     const statusEl = document.getElementById("reloadStatus");
 
     function log(kind, code, message, context) {

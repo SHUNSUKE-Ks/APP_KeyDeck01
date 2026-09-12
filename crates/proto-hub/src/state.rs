@@ -98,6 +98,10 @@ fn button_id(button: &proto_keymap::MouseButtonKind) -> &'static str {
     }
 }
 
+/// 使えるテーマの一覧。**コード内の固定リスト**で、JSONからは増やせない。
+pub const THEMES: &[&str] = &["blue", "red"];
+pub const DEFAULT_THEME: &str = "blue";
+
 pub fn canonical_command_id(action: &Action) -> Option<String> {
     match action {
         Action::Key { vk } => Some(format!("key:{vk}")),
@@ -157,6 +161,10 @@ pub struct HubState {
     pub next_client_id: ClientId,
     pub token: AccessToken,
     pub adapter_tx: mpsc::UnboundedSender<AdapterJob>,
+    /// 見た目のテーマ。全端末へ同じものを配る。
+    /// **Hubを終了すると既定へ戻る**（ディスクには書かない。設定を保存する
+    /// 仕組みは書き込み許可の外なので、勝手には作らない）。
+    pub theme: String,
     /// D12: QRコード・ランディングページでURLを組み立てるために保持する。
     pub lan_ip: String,
     /// このPCが持っているIPv4アドレス全部（インターフェース名, アドレス）。
@@ -199,9 +207,21 @@ impl HubState {
             next_client_id: 0,
             token,
             adapter_tx,
+            theme: DEFAULT_THEME.to_string(),
             lan_ips: vec![("この端末".to_string(), lan_ip.clone())],
             lan_ip,
         }
+    }
+
+    /// テーマを切り替える。**一覧に無い名前は受け付けない**。
+    /// 受け付けたらtrue。任意の文字列を通すと、配った先のCSSで
+    /// 何が起きるか分からなくなる。
+    pub fn set_theme(&mut self, name: &str) -> bool {
+        if THEMES.contains(&name) {
+            self.theme = name.to_string();
+            return true;
+        }
+        false
     }
 
     /// 起動時に見つけたIPv4を登録する。既定は`lan_ip`のまま変えない。

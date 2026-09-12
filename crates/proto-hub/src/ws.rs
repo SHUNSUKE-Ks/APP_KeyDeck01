@@ -53,6 +53,8 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/formats", get(formats_handler))
         // 外出先でPCをアクセスポイントにすると、PCは複数のIPv4を持つ。
         // QRの宛先をそのどれにするかを選ぶための2本。
+        // 見た目のテーマ。読むのは全画面、変えるのは設定画面から。
+        .route("/api/theme", get(theme_get_handler).post(theme_set_handler))
         .route("/api/hosts", get(hosts_handler))
         .route("/api/host", post(host_set_handler))
         // P-005 段階D: レイアウトの保存。**書き込みはこの1本だけ**。
@@ -221,6 +223,55 @@ async fn ping_handler(State(state): State<SharedState>, Query(query): Query<Toke
 ///   `keymaps`   … 読み込み済みキーボードとその規模
 ///   `decks`     … Deckと描き方・スロット数
 ///   `layouts`   … 画面の区画割り（どの部品がどこに置かれているか）
+/// いまのテーマと、選べる一覧。
+async fn theme_get_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting theme request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let s = state.lock().unwrap();
+    Json(json!({ "theme": s.theme, "themes": crate::state::THEMES })).into_response()
+}
+
+#[derive(Deserialize)]
+struct ThemeSetBody {
+    theme: String,
+}
+
+/// テーマを切り替え、**繋がっている端末すべてに配り直す**。
+/// 1台だけ変わると、どれが今の設定か分からなくなる。
+async fn theme_set_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    Json(body): Json<ThemeSetBody>,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting theme change");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    {
+        let mut s = state.lock().unwrap();
+        if !s.set_theme(&body.theme) {
+            tracing::error!(code = INTERNAL, requested = %body.theme, "rejecting unknown theme");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "code": INTERNAL,
+                    "cause": format!("unknown theme '{}'", body.theme),
+                    "themes": crate::state::THEMES,
+                })),
+            )
+                .into_response();
+        }
+    }
+    broadcast_surface_config_for(&state, SurfaceKind::Split);
+    broadcast_surface_config_for(&state, SurfaceKind::Ipad);
+    broadcast_surface_config_for(&state, SurfaceKind::Layout);
+    let s = state.lock().unwrap();
+    tracing::info!(chk = "THEME", theme = %s.theme, "theme changed; broadcasting");
+    Json(json!({ "theme": s.theme })).into_response()
+}
+
 /// このPCが持つIPv4の一覧と、いまQRに載っているもの。
 async fn hosts_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
     if !token_ok(&state, query.token.as_deref()) {
@@ -1798,6 +1849,7 @@ fn surface_config_json_for(state: &SharedState, surface: SurfaceKind) -> Option<
         keymaps: is_layout.then_some(&s.keymaps),
         layouts: is_layout.then_some(&s.layouts),
         layer_states,
+        theme: &s.theme,
     });
     match serde_json::to_string(&message) {
         Ok(text) => Some(text),

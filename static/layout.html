@@ -660,6 +660,8 @@
     function handleServerMessage(data) {
       switch (data.type) {
         case "surface.config":
+          // Hubが配るテーマを当てる。切り替えると全端末が同時に変わる
+          KDComponents.applyTheme(data.theme);
           config = data;
           layerStates = data.layerStates || {};
           log("P005-B", "OK", "surface.config received", {

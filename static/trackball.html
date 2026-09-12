@@ -313,6 +313,7 @@
     </div>
   </div>
 
+  <script src="/components.js"></script>
   <script>
   (function () {
     "use strict";
@@ -336,6 +337,9 @@
     const token = params.get("token") || "";
     // D28: surfaces/trackball.jsonに登録済みの自分の識別子。出口(binding)はここには無い。
     const SURFACE_ID = "tb01";
+    // この面は surface.config を受け取らない（keymapを持たないため）ので、
+    // 開いた時にHubへテーマを聞きに行く。
+    if (window.KDComponents) KDComponents.syncTheme(token);
     // T19（brief/keydeck_trackball_gestures_v0.7.md §3）: 2本上下スクロール専用の面id。
     // binding.tはHub側JSON(surfaces/trackball.json)だけが知る。このHTMLはbindingを知らない。
     const SCROLL_SURFACE_ID = "tb01-scroll";

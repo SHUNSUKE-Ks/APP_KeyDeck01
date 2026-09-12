@@ -287,6 +287,7 @@
     const token = params.get("token") || "";
     if (!token) { KDComponents.showTokenNotice(); }
     KDComponents.renderNav(document.getElementById("navHost"), "/catalog", token);
+    KDComponents.syncTheme(token);
 
     // ================================================================
     // ① フリック方向

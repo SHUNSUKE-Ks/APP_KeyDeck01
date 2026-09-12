@@ -199,6 +199,7 @@
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
     KDComponents.renderNav(document.getElementById("navHost"), "/keys", token);
+    KDComponents.syncTheme(token);
 
     function log(kind, code, message, context) {
       const line = "[KD][" + kind + "][" + code + "] " + message;

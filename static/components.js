@@ -50,6 +50,30 @@
     "  min-width: 0; min-height: 0;",
     "}",
 
+    // ---- テーマ ----
+    // 各画面は :root に自分の色を持っている。ここはその**上書き**なので、
+    // 属性つきの :root で書いて必ず勝たせる（同じ強さだと読み込み順で揺れる）。
+    //
+    // 既定（blue）は各画面の :root をそのまま使う＝ここでは何も書かない。
+    // 色を1箇所にまとめ直すのは、全画面の見た目を一度に変える大きな作業になるため、
+    // まず「赤へ切り替わること」を先に通す。
+    ":root[data-kd-theme=\"red\"] {",
+    "  --bg: #1c1a1c; --panel: #2a2628; --panel2: #221f21;",
+    "  --ink: #f6f1f2; --ink-muted: #cabfc2; --ink-dim: #8b7f83;",
+    "  --accent: #e23a3f; --accent-soft: #6f1e21; --line: #3b3437;",
+    "  --empty: #201d1f; --key-radius: 12px;",
+    "}",
+    // 赤テーマは参考画像と同じく「厚みのある黒い板」に寄せる。
+    // 平らな面に赤を置くだけだと、ただ色が変わっただけに見える。
+    ":root[data-kd-theme=\"red\"] .kd-surface .key {",
+    "  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 6px rgba(0,0,0,.55);",
+    "}",
+    ":root[data-kd-theme=\"red\"] .kd-surface .key.pressed,",
+    ":root[data-kd-theme=\"red\"] .kd-surface .key.pressing {",
+    "  box-shadow: inset 0 2px 8px rgba(0,0,0,.7);",
+    "}",
+    ":root[data-kd-theme=\"red\"] .kd-surface .key.fn { color: var(--kd-accent); }",
+
     // ---- 画面切り替え（看板ボタン＋自前のメニュー） ----
     ".kd-nav { position: relative; display: inline-block; }",
     ".kd-nav-btn {",
@@ -676,6 +700,32 @@
   /// 標準の <select> をやめて自前で組んでいる理由は2つ。
   ///   1. 開いた一覧の配色を指定できない（環境によって字が読めない組合せになる）
   ///   2. 開くときの動きを付けられない
+  /// Hubが配ってきたテーマを画面へ当てる。
+  /// **知らない名前は当てない**（配信が壊れたときに色が消えるより、
+  /// 既定のままの方が操作を続けられる）。
+  var THEMES = ["blue", "red"];
+  function applyTheme(name) {
+    var doc = global.document;
+    var root = (doc || {}).documentElement;
+    if (!root) return;
+    // テーマの色はこの注入スタイルの中にある。描画関数を1つも呼ばない画面
+    // （トラックボール面など）でも当たるよう、ここで必ず入れておく。
+    injectStyles(doc);
+    if (THEMES.indexOf(name) < 0) name = "blue";
+    if (name === "blue") delete root.dataset.kdTheme;
+    else root.dataset.kdTheme = name;
+  }
+
+  /// Hubへ今のテーマを聞いて当てる。画面を開いた直後に1回呼ぶ。
+  /// WSを持つ画面は、そのあと surface.config が来るたびに更新される。
+  function syncTheme(token) {
+    if (!global.fetch) return;
+    global.fetch("/api/theme?token=" + encodeURIComponent(token || ""))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) applyTheme(d.theme); })
+      .catch(function () { /* 取れなくても既定の見た目で動く */ });
+  }
+
   function renderNav(host, currentPath, token) {
     injectStyles(host.ownerDocument);
     var doc = host.ownerDocument;
@@ -800,6 +850,8 @@
   }
 
   global.KDComponents = {
+    applyTheme: applyTheme,
+    syncTheme: syncTheme,
     renderJog: renderJog,
     renderNav: renderNav,
     showTokenNotice: showTokenNotice,
