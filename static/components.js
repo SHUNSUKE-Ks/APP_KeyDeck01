@@ -727,6 +727,45 @@
       .catch(function () { /* 取れなくても既定の見た目で動く */ });
   }
 
+  /// 見出し（label）を**長押し**すると、いま選んでいるものを既定にする。
+  ///
+  /// **セレクト本体ではなく見出しを押させる**のは、セレクトを押すと
+  /// その場で一覧が開いてしまい、指を離したことがこちらに届かないため。
+  /// 届かないと「短く押しただけ」と「長押し」を見分けられず、
+  /// 軽く触っただけで既定が書き換わる。
+  ///
+  /// onSet(value) は実際に送る処理。押している間は見出しの色が変わる。
+  function bindLongPressDefault(labelEl, getValue, onSet, holdMs) {
+    var timer = null;
+    var ms = holdMs || 600;
+    function cancel() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      labelEl.style.color = "";
+    }
+    labelEl.addEventListener("pointerdown", function (event) {
+      event.preventDefault();
+      labelEl.style.color = "var(--kd-accent)";
+      timer = setTimeout(function () {
+        timer = null;
+        labelEl.style.color = "";
+        onSet(getValue());
+      }, ms);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function (t) {
+      labelEl.addEventListener(t, cancel);
+    });
+  }
+
+  /// 既定のものに緑の印を付ける。一覧の中で「どれが最初に出るか」を見せる。
+  function markDefaultOption(sel, defaultValue) {
+    for (var i = 0; i < sel.options.length; i++) {
+      var opt = sel.options[i];
+      var bare = opt.textContent.replace(/^✓\s*/, "");
+      opt.textContent = (opt.value && opt.value === defaultValue) ? "✓ " + bare : bare;
+      opt.style.color = (opt.value && opt.value === defaultValue) ? "#35c47a" : "";
+    }
+  }
+
   function renderNav(host, currentPath, token) {
     injectStyles(host.ownerDocument);
     var doc = host.ownerDocument;
@@ -852,6 +891,8 @@
 
   global.KDComponents = {
     applyTheme: applyTheme,
+    bindLongPressDefault: bindLongPressDefault,
+    markDefaultOption: markDefaultOption,
     syncTheme: syncTheme,
     renderJog: renderJog,
     renderNav: renderNav,

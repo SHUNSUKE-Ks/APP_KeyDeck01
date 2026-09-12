@@ -57,6 +57,8 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/theme", get(theme_get_handler).post(theme_set_handler))
         // 書ける物の辞書と、いま読み込まれている中身の丸見え。**読み取り専用**。
         .route("/api/schema", get(schema_handler))
+        // 最初に出す board / キーボード。全端末で共通の1つ。
+        .route("/api/defaults", get(defaults_get_handler).post(defaults_set_handler))
         .route("/api/hosts", get(hosts_handler))
         .route("/api/host", post(host_set_handler))
         // P-005 段階D: レイアウトの保存。**書き込みはこの1本だけ**。
@@ -226,6 +228,64 @@ async fn ping_handler(State(state): State<SharedState>, Query(query): Query<Toke
 ///   `keymaps`   … 読み込み済みキーボードとその規模
 ///   `decks`     … Deckと描き方・スロット数
 ///   `layouts`   … 画面の区画割り（どの部品がどこに置かれているか）
+/// 最初に出す board / キーボード。
+async fn defaults_get_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting defaults request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let s = state.lock().unwrap();
+    Json(json!({ "layout": s.default_layout, "keymap": s.default_keymap })).into_response()
+}
+
+#[derive(Deserialize)]
+struct DefaultsSetBody {
+    /// 省略＝そのまま。null＝決めていない状態へ戻す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keymap: Option<Option<String>>,
+}
+
+/// 既定を決める。**実在するidだけ**を受け付ける。
+/// 実在しないidを通すと、開いた端末が空の画面に当たって原因が分からなくなる。
+async fn defaults_set_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    Json(body): Json<DefaultsSetBody>,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting defaults change");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let mut s = state.lock().unwrap();
+    if let Some(layout) = &body.layout {
+        if !s.set_default_layout(layout.as_deref()) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "code": INTERNAL, "cause": format!("unknown layoutId {layout:?}") })),
+            )
+                .into_response();
+        }
+    }
+    if let Some(keymap) = &body.keymap {
+        if !s.set_default_keymap(keymap.as_deref()) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "code": INTERNAL, "cause": format!("unknown keymapId {keymap:?}") })),
+            )
+                .into_response();
+        }
+    }
+    tracing::info!(
+        chk = "DEFAULTS",
+        layout = ?s.default_layout,
+        keymap = ?s.default_keymap,
+        "defaults changed"
+    );
+    Json(json!({ "layout": s.default_layout, "keymap": s.default_keymap })).into_response()
+}
+
 /// 「何を書いてよいか」の辞書と、「いま何が入っているか」の中身。
 ///
 /// **読み取り専用**で、ファイルは一切触らない。返すのは
@@ -1919,6 +1979,7 @@ fn surface_config_json_for(state: &SharedState, surface: SurfaceKind) -> Option<
         layouts: is_layout.then_some(&s.layouts),
         layer_states,
         theme: &s.theme,
+        default_layout: s.default_layout.as_deref(),
     });
     match serde_json::to_string(&message) {
         Ok(text) => Some(text),

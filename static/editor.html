@@ -303,7 +303,8 @@
 <div class="head">
   <span id="navHost"></span>
 
-  <label class="cap" for="layoutSel" style="cursor:pointer">board</label>
+  <label class="cap" for="layoutSel" id="boardCap"
+         style="cursor:pointer" title="長押しすると、いま選んでいるboardを『最初に出すもの』にします">board</label>
   <select id="layoutSel" aria-label="表示するboard"></select>
   <!-- **いま編集しているレイアウトの**QR。ここに置くのが要点で、
        ギャラリーから別のレイアウトのQRを読んでしまう取り違えを防ぐ
@@ -1260,6 +1261,40 @@ function addSection(item) {
 /// board一覧の中に置く「新規」の印。実在のidと衝突しない形にしてある。
 const NEW_BOARD = "__new__";
 
+/// Hubが持っている「最初に出すboard」。緑の印を付けるために覚えておく。
+let DEFAULT_LAYOUT = null;
+
+async function loadDefaults() {
+  try {
+    const res = await fetch("/api/defaults?token=" + encodeURIComponent(token));
+    if (!res.ok) return;
+    const data = await res.json();
+    DEFAULT_LAYOUT = data.layout;
+    KDComponents.markDefaultOption(document.getElementById("layoutSel"), DEFAULT_LAYOUT);
+  } catch (error) { /* 取れなくても編集はできる */ }
+}
+
+KDComponents.bindLongPressDefault(
+  document.getElementById("boardCap"),
+  () => layoutId,
+  async (id) => {
+    try {
+      const res = await fetch("/api/defaults?token=" + encodeURIComponent(token), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ layout: id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { notifyReverted("既定にできません: " + (body.cause || res.status)); return; }
+      DEFAULT_LAYOUT = body.layout;
+      KDComponents.markDefaultOption(document.getElementById("layoutSel"), DEFAULT_LAYOUT);
+      notifyReverted(id + " を『最初に出すboard』にしました");
+    } catch (error) {
+      notifyReverted("通信エラー: " + error);
+    }
+  });
+
+loadDefaults();
+
 function fillLayoutSelect() {
   const sel = document.getElementById("layoutSel");
   sel.textContent = "";
@@ -1281,6 +1316,7 @@ function fillLayoutSelect() {
   sel.appendChild(add);
   // 1つしか無くても「新規」を選べる必要があるので、もう無効にしない
   sel.disabled = false;
+  KDComponents.markDefaultOption(sel, DEFAULT_LAYOUT);
 }
 
 document.getElementById("layoutSel").addEventListener("change", (event) => {
@@ -1290,7 +1326,15 @@ document.getElementById("layoutSel").addEventListener("change", (event) => {
     createBoard();
     return;
   }
-  layoutId = event.target.value;
+  const picked = event.target.value;
+  // まだ配信が届いていない等で中身が無いidは選ばせない。
+  // ここで止めないと clone(undefined) で編集画面ごと落ちる。
+  if (!SOURCE[picked]) {
+    event.target.value = layoutId;
+    notifyReverted(picked + " はまだ読み込まれていません");
+    return;
+  }
+  layoutId = picked;
   model = clone(SOURCE[layoutId]);
   selectedId = null;
   // どのレイアウトを見ていたかをURLに残す。再読込やリンク共有で同じ画面に戻れる

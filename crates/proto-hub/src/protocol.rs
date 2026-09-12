@@ -138,6 +138,9 @@ pub struct SurfaceConfig<'a> {
     /// 見た目のテーマ名。**Hubが1つだけ持ち、全部の端末へ同じものを配る。**
     /// 端末ごとに違う見た目にできると、どれが今の設定か分からなくなるため。
     pub theme: &'a str,
+    /// 最初に出す board。決めていなければ付かない。
+    #[serde(rename = "defaultLayout", skip_serializing_if = "Option::is_none")]
+    pub default_layout: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Serialize)]

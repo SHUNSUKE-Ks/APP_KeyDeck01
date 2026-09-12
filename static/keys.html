@@ -171,6 +171,9 @@
 <body>
   <div class="head">
     <span id="navHost"></span>
+    <label class="cap" for="keymapSel" id="keymapCap"
+           style="cursor:pointer;font-size:10px;color:var(--ink-dim);letter-spacing:.06em"
+           title="長押しすると、いま選んでいるキーボードを『最初に出すもの』にします">keyboard</label>
     <select id="keymapSel" aria-label="編集するキーボード"></select>
     <select id="layerSel" aria-label="編集するレイヤー"></select>
     <button id="undoBtn" type="button">1つ戻す</button>
@@ -200,6 +203,37 @@
     const token = params.get("token") || "";
     KDComponents.renderNav(document.getElementById("navHost"), "/keys", token);
     KDComponents.syncTheme(token);
+
+    // Hubが持つ「最初に出すキーボード」を先に取りに行く。
+    // 一覧を組み立てる前に届けば、それが最初の選択になる。
+    fetch("/api/defaults?token=" + encodeURIComponent(token))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        HUB_DEFAULT_KEYMAP = d.keymap;
+        const sel = document.getElementById("keymapSel");
+        if (sel.options.length) KDComponents.markDefaultOption(sel, HUB_DEFAULT_KEYMAP);
+      })
+      .catch(() => { /* 取れなくても編集はできる */ });
+
+    KDComponents.bindLongPressDefault(
+      document.getElementById("keymapCap"),
+      () => keymapId,
+      async (id) => {
+        try {
+          const res = await fetch("/api/defaults?token=" + encodeURIComponent(token), {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ keymap: id }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) { flash("既定にできません: " + (body.cause || res.status)); return; }
+          HUB_DEFAULT_KEYMAP = body.keymap;
+          KDComponents.markDefaultOption(document.getElementById("keymapSel"), HUB_DEFAULT_KEYMAP);
+          flash(id + " を『最初に出すキーボード』にしました");
+        } catch (error) {
+          flash("通信エラー: " + error);
+        }
+      });
 
     function log(kind, code, message, context) {
       const line = "[KD][" + kind + "][" + code + "] " + message;
@@ -332,7 +366,42 @@
         layers.push({ label: name + "\n固定", action: { t: "tg", layer: layer.id }, note: "tg" });
       }
 
-      return { basic, special, symbols, macros, layers };
+      // ---- 同時押し（chord） ----
+      // 1キーでは表せない操作。ここに無いものは /schema の辞書を見て
+      // レイヤーのJSONへ直接書ける（t: "chord", keys: [...]）。
+      //
+      // Win+数字は**タスクバーの左から何番目を開くか**。並び順を変えると
+      // 行き先も変わるので、タスクバー側を固定してから割り当てること。
+      const shortcut = [];
+      for (let n = 1; n <= 9; n += 1) {
+        shortcut.push({
+          label: "Win+" + n + "\nタスクバー",
+          action: { t: "chord", keys: ["WIN", String(n)] },
+        });
+      }
+      const COMBOS = [
+        ["コピー", ["CTRL", "C"]],
+        ["貼り付け", ["CTRL", "V"]],
+        ["切り取り", ["CTRL", "X"]],
+        ["元に戻す", ["CTRL", "Z"]],
+        ["やり直し", ["CTRL", "Y"]],
+        ["全選択", ["CTRL", "A"]],
+        ["保存", ["CTRL", "S"]],
+        ["検索", ["CTRL", "F"]],
+        ["閉じる", ["CTRL", "W"]],
+        ["新規", ["CTRL", "N"]],
+        ["窓の切替", ["ALT", "TAB"]],
+        ["戻る", ["ALT", "LEFT"]],
+        ["進む", ["ALT", "RIGHT"]],
+        ["デスクトップ", ["WIN", "D"]],
+        ["エクスプローラ", ["WIN", "E"]],
+        ["切り取り&スケッチ", ["WIN", "SHIFT", "S"]],
+      ];
+      for (const [label, keys] of COMBOS) {
+        shortcut.push({ label: label + "\n" + keys.join("+"), action: { t: "chord", keys } });
+      }
+
+      return { basic, special, shortcut, symbols, macros, layers };
     }
 
     /// レイヤーの表示名。説明の1行目から「Vol1.3 」などの接頭辞を落として短くする。
@@ -347,6 +416,7 @@
       { id: "recent", label: "最近" },
       { id: "basic", label: "文字" },
       { id: "special", label: "特殊キー" },
+      { id: "shortcut", label: "ショートカット" },
       { id: "symbols", label: "記号" },
       { id: "layers", label: "レイヤー切替" },
       { id: "macros", label: "マクロ" },
@@ -389,6 +459,7 @@
       if (activeTab === "recent") return loadRecent();
       if (activeTab === "basic") return all.basic;
       if (activeTab === "special") return all.special;
+      if (activeTab === "shortcut") return all.shortcut;
       if (activeTab === "symbols") return all.symbols;
       if (activeTab === "layers") return all.layers;
       return all.macros;
@@ -937,11 +1008,16 @@
       return m ? { base: m[1], ver: Number(m[2]) } : { base: id, ver: 0 };
     }
 
+    /// Hubが持っている「最初に出すキーボード」。
+    let HUB_DEFAULT_KEYMAP = null;
+
     /// URLで指定が無いときに最初に出すキーボード。
-    /// 1. 前にこの画面で選んだものが今もあれば、それ
-    /// 2. 無ければ**版が一番新しいもの**（vol13 > vol12 > 版なし）
+    /// 1. **Hubが決めた既定**があれば、それ（全端末で揃う）
+    /// 2. 無ければ前にこの画面で選んだもの
+    /// 3. それも無ければ**版が一番新しいもの**（vol13 > vol12 > 版なし）
     /// 古い版が既定だと、直したつもりが実機に出ない事故になる。
     function defaultKeymapId(ids) {
+      if (HUB_DEFAULT_KEYMAP && ids.includes(HUB_DEFAULT_KEYMAP)) return HUB_DEFAULT_KEYMAP;
       const last = localStorage.getItem("keydeck.lastKeymap");
       if (last && ids.includes(last)) return last;
       return ids.reduce((best, id) =>
@@ -970,6 +1046,7 @@
         keymapId = defaultKeymapId(ids);
         keymapSel.value = keymapId;
       }
+      KDComponents.markDefaultOption(keymapSel, HUB_DEFAULT_KEYMAP);
 
       const km = CONFIG.keymaps[keymapId];
       layerSel.textContent = "";

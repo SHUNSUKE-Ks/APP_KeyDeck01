@@ -249,6 +249,11 @@
     }
 
     // URLで明示されたレイアウトが最優先。無ければ前回の選択、それも無ければ既定。
+    // どのboardを出すか。優先順は次のとおり。
+    //   1. URLの ?id=（QRで指定された物。最優先）
+    //   2. この端末で前に開いていた物
+    //   3. Hubが決めた「最初に出すboard」（後から surface.config で届く）
+    //   4. それも無ければ ipad_main
     let layoutId = params.get("id") || loadPref(STORE_LAYOUT) || "ipad_main";
     let keymapOverride = loadPref(STORE_KEYMAP);
 
@@ -662,6 +667,13 @@
         case "surface.config":
           // Hubが配るテーマを当てる。切り替えると全端末が同時に変わる
           KDComponents.applyTheme(data.theme);
+          // URLでも端末の記憶でも決まっておらず、いま出そうとしているboardが
+          // Hubに無い場合だけ、Hubが決めた既定へ寄せる。
+          // URLの ?id= を上書きしないのが要点（QRで指定した行き先を奪わない）。
+          if (!params.get("id") && data.defaultLayout
+              && data.layouts && !data.layouts[layoutId]) {
+            layoutId = data.defaultLayout;
+          }
           config = data;
           layerStates = data.layerStates || {};
           log("P005-B", "OK", "surface.config received", {

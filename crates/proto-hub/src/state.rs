@@ -161,6 +161,11 @@ pub struct HubState {
     pub next_client_id: ClientId,
     pub token: AccessToken,
     pub adapter_tx: mpsc::UnboundedSender<AdapterJob>,
+    /// 最初に出す board（区画割り）。`/layout` を id 無しで開いたときの行き先。
+    /// **Hubを終了すると消える**（テーマと同じ理由でディスクには書かない）。
+    pub default_layout: Option<String>,
+    /// キー編集画面を開いたときに最初に選ぶキーボード。
+    pub default_keymap: Option<String>,
     /// 見た目のテーマ。全端末へ同じものを配る。
     /// **Hubを終了すると既定へ戻る**（ディスクには書かない。設定を保存する
     /// 仕組みは書き込み許可の外なので、勝手には作らない）。
@@ -208,8 +213,35 @@ impl HubState {
             token,
             adapter_tx,
             theme: DEFAULT_THEME.to_string(),
+            default_layout: None,
+            default_keymap: None,
             lan_ips: vec![("この端末".to_string(), lan_ip.clone())],
             lan_ip,
+        }
+    }
+
+    /// 既定の board を決める。**実在するidだけ**を受け付ける。
+    /// `None` を渡すと「決めていない」に戻す。
+    pub fn set_default_layout(&mut self, id: Option<&str>) -> bool {
+        match id {
+            None => { self.default_layout = None; true }
+            Some(id) if self.layouts.contains_key(id) => {
+                self.default_layout = Some(id.to_string());
+                true
+            }
+            Some(_) => false,
+        }
+    }
+
+    /// 既定のキーボードを決める。**実在するidだけ**を受け付ける。
+    pub fn set_default_keymap(&mut self, id: Option<&str>) -> bool {
+        match id {
+            None => { self.default_keymap = None; true }
+            Some(id) if self.keymaps.contains_key(id) => {
+                self.default_keymap = Some(id.to_string());
+                true
+            }
+            Some(_) => false,
         }
     }
 
