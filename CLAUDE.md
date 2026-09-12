@@ -63,3 +63,25 @@ KeyDeck固有の判断ではなく他プロジェクトへ持ち出せる技術�
 7. 何をカードにして何を見送ったか、理由つきで報告する
 
 前例: `KEYDECK_LOGIC_001`（位置と中身を1本の履歴で戻す — `static/keys.html` のundoStack）
+
+## 外部向け資料の更新（機能を足したら同じ作業の中でやる）
+KeyDeckが何を作れるかは、`C:\00_CreatorCompass\KeyDeck\できること.md` に1枚でまとめてある。
+**他プロジェクトのAIは実装ではなくこの資料を見て「作れる／作れない」を判断する。**
+古いまま放置すると、嘘の前提で設計されるため、機能追加と同じコミットで直す。
+
+直す対象（どれかに触れたら必ず）:
+- `Action` の種別を増減した → §4 の表と `ws::schema_handler` の `actions` の**両方**
+- `ComponentKind` を増やした → §3 の表と `schema_handler` の `componentKinds`
+- `GestureAction` / `surfaces` の binding を増やした → §4 のジェスチャー節
+- `VK_DICTIONARY` を増やした → §4 の個数
+- 書き込み可能な場所を増やした（＝ユーザー裁定を得た） → §5 と本ファイルの不変条件6
+- board / keymap / deck を新規追加・削除した → §6 の現物一覧
+
+手順:
+1. Hubを起動して `GET /api/schema?token=...` を取る。**これが機械可読な正本**
+2. §3 §4 §6 をその出力と突き合わせる（`dictionary.actions` / `componentKinds` / `loaded`）
+3. 冒頭の `版` と `確認日` を上げる
+4. **実機で確認していないものは §7「まだ無いもの」へ書く。** §1〜§6 は動くと確認できたものだけ
+
+依頼を受け取る形式は `C:\00_CreatorCompass\KeyDeck\依頼書.schema.json`。
+依頼側が書けない欄が出るような機能を足したときは、スキーマ側も直す（`operation.kind` の enum など）。

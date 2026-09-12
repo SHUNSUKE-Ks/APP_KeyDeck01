@@ -317,6 +317,7 @@ async fn schema_handler(State(state): State<SharedState>, Query(query): Query<To
         { "t": "none",         "fields": [],                "note": "何も起きない（空きマス）" },
         { "t": "keymap.switch","fields": ["id"],            "note": "別のキーマップへ切り替える" },
         { "t": "keymap.reset", "fields": [],                "note": "default へ戻す" },
+        { "t": "layout.switch","fields": ["id?", "fire?"],  "note": "表示するboardを切り替える。idを省くと既定へ戻る。fireがあれば切り替えたあとそれも撃つ" },
         { "t": "mouse.click",  "fields": ["button"],        "note": "left / right" },
         { "t": "mouse.dblclick","fields": ["button"],       "note": "left / right" },
     ]);
