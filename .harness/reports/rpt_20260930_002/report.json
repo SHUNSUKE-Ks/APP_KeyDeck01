@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260930_002",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "design",
+  "kind": "design_decision",
+  "date": "2026-09-30",
+  "title": "git コミット、統合編集画面モック v0.1〜v0.4.1、P-008 端末スロット",
+  "summary": "未コミット分を 92d6089 にまとめてコミット。VIA / Remap 型の参考をテキスト化し、統合編集画面の見た目だけのモックを v0.4.1 まで作った（左右 NAV とオーバーレイ、3台表示、フォーカス、NAV の並び替え、下の棚、表示レイアウト、元に戻す）。端末を区別する設計 P-008 を起票し利用者の回答を反映。rpt_20260930_001 が別チャットに上書きされたため書き直した。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-opus-5-5",
+  "startedAt": "2026-09-30T00:00:00+09:00",
+  "completedAt": "2026-09-30T23:30:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "git commit 92d6089（feat/layout-editor-p005、未push）",
+    "parts_dictionary_2026-09-30_VIA_Remap.md",
+    "統合編集画面モック v0.1〜v0.4.1（00_勉強フォルダー 38〜41、MockUp に写し）",
+    "brief/proposals/P-008_device_slots.md"
+  ],
+  "verification": [
+    "モックの操作と寸法を Browser pane で JavaScript により確認、console error 0",
+    "ドラッグ＆ドロップと高さ変更は合成イベントでの確認（実マウスは未確認）",
+    "Hub が端末を区別せず layout.switch を一斉送信することを ws.rs / state.rs で確認"
+  ],
+  "nextActions": [
+    "利用者の回答（編集画面の置き場所・表示レイアウトの保存先・部品棚の既定・端末3台の実物）を受けて P-008 段階A から実装",
+    "同じ日の Report 番号は書く前に空きを確かめる"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/41_統合編集画面_VIA型モック_v0.4.html",
+    "DevApps/APP_KeyDeck01/brief/proposals/P-008_device_slots.md",
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/33_Sample画像_HUB編集画面UI向上/parts_dictionary_2026-09-30_VIA_Remap.md"
+  ],
+  "tags": ["keydeck", "ui", "mockup", "design", "device-slots"],
+  "blockedEncountered": [
+    "rpt_20260930_001 を別チャットが同じ番号で上書き（未コミットのため復元できず、書き直した）"
+  ],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": false,
+    "note": "複数チャットが同じ .harness/reports に書く運用では、日付＋連番だけだと衝突する。書く直前に ls で空きを見るか、チャットごとの接尾辞を付ける"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

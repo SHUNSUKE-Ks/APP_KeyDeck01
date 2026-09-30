@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck 統合編集画面 — モック v0.3</title>
+<!--
+  ============================================================================
+  KeyDeck 統合編集画面 — 見た目だけのモック v0.3.1（2026-09-30）
+  v0.3.1: フォーカス中の端末は常に舞台の中央（パネルを開いても動かない）／並び替えダイアログを大きく／非表示の枠に ALL＋種類のタブ
+  v0.1（38_…）・v0.2（39_…）は凍結して残してある。
+
+  ■ v0.2 からの変更（利用者の指示）
+  - 右 NAV の右下に固定: 一番下＝NAV の設定（⚙）、その上＝並び替えモードのスイッチ
+  - 並び替えモード: 画面中央にダイアログ。「左NAV／右NAV／非表示」を Figma の Section のような
+    枠に分け、アイコン＋名前のタイルをドラッグ＆ドロップで並べ替え・移動できる（左右をまたいでもよい）
+  - パネルを開くと「フォーカス」: 編集中の端末1台だけを、左右のパネルに挟まれた空き場所の中央に出す。
+    ほかの端末は下の小さな札になる（押すとその端末にフォーカスが移る）。パネルが端末にかぶらない
+    NAV の設定で「フォーカスしない（重ねるだけ）」も選べる
+  - 横の携帯でトラックボールが楕円になっていたのを直した（区画の縦横の短いほうに合わせて円を描く）
+
+  ■ v0.1 からの変更（利用者の指示）
+  - 左サイドバーをやめ、左右の細い NAV（60px）＋オーバーレイのパネルにした。
+    パネルを開いてもメインの幅は変わらない（上に重なるだけ）。
+      左の NAV = 部品棚（キー・同時押し・文字・マウス・レイヤー・盤面/アプリ・特別）
+      右の NAV = 編集するもの（区画・キー・Deck・トラックボール・マクロ）
+    参考: Note Story の下書きの左右 NAV（kanban-note01 src/v21/sideNav.tsx）。あちらは PC 幅で本文を押し縮めるが、こちらは常に重ねる
+  - 盤面の選択は header（KeyDeck の名前の右）へ
+  - 保存の右隣に歯車。設定・書き出し・取り込みはその中
+  - 表示: 1台 ／ 3台。3台は 中央 iPad（横）＋左右に携帯。
+      携帯（縦）= 各1レイヤー。レイヤーは header 下の帯のタブで切り替える
+      携帯（横）= 左右それぞれ、同じ端末のレイヤー2枚を縦に重ねて出す
+  - 編集中の端末は常に1台。header の端末名の横に緑の●（表示だけ）。図の枠を押すとその端末が編集中になる
+  - 保存を押すと、各端末の図に半透明の黒をかぶせて QR を3つ出す
+  - 端末の区別の設計は brief/proposals/P-008_device_slots.md
+
+  ■ 機能は無い。Hub と繋がっていない。押すと色が変わるだけ。QR は見た目だけの模様（読めない）
+  ■ 一番上の黄色い帯「モック専用」は、画面幅と状態を試すためのもの。本物には作らない
+  ============================================================================
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1220; --bg-grad: #151b2e;
+    --panel: #1a2033; --panel2: #141a2a; --shelf: #121726;
+    --line: #2a3250; --line-soft: #222a42;
+    --ink: #eef2ff; --ink-muted: #b3bbd3; --ink-dim: #69738f;
+    --accent: #5b8cff; --accent-ink: #ffffff; --accent-soft: rgba(91,140,255,0.18);
+    --ok: #35c47a; --warn: #e8b44a; --err: #e2555a;
+    --key: #242b42; --key-top: #2c344f; --key-edge: #10141f; --key-ink: #e8ecf8; --key-empty: #171c2c;
+    --cat-key: #5b8cff; --cat-chord: #9a7bff; --cat-text: #35c47a; --cat-mouse: #e8b44a;
+    --cat-layer: #ff7aa8; --cat-board: #3fc1d6; --cat-special: #8b93a7;
+    --rail: 60px; --panel-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #05070c; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "Yu Gothic UI", sans-serif; font-size: 13px; color: var(--ink); overflow: auto; }
+  button, select, input { font: inherit; color: inherit; }
+
+  /* ---- モック専用の帯 ---- */
+  .mockbar { position: sticky; top: 0; z-index: 50; background: #3a2f10; color: #f5dc8a; font-size: 12px; padding: 5px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .mockbar b { color: #ffe9a8; margin-right: 4px; }
+  .mockbar button { background: #4a3c14; border: 1px solid #6b5720; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+  .mockbar button[aria-pressed=true] { background: #f5dc8a; color: #3a2f10; }
+  .mockbar .sep { width: 1px; height: 16px; background: #6b5720; margin: 0 4px; }
+
+  /* アプリ全体（画面幅テストのため幅を固定できる） */
+  #app { position: relative; margin: 0 auto; background: var(--bg); display: flex; flex-direction: column; height: calc(100vh - 30px); min-height: 640px; overflow: hidden; }
+
+  /* ---- header 1段目 ---- */
+  .top { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+  .brand { font-weight: 700; letter-spacing: .5px; display: flex; align-items: center; gap: 7px; }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); display: inline-block; }
+  #app.offline .brand i { background: var(--err); box-shadow: 0 0 8px var(--err); }
+  .boardsel { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+  .boardsel small { color: var(--ink-dim); }
+  .tabs { display: flex; gap: 4px; margin-left: 12px; }
+  .tabs button { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--ink-muted); }
+  .tabs button:hover { background: var(--panel); }
+  .tabs button.on { background: var(--accent); color: var(--accent-ink); }
+  .grow { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .savebtn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--ink-muted); }
+  #app.dirty .savebtn { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #app.dirty .savebtn::before { content: "● "; }
+  .gear { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 16px; }
+  .gear.on { background: var(--ink); color: var(--bg); }
+
+  /* ---- header 2段目（表示とレイヤー） ---- */
+  .sub { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; height: 42px; padding: 0 calc(var(--rail) + 12px); border-bottom: 1px solid var(--line-soft); background: #11162a; flex-wrap: nowrap; overflow: hidden; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 4px 11px; cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+  .seg button.on { background: var(--ink); color: var(--bg); font-weight: 700; }
+  .seg button:disabled { opacity: .35; cursor: default; }
+  .lbl { color: var(--ink-dim); font-size: 11px; letter-spacing: .5px; }
+  .layers { display: flex; align-items: center; gap: 3px; }
+  .layers button { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink-muted); cursor: pointer; font-size: 12px; }
+  .layers button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 700; }
+  .layers .for { margin-left: 6px; color: var(--ink-dim); font-size: 11px; white-space: nowrap; }
+  .picked { color: var(--ink-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .picked b { color: var(--ink); font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 2px 8px; background: var(--panel); border: 1px solid var(--line); font-size: 11px; margin-left: 6px; }
+  .chip i { width: 3px; height: 12px; border-radius: 2px; display: inline-block; }
+  .toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-muted); font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap; }
+  .sw { width: 30px; height: 18px; border-radius: 999px; background: var(--line); position: relative; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink-muted); transition: left .15s; }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 15px; background: #fff; }
+
+  /* ---- 本体: 左NAV ｜ 図 ｜ 右NAV。パネルは上に重なる ---- */
+  .main { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: var(--rail) 1fr var(--rail); min-height: 0; }
+  .rail { background: var(--panel2); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; z-index: 5; }
+  .rail.left { border-right: 1px solid var(--line); } .rail.right { border-left: 1px solid var(--line); }
+  .rbtn { width: 48px; height: 52px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--ink-dim);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; position: relative; }
+  .rbtn svg { width: 22px; height: 22px; }
+  .rbtn span { font-size: 9.5px; letter-spacing: .04em; }
+  .rbtn:hover { color: var(--ink); background: rgba(255,255,255,.04); }
+  .rbtn.on { color: var(--ink); border-color: rgba(91,140,255,.45); background: var(--accent-soft); }
+  .rbtn .bar { position: absolute; left: -6px; top: 14px; width: 3px; height: 24px; border-radius: 2px; }
+  .rail.right .rbtn .bar { left: auto; right: -6px; }
+
+  .ov { position: absolute; top: 0; bottom: 0; width: var(--panel-w); background: rgba(20,26,42,.97); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0,0,0,.55);
+    z-index: 4; padding: 14px; overflow: auto; transition: transform .18s ease, opacity .18s; opacity: 0; pointer-events: none; }
+  .ov.left { left: var(--rail); transform: translateX(-12px); border-left: 0; }
+  .ov.right { right: var(--rail); transform: translateX(12px); border-right: 0; }
+  .ov.open { opacity: 1; transform: none; pointer-events: auto; }
+  .ov h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: .12em; color: var(--ink-muted); }
+  .ov .lead { margin: 0 0 10px; font-size: 11px; color: var(--ink-dim); line-height: 1.6; }
+  .ov .x { position: absolute; top: 8px; right: 10px; background: transparent; border: 0; color: var(--ink-dim); cursor: pointer; font-size: 16px; }
+  .ov .search { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
+  .parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .part { aspect-ratio: 1; border-radius: 9px; background: var(--panel); border: 1px solid #323b5a; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; font-size: 11px; cursor: pointer; line-height: 1.15; padding: 3px; user-select: none; }
+  .part small { font-size: 9px; color: var(--ink-dim); }
+  .part:hover { border-color: var(--ink-muted); }
+  .part.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .part.dash { border-style: dashed; color: var(--ink-dim); }
+  .part.wide { grid-column: span 2; aspect-ratio: auto; min-height: 48px; }
+  .list .li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--ink-muted); }
+  .list .li:hover { background: var(--panel); }
+  .list .li.on { background: var(--panel); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+  .list .li small { margin-left: auto; color: var(--ink-dim); font-size: 11px; }
+
+  /* 歯車のパネル（設定） */
+  .settings { position: absolute; top: 52px; right: 12px; width: 420px; max-height: calc(100% - 64px); overflow: auto; background: rgba(20,26,42,.98);
+    border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.6); z-index: 30; padding: 6px 16px 12px; display: none; }
+  .settings.open { display: block; }
+  .settings h5 { margin: 12px 0 2px; font-size: 11px; color: var(--ink-dim); letter-spacing: .12em; }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line-soft); gap: 14px; }
+  .row .nm { color: var(--ink-muted); } .row .nm small { display: block; color: var(--ink-dim); font-size: 11px; margin-top: 2px; }
+  .btn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; cursor: pointer; }
+  .btn.danger { color: var(--err); border-color: #5a2a33; }
+  .swatches { display: flex; gap: 8px; }
+  .swatches b { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; display: inline-block; }
+  .swatches b.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor; }
+
+  /* ---- 図の舞台 ---- */
+  .stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 25%, var(--bg-grad), var(--bg) 72%);
+    display: flex; align-items: center; justify-content: center; gap: 22px; padding: 16px; }
+  .col { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .dev { position: relative; background: #07090f; border-radius: 22px; padding: 12px; cursor: pointer;
+    box-shadow: 0 0 0 2px #262d43, 0 18px 44px rgba(0,0,0,.55); transition: box-shadow .15s, opacity .15s; }
+  .dev.phone { border-radius: 26px; padding: 14px 8px; }
+  .dev.phone.land { padding: 8px 14px; }
+  .dev.active { box-shadow: 0 0 0 2px var(--ok), 0 0 26px rgba(53,196,122,.28), 0 18px 44px rgba(0,0,0,.55); }
+  .dev:not(.active) { opacity: .78; }
+  .dev .name { position: absolute; left: 12px; top: -22px; font-size: 11px; color: var(--ink-dim); white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+  .dev .name .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); }
+  .dev.active .name { color: var(--ink); } .dev.active .name .d { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dev .name .ly { color: var(--cat-layer); }
+  .screen { position: relative; border-radius: 8px; background: #0b0f1a; padding: 0.5em; display: grid; gap: 0.35em; overflow: hidden; }
+
+  .sec { position: relative; border-radius: 6px; background: rgba(255,255,255,0.02); padding: 0.3em; display: grid; gap: 0.3em; min-width: 0; min-height: 0; }
+  .key { position: relative; background: linear-gradient(180deg, var(--key-top), var(--key)); border-radius: 0.6em; box-shadow: 0 0.14em 0 var(--key-edge), inset 0 1px 0 rgba(255,255,255,.06);
+    color: var(--key-ink); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: pointer;
+    font-size: 0.85em; line-height: 1.15; user-select: none; min-height: 0; min-width: 0; overflow: hidden; transition: transform .06s; }
+  .key .s { font-size: .7em; color: var(--ink-dim); }
+  .key .h { font-size: .65em; color: var(--cat-layer); }
+  .key:hover { background: linear-gradient(180deg, #34405f, #2a3350); }
+  .key.pressed { transform: translateY(0.12em); box-shadow: inset 0 2px 4px rgba(0,0,0,.4); }
+  .key.selected { background: var(--accent); color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35), 0 0 14px rgba(91,140,255,.55); }
+  .key.selected .s, .key.selected .h { color: rgba(255,255,255,.85); }
+  .key.empty, .key.trans { background: var(--key-empty); border: 1px dashed #2b3350; box-shadow: none; color: var(--ink-dim); }
+  .key.lit { background: #1f7a52; color: #fff; box-shadow: 0 0 14px rgba(53,196,122,.7); }
+  .key .av { width: 52%; aspect-ratio: 1; border-radius: .5em; display: flex; align-items: center; justify-content: center; font-size: 1.3em; font-family: serif; color: #f3ead6; margin-bottom: .2em; }
+
+  /* 区画を「大きさの入れ物」にして、球は縦横の短いほうの92%で描く（横の携帯で楕円にならない） */
+  .tbwrap { display: flex; align-items: center; justify-content: center; container-type: size; }
+  .bezel { position: relative; width: min(92cqw, 92cqh); height: min(92cqw, 92cqh); flex: none; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #1b2030 55%, #0b0e17 70%, #232a3d 71%, #0c0f18 76%); box-shadow: 0 .6em 1.4em rgba(0,0,0,.6), inset 0 0 0 1px #2a3148; }
+  .ball { position: absolute; inset: 14%; border-radius: 50%; overflow: hidden;
+    background: radial-gradient(circle at 34% 26%, rgba(255,255,255,.95) 0, rgba(255,255,255,.5) 5%, rgba(255,255,255,0) 17%),
+      radial-gradient(circle at 70% 82%, rgba(120,150,255,.28) 0, rgba(120,150,255,0) 30%),
+      radial-gradient(circle at 42% 38%, #3a4058 0%, #151926 48%, #05060a 78%, #000 100%);
+    box-shadow: inset -.6em -.8em 1.4em rgba(0,0,0,.85), inset .35em .5em 1em rgba(255,255,255,.08); }
+  .ball::after { content: ""; position: absolute; left: 18%; top: 12%; width: 40%; height: 18%; border-radius: 50%; background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0)); transform: rotate(-18deg); }
+  .callouts { position: absolute; inset: 0; pointer-events: none; }
+  .callouts svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .co { position: absolute; transform: translate(-50%, -50%); background: #0e1322; border: 1px solid #3a4568; color: var(--ink); font-size: .72em; padding: .25em .55em; border-radius: .4em; white-space: nowrap; }
+  .co small { color: var(--ink-dim); margin-right: .35em; }
+  #app:not(.show-callouts) .callouts { display: none; }
+  .wheel { width: 60%; height: 90%; margin: auto; border-radius: .8em; background: repeating-linear-gradient(180deg, #2b3350 0 3px, #1a2033 3px 9px); box-shadow: inset 0 .6em .8em rgba(0,0,0,.6), inset 0 -.6em .8em rgba(0,0,0,.6); }
+
+  /* 保存したときの QR（各端末の上に黒をかぶせる） */
+  .qr { position: absolute; inset: 0; border-radius: inherit; background: rgba(4,6,12,.78); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; z-index: 3; cursor: default; }
+  #app.showqr .qr { display: flex; }
+  .qr svg { width: min(56%, 170px); height: auto; background: #fff; border-radius: 8px; padding: 6px; }
+  .qr .t { font-size: 12px; color: #fff; text-align: center; }
+  .qr .u { font-size: 10px; color: var(--ink-dim); font-family: ui-monospace, Consolas, monospace; }
+  .qrbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; display: none; gap: 10px; align-items: center; background: #0e1322; border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px 6px 16px; }
+  #app.showqr .qrbar { display: flex; }
+
+  /* ---- 右 NAV の右下に固定する2つ（並び替えスイッチ・NAV の設定） ---- */
+  .rail .anchor { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .rbtn.sm { height: 44px; }
+  .mini-sw { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; }
+  .mini-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--ink-muted); transition: left .15s; }
+  .rbtn.on .mini-sw { background: var(--accent); } .rbtn.on .mini-sw::after { left: 13px; background: #fff; }
+
+  /* NAV の設定（小さいポップオーバー。右 NAV の左に出る） */
+  .navset { position: absolute; right: calc(var(--rail) + 8px); bottom: 10px; width: 280px; background: rgba(20,26,42,.98); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.6); z-index: 20; padding: 6px 14px 10px; display: none; }
+  .navset.open { display: block; }
+  .navset h5 { margin: 10px 0 4px; font-size: 11px; color: var(--ink-dim); letter-spacing: .12em; }
+
+  /* 並び替えダイアログ（Figma の Section 風の枠） */
+  .dlg-back { position: absolute; inset: 0; background: rgba(3,5,10,.62); z-index: 40; display: none; align-items: center; justify-content: center; }
+  .dlg-back.open { display: flex; }
+  .dlg { width: min(1280px, 94%); max-height: 92%; overflow: auto; background: #151a2b; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 30px 70px rgba(0,0,0,.7); padding: 16px 18px 18px; }
+  .dlg header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .dlg header h3 { margin: 0; font-size: 17px; }
+  .dlg header p { margin: 0; color: var(--ink-dim); font-size: 12px; }
+  .zones { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 20px; margin-top: 20px; }
+  .zone { position: relative; border: 1.5px dashed #3a4568; border-radius: 12px; padding: 22px 10px 10px; min-height: 440px; background: rgba(255,255,255,.015);
+    display: flex; flex-direction: column; gap: 6px; transition: background .12s, border-color .12s; }
+  .zone .ztag { position: absolute; top: -11px; left: 12px; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 6px; background: #3a4568; color: #fff; letter-spacing: .06em; }
+  .zone.left .ztag { background: #3c5fb8; } .zone.right .ztag { background: #2e8a78; } .zone.hidden .ztag { background: #4b4f5e; }
+  .zone.over { background: var(--accent-soft); border-color: var(--accent); }
+  .zone .fixed { margin-top: auto; font-size: 11px; color: var(--ink-dim); border-top: 1px solid var(--line-soft); padding-top: 8px; }
+  .zone.hidden { display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+  .htabs { grid-column: 1 / -1; display: flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
+  .htabs button { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+  .htabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 700; }
+  .htabs button .n { margin-left: 5px; opacity: .6; font-size: 11px; }
+  .zone.hidden .grp { grid-column: 1 / -1; font-size: 10px; color: var(--ink-dim); letter-spacing: .1em; margin: 6px 2px 0; }
+  .tile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 14px; border-radius: 9px; background: var(--panel); border: 1px solid #323b5a; cursor: grab; user-select: none; }
+  .tile svg { width: 20px; height: 20px; flex: none; color: var(--ink-muted); }
+  .tile .g { margin-left: auto; font-size: 10px; color: var(--ink-dim); }
+  .tile.dragging { opacity: .35; }
+  .tile.ins-before { box-shadow: 0 -3px 0 var(--accent); }
+  .dlg footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+  /* フォーカス: 編集中の1台を空き場所の中央に。ほかの端末は下の札 */
+  .thumbs { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 2; }
+  .thumbs button { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+  .thumbs button .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); }
+  .thumbs button.on { color: var(--ink); border-color: var(--ok); } .thumbs button.on .d { background: var(--ok); }
+  .focusnote { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--ink-dim); z-index: 2; white-space: nowrap; }
+
+  #app.nolabel .rbtn span:not(.mini-sw) { display: none; }
+  #app.nolabel .rbtn { height: 42px; }
+  .hide { display: none !important; }
+  #app.glass { --bg: #c9d3ea; --bg-grad: #eef2fb; --panel: rgba(255,255,255,.55); --panel2: rgba(255,255,255,.5); --line: rgba(40,55,90,.18); --line-soft: rgba(40,55,90,.12);
+    --ink: #172036; --ink-muted: #3b4766; --ink-dim: #6f7a96; }
+  #app.glass .sub { background: rgba(255,255,255,.35); }
+  #app.glass .ov, #app.glass .settings { background: rgba(255,255,255,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+</style>
+</head>
+<body>
+
+<!-- ======================= モック専用の帯（本物には作らない） ======================= -->
+<div class="mockbar">
+  <b>モック専用</b> 画面幅:
+  <button data-w="1366" aria-pressed="false">1366</button>
+  <button data-w="1600" aria-pressed="false">1600</button>
+  <button data-w="1920" aria-pressed="false">1920</button>
+  <button data-w="0" aria-pressed="true">いっぱい</button>
+  <span class="sep"></span> 状態:
+  <button data-mock="dirty" aria-pressed="false">未保存の変更あり</button>
+  <button data-mock="offline" aria-pressed="false">Hub 未接続</button>
+  <span id="wInfo" style="opacity:.8"></span>
+</div>
+
+<div id="app" class="show-callouts">
+  <!-- ======================= header 1段目 ======================= -->
+  <header class="top">
+    <div class="brand"><i title="Hub と接続中"></i>KeyDeck</div>
+    <span class="boardsel" id="boardSel" title="編集中の端末に出す盤面"><small>盤面</small><b id="boardName">note_story</b> ▾</span>
+    <nav class="tabs">
+      <button data-tab="edit" class="on">編集</button>
+      <button data-tab="test">キーテスター</button>
+    </nav>
+    <div class="grow"></div>
+    <span class="pill" id="devPill" title="編集中の端末（常に1台）"><span class="dot"></span><span id="devName">iPad 12.9（リビング）</span> ▾</span>
+    <button class="savebtn" id="saveBtn">保存</button>
+    <button class="gear" id="gearBtn" title="設定・書き出し・取り込み">⚙</button>
+  </header>
+
+  <!-- ======================= header 2段目: 表示・レイヤー・選んだキー ======================= -->
+  <div class="sub">
+    <span class="lbl">表示</span>
+    <div class="seg" id="viewSeg"><button data-view="one">1台</button><button data-view="three" class="on">3台</button></div>
+    <span class="lbl">携帯</span>
+    <div class="seg" id="oriSeg"><button data-ori="port" class="on">縦</button><button data-ori="land">横（2レイヤー）</button></div>
+    <span class="lbl">LAYER</span>
+    <div class="layers" id="layers"></div>
+    <label class="toggle" id="coToggle"><span class="sw on"></span>割り当てを図に</label>
+    <div class="grow"></div>
+    <span class="picked" id="picked">キーを押して選ぶ</span>
+  </div>
+
+  <!-- ======================= 本体 ======================= -->
+  <div class="main">
+    <nav class="rail left" id="railL" aria-label="部品棚"></nav>
+    <section class="stage" id="stage"></section>
+    <nav class="rail right" id="railR" aria-label="編集するもの"></nav>
+
+    <!-- NAV の設定（右 NAV 右下の ⚙ から） -->
+    <div class="navset" id="navset">
+      <h5>パネルを開いたとき</h5>
+      <div class="seg" id="focusSeg"><button class="on" data-focus="on">フォーカス（1台を中央に）</button><button data-focus="off">重ねるだけ</button></div>
+      <h5>ボタンの見た目</h5>
+      <div class="seg" id="labelSeg"><button class="on" data-lab="on">アイコン＋名前</button><button data-lab="off">アイコンだけ</button></div>
+      <h5>並び</h5>
+      <div style="font-size:11px;color:var(--ink-dim);line-height:1.6">上の「並び替え」スイッチで、左右の NAV と非表示のボタンをドラッグで入れ替えられる。</div>
+    </div>
+
+    <aside class="ov left" id="ovL"><button class="x" data-close="L">×</button><div id="ovLBody"></div></aside>
+    <aside class="ov right" id="ovR"><button class="x" data-close="R">×</button><div id="ovRBody"></div></aside>
+    <div class="qrbar"><span>保存しました。各端末で QR を読むと、その端末用の盤面が開きます</span><button class="btn" id="qrClose">閉じる</button></div>
+  </div>
+
+  <!-- ======================= NAV の並び替え（画面中央のダイアログ） ======================= -->
+  <div class="dlg-back" id="dlgBack">
+    <div class="dlg" role="dialog" aria-label="NAV の並び替え">
+      <header><h3>NAV の並び替え</h3><p>ボタンをドラッグして、左右の NAV・非表示のあいだで動かす。枠の中の上下でも並べ替えられる。</p></header>
+      <div class="zones">
+        <div class="zone left" data-zone="left"><span class="ztag">左 NAV</span></div>
+        <div class="zone right" data-zone="right"><span class="ztag">右 NAV</span></div>
+        <div class="zone hidden" data-zone="hidden"><span class="ztag">非表示</span></div>
+      </div>
+      <footer><button class="btn" id="dlgReset">最初の並びに戻す</button><button class="btn" id="dlgDone" style="background:var(--accent);border-color:var(--accent);color:#fff">完了</button></footer>
+    </div>
+  </div>
+
+  <!-- ======================= 歯車（設定） ======================= -->
+  <div class="settings" id="settings">
+    <h5>見た目</h5>
+    <div class="row"><div class="nm">質感<small>色相とは別の軸</small></div><div class="seg" id="matSeg"><button class="on" data-mat="dark">ダーク</button><button data-mat="glass">明るい透明</button></div></div>
+    <div class="row"><div class="nm">色相<small>選択とアクセントの色（/api/theme）</small></div>
+      <div class="swatches" id="hue"><b class="on" style="background:#5b8cff;color:#5b8cff" data-c="#5b8cff"></b><b style="background:#e2555a;color:#e2555a" data-c="#e2555a"></b><b style="background:#35c47a;color:#35c47a" data-c="#35c47a"></b></div></div>
+    <div class="row"><div class="nm">押した感</div><div class="seg"><button class="on">バウンス</button><button>凹み</button><button>波紋</button></div></div>
+    <h5>端末</h5>
+    <div class="row"><div class="nm">端末（最大3台）<small>名前・向き・最初の盤面は devices/devices.json で決める（手で書く・P-008）</small></div><button class="btn">一覧を見る</button></div>
+    <h5>保存・読み込み</h5>
+    <div class="row"><div class="nm">書き出し<small>盤面・キー・Deck を1ファイルに</small></div><button class="btn">⇩ 書き出し</button></div>
+    <div class="row"><div class="nm">取り込み<small>外のアプリの Deck（keydeck.deck_import.v1）など</small></div><button class="btn">⇧ 取り込み</button></div>
+    <div class="row"><div class="nm">構成を読み直す<small>JSON を手で直したあと</small></div><button class="btn">再読込</button></div>
+    <div class="row"><div class="nm">既定に戻す</div><button class="btn danger">リセット</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// =====================================================================
+// アイコン（Note Story の縦長NAVと同じ 24×24 の線画）
+// =====================================================================
+var I = {
+  key: "M4 7h16v10H4zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M8 14h8",
+  chord: "M5 6h6v6H5zM13 12h6v6h-6zM11 9h2M12 9v3",
+  text: "M5 6h14M12 6v12M9 18h6",
+  mouse: "M12 3.5a5.5 5.5 0 0 0-5.5 5.5v6a5.5 5.5 0 0 0 11 0V9A5.5 5.5 0 0 0 12 3.5M12 3.5V9",
+  layer: "M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4",
+  board: "M4 5h16v14H4zM4 10h16M10 10v9",
+  special: "M12 4v16M4 12h16",
+  sec: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
+  keys: "M4 7h16v10H4zM7 10h2M11 10h2M15 10h2M7 14h10",
+  deck: "M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z",
+  ball: "M12 4a8 8 0 1 0 0 16a8 8 0 0 0 0-16M9 9.5a3 3 0 0 1 3-2",
+  macro: "M5 7h4M5 12h8M5 17h6M16 15l3 2-3 2",
+  test: "M6 4v6a6 6 0 0 0 12 0V4M9 4h-3M18 4h-3M12 16v4",
+  qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2",
+  dev: "M7 3h10v18H7zM11 18h2",
+  hist: "M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4M12 8v4l3 2",
+  look: "M12 4a8 8 0 1 0 0 16c1 0 1.5-.8 1.5-1.6 0-1.2-1-1.4-1-2.4 0-.9.7-1.5 1.6-1.5H16a4 4 0 0 0 4-4c0-3.6-3.6-6.5-8-6.5M7.5 12h.01M9.5 8h.01M14.5 8h.01",
+  gear: "M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6M19 12l2-1-1-3-2 .3-1.3-1.3.3-2-3-1-1 2h-2l-1-2-3 1 .3 2L6.7 7.3 4.7 7l-1 3 2 1v2l-2 1 1 3 2-.3 1.3 1.3-.3 2 3 1 1-2h2l1 2 3-1-.3-2 1.3-1.3 2 .3 1-3-2-1z",
+};
+function svg(d) { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + d + '" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
+
+// =====================================================================
+// 見本データ（実物を写したもの。Hub とは繋がっていない）
+// =====================================================================
+var CAST = [["人物1","#7b4b2a","ミ"],["人物2","#2a4f7b","ハ"],["人物3","#5a2a7b","ユ"],["人物4","#2a7b5a","ソ"],["人物5","#7b2a3f","カ"],
+            ["人物6","#6b6b2a","リ"],["人物7","#2a6b7b","ネ"],["人物8","#4b2a7b","ア"],["人物9","#7b5a2a","ト"],["ナレーション","#41495e","語"]];
+function K(l, act, cat, extra) { var k = { l: l, act: act, cat: cat }; for (var p in (extra || {})) k[p] = extra[p]; return k; }
+var BOARDS = {
+  note_story: { cols: 12, rows: 9, secs: [
+    { r: 1, c: 1, rs: 4, cs: 8, cols: 5, keys: CAST.map(function (p, i) { return K(p[0], "ALT+" + (i < 9 ? i + 1 : 0), "chord", { icon: p }); }) },
+    { r: 1, c: 9, rs: 4, cs: 2, cols: 1, keys: [K("↑", "ALT+↑", "chord", { s: "前のセリフ" }), K("続ける", "CTRL+ENTER", "chord"), K("↓", "ALT+↓", "chord", { s: "次のセリフ" })] },
+    { r: 1, c: 11, rs: 4, cs: 2, type: "jog" },
+    { r: 5, c: 1, rs: 5, cs: 4, cols: 3, keys: [K("[Char]", "F13", "key"), K("[Scene]", "F14", "key"), K("[演出]", "F15", "key"), K("柱：", "文字「柱：」", "text"), K("備考：", "文字「備考：」", "text"), K("2カラム", "F16", "key"),
+      K("Fn", "レイヤー1（押す間）", "layer", { h: "押す間" }), { empty: 1 }, { trans: 1 }] },
+    { r: 5, c: 5, rs: 5, cs: 5, type: "tb" },
+    { r: 5, c: 10, rs: 5, cs: 3, cols: 2, keys: [K("?", "CTRL+/", "chord"), K("戻る", "CTRL+Z", "chord"), K("Esc", "ESC", "key"), K("キー確認", "F17", "key"), K("Note Story", "アプリ起動", "board", { s: "開く" }), K("既定へ", "盤面を既定へ", "board", { s: "戻る" })] },
+  ] },
+  phone_game_port: { cols: 5, rows: 8, secs: [
+    { r: 1, c: 1, rs: 3, cs: 5, type: "tb" },
+    { r: 4, c: 1, rs: 3, cs: 3, cols: 3, keys: [{ empty: 1 }, K("↑", "↑（押す間）", "key"), { empty: 1 }, K("←", "←", "key"), { empty: 1 }, K("→", "→", "key"), { empty: 1 }, K("↓", "↓", "key"), { empty: 1 }] },
+    { r: 4, c: 4, rs: 3, cs: 2, cols: 2, keys: [K("決定", "E", "key"), K("跳ぶ", "SPACE（押す間）", "key"), K("攻撃", "左クリック", "mouse"), K("走る", "SHIFT（押す間）", "key"), K("屈む", "CTRL（押す間）", "key"), K("取消", "ESC", "key")] },
+    { r: 7, c: 1, rs: 2, cs: 5, cols: 4, keys: [K("スクショ", "WIN+SHIFT+S", "chord"), K("録画", "WIN+ALT+R", "chord"), K("全画面", "F11", "key"), K("窓", "ALT+TAB", "chord"), K("消音", "MUTE", "key"), K("音＋", "VOL_UP", "key"), K("音−", "VOL_DOWN", "key"), K("Fn", "レイヤー1", "layer", { h: "押す間" })] },
+  ] },
+  phone_edit_port: { cols: 5, rows: 8, secs: [
+    { r: 1, c: 1, rs: 2, cs: 5, cols: 4, keys: [K("コピー", "CTRL+C", "chord"), K("貼付", "CTRL+V", "chord"), K("戻す", "CTRL+Z", "chord"), K("保存", "CTRL+S", "chord"), K("全選択", "CTRL+A", "chord"), K("検索", "CTRL+F", "chord"), K("Tab", "TAB", "key"), K("Fn", "レイヤー1", "layer", { h: "押す間" })] },
+    { r: 3, c: 1, rs: 4, cs: 5, type: "tb" },
+    { r: 7, c: 1, rs: 2, cs: 4, cols: 4, keys: [K("←", "←", "key"), K("↑", "↑", "key"), K("↓", "↓", "key"), K("→", "→", "key"), K("Home", "HOME", "key"), K("PgUp", "PGUP", "key"), K("PgDn", "PGDN", "key"), K("End", "END", "key")] },
+    { r: 7, c: 5, rs: 2, cs: 1, type: "jog" },
+  ] },
+};
+// 横向きの携帯（iPhone 7 横 10×4 と同じ比）
+BOARDS.phone_game_land = { cols: 10, rows: 4, secs: [
+  { r: 1, c: 1, rs: 3, cs: 3, cols: 3, keys: BOARDS.phone_game_port.secs[1].keys },
+  { r: 1, c: 4, rs: 4, cs: 4, type: "tb" },
+  { r: 1, c: 8, rs: 3, cs: 3, cols: 2, keys: BOARDS.phone_game_port.secs[2].keys },
+  { r: 4, c: 1, rs: 1, cs: 3, cols: 4, keys: BOARDS.phone_game_port.secs[3].keys.slice(0, 4) },
+  { r: 4, c: 8, rs: 1, cs: 3, cols: 4, keys: BOARDS.phone_game_port.secs[3].keys.slice(4) },
+] };
+BOARDS.phone_edit_land = { cols: 10, rows: 4, secs: [
+  { r: 1, c: 1, rs: 2, cs: 4, cols: 4, keys: BOARDS.phone_edit_port.secs[0].keys },
+  { r: 1, c: 5, rs: 4, cs: 3, type: "tb" },
+  { r: 3, c: 1, rs: 2, cs: 4, cols: 4, keys: BOARDS.phone_edit_port.secs[2].keys },
+  { r: 1, c: 8, rs: 4, cs: 3, type: "jog" },
+] };
+// レイヤー1（Fn を押している間）: 文字だけ差し替えて見せる
+var L1 = { "↑": "PgUp", "↓": "PgDn", "←": "Home", "→": "End", "決定": "F1", "跳ぶ": "F2", "攻撃": "F3", "走る": "F4", "屈む": "F5", "取消": "F6",
+  "コピー": "切取", "貼付": "書式なし", "戻す": "やり直し", "保存": "別名", "全選択": "削除", "検索": "置換", "続ける": "空行", "[Char]": "[bg]" };
+
+var DEVICES = [
+  { id: "android1", label: "Android 1（机の左）", kind: "phone", board: "phone_game", layer: 0, connected: true },
+  { id: "ipad", label: "iPad 12.9（リビング）", kind: "tablet", board: "note_story", layer: 0, connected: true },
+  { id: "android2", label: "Android 2（机の右）", kind: "phone", board: "phone_edit", layer: 0, connected: false },
+];
+var CATS = [
+  { id: "key", name: "キー", icon: "key", color: "var(--cat-key)", parts: ["A","B","C","…","Z","0","…","9","F1","…","F13","F14","F15","F16","F17","Enter","Esc","Tab","Space","Bksp","Del","↑","↓","←","→","Home","End","PgUp","PgDn","音量＋","音量−","消音","PrtSc"] },
+  { id: "chord", name: "同時押し", icon: "chord", color: "var(--cat-chord)", parts: ["コピー|CTRL+C","貼り付け|CTRL+V","切り取り|CTRL+X","元に戻す|CTRL+Z","やり直し|CTRL+Y","保存|CTRL+S","全選択|CTRL+A","検索|CTRL+F","ALT+↑","ALT+↓","ALT+1","ALT+0","WIN+1","＋ 組み合わせを作る"] },
+  { id: "text", name: "文字", icon: "text", color: "var(--cat-text)", parts: ["柱：","備考：","ナレーション：「」","[bg_room]","# ","// ","＋ 文字を作る"] },
+  { id: "mouse", name: "マウス", icon: "mouse", color: "var(--cat-mouse)", parts: ["左クリック","右クリック","ダブル","ホイール↑","ホイール↓","押しっぱなし"] },
+  { id: "layer", name: "レイヤー", icon: "layer", color: "var(--cat-layer)", parts: ["押す間 1|mo","押す間 2|mo","切替 1|tg","切替 2|tg","切替＋送る|tg.fire"] },
+  { id: "board", name: "盤面", icon: "board", color: "var(--cat-board)", parts: ["盤面を移る|この端末","3台そろって移る|全台","既定へ戻る","アプリ起動","キーマップ切替"] },
+  { id: "special", name: "特別", icon: "special", color: "var(--cat-special)", parts: [] },
+];
+var EDITS = [
+  { id: "sec", name: "区画", icon: "sec", n: 10, lead: "盤面の区画の並びと大きさ（いまのレイアウト編集）" },
+  { id: "keys", name: "キー", icon: "keys", n: 22, lead: "キーの組（キーマップ）とレイヤー" },
+  { id: "deck", name: "Deck", icon: "deck", n: 6, lead: "Stream Deck 風のタイル（文字・地色・アイコン）" },
+  { id: "ball", name: "球", icon: "ball", n: 2, lead: "トラックボールのジェスチャーの割り当て" },
+  { id: "macro", name: "マクロ", icon: "macro", n: 0, lead: "（まだ無い）順に押す動作。B-002 を直してから" },
+];
+
+var $ = function (id) { return document.getElementById(id); };
+var app = $("app");
+var state = { view: "three", ori: "port", active: "ipad", tab: "edit", selected: null };
+
+function activeDev() { for (var i = 0; i < DEVICES.length; i++) if (DEVICES[i].id === state.active) return DEVICES[i]; }
+function boardFor(dev, land) { return dev.kind === "tablet" ? BOARDS[dev.board] : BOARDS[dev.board + (land ? "_land" : "_port")]; }
+
+// =====================================================================
+// 図を描く
+// =====================================================================
+function buildScreen(board, layer, w, h) {
+  var sc = document.createElement("div");
+  sc.className = "screen";
+  sc.style.width = w + "px"; sc.style.height = h + "px";
+  sc.style.fontSize = Math.max(7, Math.min(w, h * 1.4) / 52) + "px";
+  sc.style.gridTemplateColumns = "repeat(" + board.cols + ",1fr)";
+  sc.style.gridTemplateRows = "repeat(" + board.rows + ",1fr)";
+  board.secs.forEach(function (s, si) {
+    var el = document.createElement("div"); el.className = "sec";
+    el.style.gridRow = s.r + " / span " + s.rs; el.style.gridColumn = s.c + " / span " + s.cs;
+    if (s.type === "tb") { el.classList.add("tbwrap"); el.appendChild(buildBall(w > 420)); }
+    else if (s.type === "jog") { var wh = document.createElement("div"); wh.className = "wheel"; el.appendChild(wh); }
+    else {
+      el.style.gridTemplateColumns = "repeat(" + s.cols + ",1fr)";
+      s.keys.forEach(function (k, i) { el.appendChild(buildKey(k, layer, si + ":" + i)); });
+    }
+    sc.appendChild(el);
+  });
+  return sc;
+}
+function buildKey(k, layer, kid) {
+  var b = document.createElement("div"); b.className = "key"; b.dataset.kid = kid;
+  if (k.empty) { b.classList.add("empty"); b._k = { l: "空き", act: "何もしない", cat: "special" }; return hookKey(b); }
+  if (k.trans) { b.classList.add("trans"); b.textContent = "▽"; b._k = { l: "▽", act: "下へ素通し", cat: "special" }; return hookKey(b); }
+  var label = layer === 1 && L1[k.l] ? L1[k.l] : k.l;
+  b._k = { l: label, act: layer === 1 && L1[k.l] ? "（レイヤー1）" + label : k.act, cat: k.cat };
+  if (k.icon) { var av = document.createElement("div"); av.className = "av"; av.textContent = k.icon[2]; av.style.background = "linear-gradient(135deg," + k.icon[1] + ",#14161c)"; b.appendChild(av); }
+  if (k.h) { var hh = document.createElement("div"); hh.className = "h"; hh.textContent = k.h; b.appendChild(hh); }
+  var m = document.createElement("div"); m.textContent = label; b.appendChild(m);
+  if (k.s && layer === 0) { var s = document.createElement("div"); s.className = "s"; s.textContent = k.s; b.appendChild(s); }
+  return hookKey(b);
+}
+function hookKey(b) {
+  b.addEventListener("pointerdown", function (e) { e.stopPropagation(); b.classList.add("pressed"); if (state.tab === "test") { b.classList.add("lit"); setTimeout(function () { b.classList.remove("lit"); }, 350); } });
+  b.addEventListener("pointerup", function (e) { e.stopPropagation(); b.classList.remove("pressed"); var dev = b.closest(".dev"); setActive(dev.dataset.dev, true); if (state.tab === "edit") pick(b); });
+  b.addEventListener("pointerleave", function () { b.classList.remove("pressed"); });
+  return b;
+}
+function buildBall(withCallouts) {
+  var wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center";
+  var bz = document.createElement("div"); bz.className = "bezel"; var ball = document.createElement("div"); ball.className = "ball"; bz.appendChild(ball); wrap.appendChild(bz);
+  if (withCallouts) {
+    var co = document.createElement("div"); co.className = "callouts";
+    var tags = [[50, 2, "転がす", "カーソル移動"], [10, 24, "左の帯", "左クリック"], [90, 24, "右の帯", "右クリック"], [10, 82, "2回", "ダブル"], [90, 82, "押して動かす", "ドラッグ"], [50, 98, "✋つかむ", "押しっぱなし"]];
+    var s = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">';
+    tags.forEach(function (t) { s += '<line x1="50" y1="50" x2="' + t[0] + '" y2="' + t[1] + '" stroke="#3a4568" stroke-width="0.6" vector-effect="non-scaling-stroke"/>'; });
+    co.innerHTML = s + "</svg>";
+    tags.forEach(function (t) { var d = document.createElement("div"); d.className = "co"; d.style.left = t[0] + "%"; d.style.top = t[1] + "%"; d.innerHTML = "<small>" + t[2] + "</small>" + t[3]; co.appendChild(d); });
+    wrap.appendChild(co);
+  }
+  return wrap;
+}
+// 見た目だけの QR 模様（読めない）。端末 id から決まった模様を作る
+function fakeQR(seed) {
+  var n = 25, h = 0; for (var i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  var s = '<svg viewBox="0 0 ' + n + ' ' + n + '" shape-rendering="crispEdges">';
+  function finder(x, y) { s += '<rect x="' + x + '" y="' + y + '" width="7" height="7" fill="#000"/><rect x="' + (x + 1) + '" y="' + (y + 1) + '" width="5" height="5" fill="#fff"/><rect x="' + (x + 2) + '" y="' + (y + 2) + '" width="3" height="3" fill="#000"/>'; }
+  for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) {
+    if ((x < 8 && y < 8) || (x > n - 9 && y < 8) || (x < 8 && y > n - 9)) continue;
+    h = (h * 1103515245 + 12345) >>> 0;
+    if ((h >>> 16) & 1) s += '<rect x="' + x + '" y="' + y + '" width="1" height="1" fill="#000"/>';
+  }
+  finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+  return s + "</svg>";
+}
+function buildDevice(dev, land, layer, w, h, showLayerTag) {
+  var d = document.createElement("div");
+  d.className = "dev " + dev.kind + (land ? " land" : "") + (dev.id === state.active ? " active" : "");
+  d.dataset.dev = dev.id;
+  var nm = document.createElement("div"); nm.className = "name";
+  nm.innerHTML = '<span class="d"></span>' + dev.label + (showLayerTag ? ' <span class="ly">L' + layer + (layer ? "（Fn）" : "") + "</span>" : "") + (dev.connected ? "" : "　未接続");
+  d.appendChild(nm);
+  d.appendChild(buildScreen(boardFor(dev, land), layer, w, h));
+  var q = document.createElement("div"); q.className = "qr";
+  q.innerHTML = fakeQR(dev.id) + '<div class="t">' + dev.label + '</div><div class="u">/layout?device=' + dev.id + '&amp;token=…</div>';
+  d.appendChild(q);
+  d.addEventListener("pointerup", function () { setActive(dev.id); });
+  return d;
+}
+
+// 舞台の大きさに合わせて、3台（または1台）の大きさを決める
+function layout() {
+  var st = $("stage"); st.innerHTML = "";
+  var iR = 1366 / 900, pR = 375 / 667, lR = 667 / 375, gap = 22, pad = 24;
+  // パネルの幅（300px）ぶん舞台の内側を空け、図がパネルの下に入らないようにする
+  var panelW = 300, insL = isFocus() ? panelW : 0, insR = insL;   // 片側だけ開いても左右を同じだけ空け、端末を舞台の中央から動かさない
+  st.style.paddingLeft = (16 + insL) + "px"; st.style.paddingRight = (16 + insR) + "px";
+  var W = st.clientWidth - 32 - insL - insR, H = st.clientHeight - 56;   // 名前の札のぶん上を空ける
+  if (isFocus()) {
+    // フォーカス: 編集中の1台だけを空き場所の中央に。ほかの端末は下の札
+    var fd = activeDev(), fl = state.ori === "land" && fd.kind === "phone";
+    var fr = fd.kind === "tablet" ? iR : (fl ? lR : pR);
+    var fh = Math.min(H - 40, W / fr) - pad;
+    st.appendChild(buildDevice(fd, fl, fd.layer, fh * fr, fh, fd.kind === "phone"));
+    var note = document.createElement("div"); note.className = "focusnote"; note.textContent = "フォーカス中 — パネルを閉じると3台に戻る"; st.appendChild(note);
+    var th = document.createElement("div"); th.className = "thumbs";
+    DEVICES.forEach(function (dv) {
+      var b = document.createElement("button"); if (dv.id === state.active) b.className = "on";
+      b.innerHTML = '<span class="d"></span>' + dv.label + (dv.connected ? "" : "（未接続）");
+      b.addEventListener("click", function () { setActive(dv.id); });
+      th.appendChild(b);
+    });
+    // 空き場所の中央に置く（左右のパネルの幅が違うときもずれない）
+    var mid = "calc(50% + " + ((insL - insR) / 2) + "px)"; th.style.left = mid; note.style.left = mid;
+    st.appendChild(th);
+    return info(fd.kind === "tablet" ? fh * fr : 0);
+  }
+  if (state.view === "one") {
+    var dev = activeDev(), land = state.ori === "land" && dev.kind === "phone";
+    var r = dev.kind === "tablet" ? iR : (land ? lR : pR);
+    var hh = Math.min(H, W / r) - pad, ww = hh * r;
+    st.appendChild(buildDevice(dev, land, dev.layer, ww, hh, false));
+    return info(ww);
+  }
+  var a1 = DEVICES[0], ip = DEVICES[1], a2 = DEVICES[2];
+  if (state.ori === "port") {
+    // 高さ h を共通にして、横幅の合計が W に収まる最大の h
+    var h = Math.min(H - pad, (W - 2 * gap - 3 * pad) / (iR + 2 * pR));
+    st.appendChild(buildDevice(a1, false, a1.layer, h * pR, h, true));
+    st.appendChild(buildDevice(ip, false, ip.layer, h * iR, h, false));
+    st.appendChild(buildDevice(a2, false, a2.layer, h * pR, h, true));
+    return info(h * iR);
+  }
+  // 横: 左右の列に、同じ端末のレイヤー0と1を縦に重ねる（2レイヤー表示）
+  var colGap = 30;
+  var h2 = Math.min(H - pad, (W - 2 * gap - 3 * pad) / (iR + lR));   // 列の高さ ≒ iPad の高さ
+  var ph = (h2 - colGap - pad) / 2, pw = ph * lR;
+  [a1, null, a2].forEach(function (dv, i) {
+    if (!dv) { st.appendChild(buildDevice(ip, false, ip.layer, h2 * iR, h2, false)); return; }
+    var col = document.createElement("div"); col.className = "col"; col.style.gap = colGap + "px";
+    col.appendChild(buildDevice(dv, true, 0, pw, ph, true));
+    col.appendChild(buildDevice(dv, true, 1, pw, ph, true));
+    st.appendChild(col);
+  });
+  info(h2 * iR);
+}
+function info(ipadW) { $("wInfo").textContent = "／ いまの幅 " + app.clientWidth + "px・iPad の図 " + Math.round(ipadW) + "px（実物の " + Math.round(ipadW / 1366 * 100) + "%）"; }
+
+// =====================================================================
+// 編集中の端末・レイヤー・選択
+// =====================================================================
+function setActive(id, keepSel) {
+  if (state.active === id) return;
+  state.active = id;
+  if (!keepSel) state.selected = null;
+  var dev = activeDev();
+  $("devName").textContent = dev.label;
+  $("boardName").textContent = dev.kind === "tablet" ? dev.board : dev.board + "_" + (state.ori === "land" ? "land" : "port");
+  renderLayers();
+  document.querySelectorAll(".dev").forEach(function (d) { d.classList.toggle("active", d.dataset.dev === id); });
+  if (state.view === "one" || isFocus()) layout();
+}
+function isFocus() { return typeof pref !== "undefined" && pref.focus && state.view === "three" && !!(openL || openR); }
+function renderLayers() {
+  var dev = activeDev(), box = $("layers"); box.innerHTML = "";
+  var n = dev.kind === "tablet" ? 4 : 2;
+  for (var i = 0; i < n; i++) (function (i) {
+    var b = document.createElement("button"); b.textContent = i; if (i === dev.layer) b.className = "on";
+    b.addEventListener("click", function () { dev.layer = i; renderLayers(); layout(); });
+    box.appendChild(b);
+  })(i);
+  var f = document.createElement("span"); f.className = "for";
+  f.textContent = (state.view === "three" && state.ori === "land" && dev.kind === "phone") ? "（横の携帯は L0・L1 を並べて表示中）" : "← " + dev.label;
+  box.appendChild(f);
+}
+function catOf(id) { for (var i = 0; i < CATS.length; i++) if (CATS[i].id === id) return CATS[i]; return CATS[CATS.length - 1]; }
+function pick(b) {
+  document.querySelectorAll(".key.selected").forEach(function (x) { x.classList.remove("selected"); });
+  b.classList.add("selected"); state.selected = b;
+  var c = catOf(b._k.cat);
+  $("picked").innerHTML = "選んだキー <b>" + b._k.l + "</b>" + '<span class="chip"><i style="background:' + c.color + '"></i>' + c.name + "｜" + b._k.act + "</span>";
+}
+
+// =====================================================================
+// 左右の NAV とオーバーレイ
+// =====================================================================
+// NAV に置けるボタンの一覧（1か所）。どちらの NAV に置くか・隠すかは NAV_PLACE が決める。
+// パネルは「ボタンが置いてある側」に開く（右へ移したら右に開く）
+var EXTRAS = [
+  { id: "test", name: "テスター", icon: "test", lead: "押したキーを図の上で光らせる" },
+  { id: "qr", name: "QR", icon: "qr", lead: "端末を繋ぐ QR をまとめて出す" },
+  { id: "dev", name: "端末", icon: "dev", lead: "devices.json に書いた端末（最大3台）" },
+  { id: "hist", name: "履歴", icon: "hist", lead: "やり直し・元に戻すの一覧" },
+  { id: "look", name: "見た目", icon: "look", lead: "質感と色相" },
+];
+var NAV_ITEMS = {};
+CATS.forEach(function (c) { NAV_ITEMS["p:" + c.id] = { key: "p:" + c.id, name: c.name, icon: c.icon, color: c.color, group: "部品棚" }; });
+EDITS.forEach(function (e) { NAV_ITEMS["e:" + e.id] = { key: "e:" + e.id, name: e.name, icon: e.icon, group: "編集するもの" }; });
+EXTRAS.forEach(function (x) { NAV_ITEMS["x:" + x.id] = { key: "x:" + x.id, name: x.name, icon: x.icon, group: "道具" }; });
+function defaultPlace() {
+  return { left: CATS.map(function (c) { return "p:" + c.id; }), right: EDITS.map(function (e) { return "e:" + e.id; }), hidden: EXTRAS.map(function (x) { return "x:" + x.id; }) };
+}
+var NAV_PLACE = defaultPlace();
+var openL = null, openR = null;
+var pref = { focus: true };
+
+function railButton(key, side) {
+  var it = NAV_ITEMS[key], open = side === "left" ? openL : openR;
+  var b = document.createElement("button"); b.className = "rbtn" + (open === key ? " on" : ""); b.title = it.name;
+  b.innerHTML = (it.color ? '<i class="bar" style="background:' + it.color + '"></i>' : "") + svg(I[it.icon]) + "<span>" + it.name + "</span>";
+  b.addEventListener("click", function () {
+    if (side === "left") openL = openL === key ? null : key; else openR = openR === key ? null : key;
+    renderRails(); renderOv();
+  });
+  return b;
+}
+function renderRails() {
+  ["left", "right"].forEach(function (side) {
+    var rail = $(side === "left" ? "railL" : "railR"); rail.innerHTML = "";
+    NAV_PLACE[side].forEach(function (k) { rail.appendChild(railButton(k, side)); });
+  });
+  // 右 NAV の右下に固定（並び替えスイッチ → その下に NAV の設定）。この2つは動かせない
+  var an = document.createElement("div"); an.className = "anchor";
+  var sw = document.createElement("button"); sw.className = "rbtn sm" + ($("dlgBack").classList.contains("open") ? " on" : ""); sw.id = "reorderSw"; sw.title = "NAV の並び替え";
+  sw.innerHTML = '<span class="mini-sw"></span><span>並び替え</span>';
+  sw.addEventListener("click", function () { openReorder(!$("dlgBack").classList.contains("open")); });
+  var gs = document.createElement("button"); gs.className = "rbtn sm" + ($("navset").classList.contains("open") ? " on" : ""); gs.id = "navsetBtn"; gs.title = "NAV の設定";
+  gs.innerHTML = svg(I.gear) + "<span>NAV設定</span>";
+  gs.addEventListener("click", function () { $("navset").classList.toggle("open"); renderRails(); });
+  an.appendChild(sw); an.appendChild(gs); $("railR").appendChild(an);
+}
+function panelHtml(key) {
+  var kind = key.slice(0, 1), id = key.slice(2), dev = activeDev();
+  if (kind === "p") {
+    var c = catOf(id);
+    var h = "<h4>部品棚 — " + c.name + "</h4><p class='lead'>図でキーを選んでから押すと、そのキーに入る。先頭の2つはいつも同じ。</p>";
+    h += "<input class='search' placeholder='🔍 部品を探す'><div class='parts'>";
+    h += "<div class='part dash'>&nbsp;<small>何もしない</small></div><div class='part dash'>▽<small>素通し</small></div>";
+    c.parts.forEach(function (p) { var b = p.split("|"); h += "<div class='part" + (b[0].length > 5 || p.indexOf("＋") === 0 ? " wide" : "") + "'>" + b[0] + (b[1] ? "<small>" + b[1] + "</small>" : "") + "</div>"; });
+    return h + "</div>";
+  }
+  if (kind === "e") {
+    var e = EDITS.filter(function (x) { return x.id === id; })[0];
+    var items = { sec: ["SEC-CAST 話者", "SEC-MOVE 行の移動", "SEC-WHEEL ホイール", "SEC-TOOLS 書く道具", "SEC-TB トラックボール", "SEC-EDGE ふち"],
+      keys: ["note_move", "note_tools", "note_edge", "ipad01_vol13", "game_action", "dpad_arrows"], deck: ["note_cast", "note_palette", "game", "apps", "default", "story_paths"],
+      ball: ["tb01（カーソル）", "tb01-scroll（スクロール）"], macro: [] }[id];
+    var h2 = "<h4>" + e.name + "</h4><p class='lead'>" + e.lead + "。<br>編集中: " + dev.label + "</p><div class='list'>";
+    items.forEach(function (t, i) { h2 += "<div class='li" + (i === 0 ? " on" : "") + "'>" + t + "<small>" + (id === "sec" ? "" : "編集") + "</small></div>"; });
+    if (!items.length) h2 += "<div class='li' style='opacity:.5'>まだ何もない</div>";
+    return h2 + "</div>";
+  }
+  var x = EXTRAS.filter(function (v) { return v.id === id; })[0];
+  return "<h4>" + x.name + "</h4><p class='lead'>" + x.lead + "（中身は未定。並び替えで NAV に出したときの見え方の見本）</p>";
+}
+function hookPanel(body) {
+  body.querySelectorAll(".part").forEach(function (p) {
+    p.addEventListener("click", function () {
+      body.querySelectorAll(".part.selected").forEach(function (x) { x.classList.remove("selected"); });
+      p.classList.add("selected"); if (state.selected) setDirty(true);
+    });
+  });
+  body.querySelectorAll(".li").forEach(function (li) { li.addEventListener("click", function () { body.querySelectorAll(".li").forEach(function (x) { x.classList.toggle("on", x === li); }); }); });
+}
+function renderOv() {
+  $("ovL").classList.toggle("open", !!openL);
+  $("ovR").classList.toggle("open", !!openR);
+  if (openL) { $("ovLBody").innerHTML = panelHtml(openL); hookPanel($("ovLBody")); }
+  if (openR) { $("ovRBody").innerHTML = panelHtml(openR); hookPanel($("ovRBody")); }
+  layout();   // フォーカスの出入りで図の置き方が変わる
+}
+document.querySelectorAll("[data-close]").forEach(function (x) { x.addEventListener("click", function () { if (x.dataset.close === "L") openL = null; else openR = null; renderRails(); renderOv(); }); });
+
+// ---- 並び替えダイアログ（HTML のドラッグ＆ドロップ） ----
+var dragKey = null, hiddenTab = "ALL";
+function openReorder(on) {
+  $("dlgBack").classList.toggle("open", on);
+  if (on) renderZones();
+  renderRails();
+}
+function tileEl(key) {
+  var it = NAV_ITEMS[key], t = document.createElement("div");
+  t.className = "tile"; t.draggable = true; t.dataset.key = key;
+  t.innerHTML = svg(I[it.icon]) + "<span>" + it.name + "</span><span class='g'>" + it.group + "</span>";
+  t.addEventListener("dragstart", function (ev) { dragKey = key; t.classList.add("dragging"); ev.dataTransfer.effectAllowed = "move"; try { ev.dataTransfer.setData("text/plain", key); } catch (e) {} });
+  t.addEventListener("dragend", function () { dragKey = null; t.classList.remove("dragging"); clearMarks(); });
+  return t;
+}
+function clearMarks() { document.querySelectorAll(".tile.ins-before").forEach(function (x) { x.classList.remove("ins-before"); }); document.querySelectorAll(".zone.over").forEach(function (z) { z.classList.remove("over"); }); }
+function renderZones() {
+  document.querySelectorAll(".zone").forEach(function (z) {
+    var zone = z.dataset.zone;
+    z.querySelectorAll(".tile, .grp, .fixed").forEach(function (x) { x.remove(); });
+    if (zone === "hidden") {
+      // 非表示はタブで絞る: ALL（種類ごとの小見出しつき）／部品棚／編集するもの／道具
+      var old = z.querySelector(".htabs"); if (old) old.remove();
+      var GROUPS = ["部品棚", "編集するもの", "道具"], tabs = document.createElement("div"); tabs.className = "htabs";
+      ["ALL"].concat(GROUPS).forEach(function (g) {
+        var n = g === "ALL" ? NAV_PLACE.hidden.length : NAV_PLACE.hidden.filter(function (k) { return NAV_ITEMS[k].group === g; }).length;
+        var b = document.createElement("button"); if (hiddenTab === g) b.className = "on";
+        b.innerHTML = g + '<span class="n">' + n + "</span>";
+        b.addEventListener("click", function () { hiddenTab = g; renderZones(); });
+        tabs.appendChild(b);
+      });
+      z.appendChild(tabs);
+      var groups = {};
+      NAV_PLACE.hidden.forEach(function (k) { var g = NAV_ITEMS[k].group; if (hiddenTab !== "ALL" && g !== hiddenTab) return; (groups[g] = groups[g] || []).push(k); });
+      GROUPS.forEach(function (g) {
+        if (!groups[g]) return;
+        if (hiddenTab === "ALL") { var gh = document.createElement("div"); gh.className = "grp"; gh.textContent = g; z.appendChild(gh); }
+        groups[g].forEach(function (k) { z.appendChild(tileEl(k)); });
+      });
+      if (NAV_PLACE.hidden.length && !Object.keys(groups).length) { var e2 = document.createElement("div"); e2.className = "grp"; e2.textContent = "（この種類で非表示のものは無い）"; z.appendChild(e2); }
+      if (!NAV_PLACE.hidden.length) { var em = document.createElement("div"); em.className = "grp"; em.textContent = "（ここに落とすと NAV から消える）"; z.appendChild(em); }
+    } else {
+      NAV_PLACE[zone].forEach(function (k) { z.appendChild(tileEl(k)); });
+      if (zone === "right") { var f = document.createElement("div"); f.className = "fixed"; f.textContent = "右下に固定: 並び替え ／ NAV設定（動かせない）"; z.appendChild(f); }
+    }
+  });
+}
+function dropIndex(zoneEl, y) {
+  var tiles = Array.prototype.slice.call(zoneEl.querySelectorAll(".tile:not(.dragging)"));
+  for (var i = 0; i < tiles.length; i++) { var r = tiles[i].getBoundingClientRect(); if (y < r.top + r.height / 2) return { before: tiles[i].dataset.key, el: tiles[i] }; }
+  return { before: null, el: null };
+}
+document.querySelectorAll(".zone").forEach(function (z) {
+  z.addEventListener("dragover", function (ev) {
+    if (!dragKey) return; ev.preventDefault(); clearMarks(); z.classList.add("over");
+    if (z.dataset.zone !== "hidden") { var d = dropIndex(z, ev.clientY); if (d.el) d.el.classList.add("ins-before"); }
+  });
+  z.addEventListener("dragleave", function (ev) { if (!z.contains(ev.relatedTarget)) z.classList.remove("over"); });
+  z.addEventListener("drop", function (ev) { ev.preventDefault(); if (!dragKey) return; moveNav(dragKey, z.dataset.zone, z.dataset.zone === "hidden" ? null : dropIndex(z, ev.clientY).before); clearMarks(); });
+});
+function moveNav(key, zone, beforeKey) {
+  ["left", "right", "hidden"].forEach(function (zn) { var i = NAV_PLACE[zn].indexOf(key); if (i >= 0) NAV_PLACE[zn].splice(i, 1); });
+  var list = NAV_PLACE[zone], at = beforeKey ? list.indexOf(beforeKey) : -1;
+  if (at < 0) list.push(key); else list.splice(at, 0, key);
+  if (openL === key && zone !== "left") openL = null;
+  if (openR === key && zone !== "right") openR = null;
+  renderZones(); renderRails(); renderOv();
+}
+$("dlgDone").addEventListener("click", function () { openReorder(false); });
+$("dlgReset").addEventListener("click", function () { NAV_PLACE = defaultPlace(); openL = openR = null; renderZones(); renderRails(); renderOv(); });
+$("dlgBack").addEventListener("click", function (ev) { if (ev.target === $("dlgBack")) openReorder(false); });
+document.querySelectorAll("#focusSeg button").forEach(function (b) {
+  b.addEventListener("click", function () { pref.focus = b.dataset.focus === "on"; document.querySelectorAll("#focusSeg button").forEach(function (x) { x.classList.toggle("on", x === b); }); layout(); });
+});
+document.querySelectorAll("#labelSeg button").forEach(function (b) {
+  b.addEventListener("click", function () { app.classList.toggle("nolabel", b.dataset.lab === "off"); document.querySelectorAll("#labelSeg button").forEach(function (x) { x.classList.toggle("on", x === b); }); });
+});
+
+// =====================================================================
+// header の操作
+// =====================================================================
+function setDirty(on) { app.classList.toggle("dirty", on); document.querySelector("[data-mock=dirty]").setAttribute("aria-pressed", on); }
+document.querySelectorAll(".tabs button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    state.tab = b.dataset.tab;
+    document.querySelectorAll(".tabs button").forEach(function (x) { x.classList.toggle("on", x === b); });
+    document.querySelectorAll(".key.selected").forEach(function (x) { x.classList.remove("selected"); });
+    $("picked").textContent = state.tab === "test" ? "キーテスター: 押したキーが緑に光る（PC へは送らない設定も歯車に置ける）" : "キーを押して選ぶ";
+  });
+});
+document.querySelectorAll("#viewSeg button").forEach(function (b) {
+  b.addEventListener("click", function () { state.view = b.dataset.view; document.querySelectorAll("#viewSeg button").forEach(function (x) { x.classList.toggle("on", x === b); }); renderLayers(); layout(); });
+});
+document.querySelectorAll("#oriSeg button").forEach(function (b) {
+  b.addEventListener("click", function () { state.ori = b.dataset.ori; document.querySelectorAll("#oriSeg button").forEach(function (x) { x.classList.toggle("on", x === b); }); renderLayers(); layout(); });
+});
+$("devPill").addEventListener("click", function () {
+  // 見た目だけ: 押すたびに次の端末へ（本物はプルダウン）
+  var i = DEVICES.indexOf(activeDev()); setActive(DEVICES[(i + 1) % DEVICES.length].id);
+});
+$("coToggle").addEventListener("click", function () { app.classList.toggle("show-callouts"); this.querySelector(".sw").classList.toggle("on"); });
+$("gearBtn").addEventListener("click", function () { $("settings").classList.toggle("open"); this.classList.toggle("on"); });
+$("saveBtn").addEventListener("click", function () { setDirty(false); app.classList.add("showqr"); });
+$("qrClose").addEventListener("click", function () { app.classList.remove("showqr"); });
+document.querySelectorAll("#matSeg button").forEach(function (b) {
+  b.addEventListener("click", function () { document.querySelectorAll("#matSeg button").forEach(function (x) { x.classList.toggle("on", x === b); }); app.classList.toggle("glass", b.dataset.mat === "glass"); });
+});
+document.querySelectorAll("#hue b").forEach(function (s) {
+  s.addEventListener("click", function () { document.querySelectorAll("#hue b").forEach(function (x) { x.classList.toggle("on", x === s); }); app.style.setProperty("--accent", s.dataset.c); });
+});
+
+// ---- モック専用 ----
+document.querySelectorAll(".mockbar [data-w]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll(".mockbar [data-w]").forEach(function (x) { x.setAttribute("aria-pressed", x === b); });
+    var w = Number(b.dataset.w); app.style.width = w ? w + "px" : ""; app.style.height = w ? Math.round(w * 9 / 16) + "px" : "";
+    layout();
+  });
+});
+document.querySelectorAll(".mockbar [data-mock]").forEach(function (b) {
+  b.addEventListener("click", function () { var on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", on); app.classList.toggle(b.dataset.mock, on); });
+});
+window.addEventListener("resize", layout);
+
+renderRails(); renderLayers(); layout();
+</script>
+</body>
+</html>

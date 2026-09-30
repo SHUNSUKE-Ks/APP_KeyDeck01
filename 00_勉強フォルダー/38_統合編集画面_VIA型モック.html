@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck 統合編集画面 — VIA型モック v0.1</title>
+<!--
+  ============================================================================
+  KeyDeck 統合編集画面（VIA / Remap 型）— 見た目だけのモック v0.1（2026-09-30）
+
+  ■ これは何か
+  いまバラバラの編集画面（レイアウト編集 / キー編集 / Deck編集 / 設定）を、
+  VIA と同じ「上＝端末の図、下＝部品棚、左＝何を編集するか」の1画面にまとめる案。
+  参考: 33_Sample画像_HUB編集画面UI向上/parts_dictionary_2026-09-30_VIA_Remap.md
+
+  ■ 機能は無い
+  Hub とは繋がっていない。保存も送信もしない。押すと色が変わるだけ。
+  盤面の中身は実物（note_story・ipad01_vol13・tb01 など）を手で写した見本データ。
+
+  ■ 画面の切り替え
+  上の「編集 / キーテスター / 設定」は本物の画面にも作るタブ。
+  一番上の黄色い帯「モック専用」は、状態（未保存・未接続）を見るためだけのもので、本物には作らない。
+
+  ■ デザイントークン
+  :root の変数がそのまま実装のカラーパレットになる。値は static/keys.html の現行トークンを土台にした。
+  ============================================================================
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    /* 土台（現行 keys.html と同じ系統） */
+    --bg: #0e1220; --bg-grad: #151b2e;
+    --panel: #1a2033; --panel2: #141a2a; --shelf: #121726;
+    --line: #2a3250; --line-soft: #222a42;
+    --ink: #eef2ff; --ink-muted: #b3bbd3; --ink-dim: #69738f;
+    /* アクセントは1色。選択にだけ使う（VIA のピンクに当たる色） */
+    --accent: #5b8cff; --accent-ink: #ffffff; --accent-soft: rgba(91,140,255,0.18);
+    --ok: #35c47a; --warn: #e8b44a; --err: #e2555a;
+    /* キー */
+    --key: #242b42; --key-top: #2c344f; --key-edge: #10141f; --key-ink: #e8ecf8;
+    --key-empty: #171c2c; --key-radius: 9px;
+    /* 部品棚のカテゴリ色（左の細い帯だけに使う） */
+    --cat-key: #5b8cff; --cat-chord: #9a7bff; --cat-text: #35c47a; --cat-mouse: #e8b44a;
+    --cat-layer: #ff7aa8; --cat-board: #3fc1d6; --cat-special: #8b93a7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "Yu Gothic UI", sans-serif; font-size: 13px;
+    background: var(--bg); color: var(--ink); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  button, select, input { font: inherit; color: inherit; }
+
+  /* ---- モック専用の帯（本物には作らない） ---- */
+  .mockbar { background: #3a2f10; color: #f5dc8a; font-size: 12px; padding: 5px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .mockbar b { color: #ffe9a8; }
+  .mockbar button { background: #4a3c14; border: 1px solid #6b5720; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+  .mockbar button[aria-pressed=true] { background: #f5dc8a; color: #3a2f10; }
+
+  /* ---- 上の帯 ---- */
+  .top { display: grid; grid-template-columns: 220px 1fr auto; align-items: center; height: 52px;
+    border-bottom: 1px solid var(--line); background: var(--panel2); }
+  .brand { padding: 0 16px; font-weight: 700; letter-spacing: .5px; display: flex; align-items: center; gap: 8px; }
+  .brand i { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); display: inline-block; }
+  body.offline .brand i { background: var(--err); box-shadow: 0 0 8px var(--err); }
+  .tabs { display: flex; justify-content: center; gap: 6px; }
+  .tabs button { background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 7px 16px; cursor: pointer; color: var(--ink-muted); display: flex; gap: 6px; align-items: center; }
+  .tabs button:hover { background: var(--panel); }
+  .tabs button.on { background: var(--accent); color: var(--accent-ink); }
+  .right { display: flex; gap: 8px; align-items: center; padding-right: 14px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .pill .dot.off { background: var(--ink-dim); }
+  .savebtn { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 14px; cursor: default; color: var(--ink-dim); }
+  body.dirty .savebtn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); cursor: pointer; }
+  body.dirty .savebtn::before { content: "● "; }
+
+  /* 端末の選択（最大3台） */
+  .devmenu { position: absolute; right: 120px; top: 52px; width: 300px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.5); z-index: 20; display: none; }
+  .devmenu.open { display: block; }
+  .devmenu .dv { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 8px; border-radius: 8px; cursor: pointer; }
+  .devmenu .dv:hover { background: var(--panel2); }
+  .devmenu .dv.on { background: var(--accent-soft); }
+  .devmenu .dv small { color: var(--ink-dim); display: block; }
+  .devmenu .add { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 8px; color: var(--ink-muted); font-size: 12px; }
+
+  /* ---- 本体（左メニュー＋作業場） ---- */
+  .body { flex: 1 1 auto; display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
+  .side { background: var(--panel2); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .side h3 { font-size: 11px; color: var(--ink-dim); margin: 10px 8px 4px; font-weight: 600; letter-spacing: .5px; }
+  .side .it { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--ink-muted); }
+  .side .it:hover { background: var(--panel); }
+  .side .it.on { background: var(--panel); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+  .side .it .n { margin-left: auto; font-size: 11px; color: var(--ink-dim); }
+  .side .boards .it { font-size: 12px; padding: 6px 10px; }
+
+  .work { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; }
+  .stage { position: relative; flex: 0 0 auto; padding: 18px 24px 22px;
+    background: radial-gradient(ellipse at 50% 20%, var(--bg-grad), var(--bg) 70%); display: flex; flex-direction: column; }
+  .stagehead { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+  .layers { display: flex; align-items: center; gap: 4px; }
+  .layers span { color: var(--ink-dim); font-size: 12px; margin-right: 4px; letter-spacing: .5px; }
+  .layers button { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--ink-muted); cursor: pointer; }
+  .layers button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 700; }
+  .layers .lname { margin-left: 8px; color: var(--ink-muted); font-size: 12px; }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 12px; cursor: pointer; user-select: none; }
+  .sw { width: 34px; height: 20px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink-muted); transition: left .15s, background .15s; }
+  .sw.on { background: var(--accent); }
+  .sw.on::after { left: 17px; background: #fff; }
+  .spacer { flex: 1; }
+
+  /* 端末の図（iPad の枠） */
+  .device { align-self: center; position: relative; background: #07090f; border-radius: 26px; padding: 16px;
+    box-shadow: 0 0 0 2px #262d43, 0 24px 60px rgba(0,0,0,.55), inset 0 0 0 1px #000; }
+  .device::before { content: ""; position: absolute; left: 50%; top: 6px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: #1d2233; }
+  .device { width: min(944px, 100%); }
+  /* iPad 12.9 横の画面（1366×980 から上の帯を引いた比）。幅に合わせて縦も縮む */
+  .screen { width: 100%; aspect-ratio: 1366 / 900; border-radius: 10px; background: #0b0f1a; padding: 8px;
+    display: grid; grid-template-columns: repeat(12, 1fr); grid-template-rows: repeat(9, 1fr); gap: 6px; position: relative; }
+  .sec { position: relative; border-radius: 8px; background: rgba(255,255,255,0.02); padding: 5px; display: grid; gap: 5px; }
+  .sec .tag { position: absolute; top: -9px; left: 8px; font-size: 10px; color: var(--ink-dim); background: #0b0f1a; padding: 0 5px; border-radius: 4px; pointer-events: none; }
+
+  /* キー（状態: idle / hover / pressed / selected / empty / trans） */
+  .key { position: relative; background: linear-gradient(180deg, var(--key-top), var(--key)); border-radius: var(--key-radius);
+    box-shadow: 0 2px 0 var(--key-edge), inset 0 1px 0 rgba(255,255,255,.06); color: var(--key-ink);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: pointer;
+    font-size: 12px; line-height: 1.15; user-select: none; transition: transform .06s, box-shadow .06s, background .1s; min-height: 0; overflow: hidden; }
+  .key .sub { font-size: 9px; color: var(--ink-dim); }
+  .key .hold { font-size: 9px; color: var(--cat-layer); margin-bottom: 1px; }
+  .key:hover { background: linear-gradient(180deg, #34405f, #2a3350); }
+  .key.pressed { transform: translateY(2px); box-shadow: 0 0 0 var(--key-edge), inset 0 2px 4px rgba(0,0,0,.4); }
+  .key.selected { background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 2px rgba(255,255,255,.35), 0 0 18px rgba(91,140,255,.55); }
+  .key.selected .sub, .key.selected .hold { color: rgba(255,255,255,.8); }
+  .key.empty { background: var(--key-empty); box-shadow: inset 0 0 0 1px dashed var(--line); color: var(--ink-dim); border: 1px dashed #2b3350; }
+  .key.trans { background: var(--key-empty); color: var(--ink-dim); border: 1px dashed #2b3350; box-shadow: none; }
+  .key.lit { background: #1f7a52; color: #fff; box-shadow: 0 0 16px rgba(53,196,122,.7); } /* キーテスターで光る */
+  .key.icon { justify-content: flex-end; padding-bottom: 6px; }
+  .key.icon .av { width: 58%; aspect-ratio: 1; border-radius: 8px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-family: serif; color: #f3ead6; }
+
+  /* トラックボール（CSS だけで描く球） */
+  .tbwrap { display: flex; align-items: center; justify-content: center; position: relative; }
+  .bezel { position: relative; width: min(92%, 250px); aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #1b2030 55%, #0b0e17 70%, #232a3d 71%, #0c0f18 76%);
+    box-shadow: 0 10px 24px rgba(0,0,0,.6), inset 0 0 0 1px #2a3148; cursor: grab; }
+  .ball { position: absolute; inset: 14%; border-radius: 50%; overflow: hidden;
+    background:
+      radial-gradient(circle at 34% 26%, rgba(255,255,255,.95) 0, rgba(255,255,255,.55) 5%, rgba(255,255,255,0) 17%),
+      radial-gradient(circle at 70% 82%, rgba(120,150,255,.28) 0, rgba(120,150,255,0) 30%),
+      radial-gradient(circle at 42% 38%, #3a4058 0%, #151926 48%, #05060a 78%, #000 100%);
+    box-shadow: inset -10px -14px 24px rgba(0,0,0,.85), inset 6px 8px 18px rgba(255,255,255,.08), 0 0 0 2px rgba(0,0,0,.6); }
+  /* 表面の模様（回すと流れる） */
+  .ball::before { content: ""; position: absolute; inset: -30%; background-image: radial-gradient(rgba(255,255,255,.06) 1.2px, transparent 1.6px); background-size: 14px 14px;
+    transform: translate(var(--mx, 0px), var(--my, 0px)); border-radius: 50%; mix-blend-mode: screen; }
+  /* 映り込み（窓の光） */
+  .ball::after { content: ""; position: absolute; left: 18%; top: 12%; width: 40%; height: 18%; border-radius: 50%;
+    background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0)); transform: rotate(-18deg); filter: blur(1px); }
+  .tbzone { position: absolute; top: 12%; bottom: 12%; width: 16%; border-radius: 10px; border: 1px dashed rgba(255,255,255,.12); font-size: 10px; color: var(--ink-dim); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; }
+  .tbzone.l { left: 2%; } .tbzone.r { right: 2%; }
+
+  /* 引き出し線の札（Keychron 型） */
+  .callouts { position: absolute; inset: 0; pointer-events: none; }
+  .callouts svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .co { position: absolute; transform: translate(-50%, -50%); background: #0e1322; border: 1px solid #3a4568; color: var(--ink); font-size: 11px;
+    padding: 4px 8px; border-radius: 6px; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,.4); }
+  .co small { color: var(--ink-dim); margin-right: 5px; }
+  body:not(.show-callouts) .callouts { display: none; }
+
+  /* ダイヤル（jog） */
+  .jog { display: flex; align-items: center; justify-content: center; }
+  .wheel { width: 60%; height: 90%; border-radius: 14px; background: repeating-linear-gradient(180deg, #2b3350 0 3px, #1a2033 3px 9px);
+    box-shadow: inset 0 10px 14px rgba(0,0,0,.6), inset 0 -10px 14px rgba(0,0,0,.6), 0 0 0 1px var(--line); }
+
+  /* 選んだキーの帯（本体図と部品棚の間） */
+  .picked { display: flex; align-items: center; gap: 14px; padding: 10px 24px; background: var(--panel2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .picked .where { color: var(--ink-dim); font-size: 12px; }
+  .picked .now { display: inline-flex; gap: 6px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 3px 9px; background: var(--panel); border: 1px solid var(--line); font-size: 12px; }
+  .chip .bar { width: 3px; height: 14px; border-radius: 2px; }
+  .picked input { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; width: 150px; }
+  .picked .hint { color: var(--ink-dim); font-size: 11px; }
+
+  /* 部品棚（VIA の下段） */
+  .shelf { flex: 0 0 auto; display: grid; grid-template-columns: 180px 1fr; min-height: 250px; background: var(--shelf); }
+  .cats { border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
+  .cats button { text-align: left; background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; color: var(--ink-muted); cursor: pointer; display: flex; align-items: center; gap: 8px; letter-spacing: .3px; }
+  .cats button .bar { width: 3px; height: 14px; border-radius: 2px; }
+  .cats button.on { background: var(--ink); color: var(--bg); font-weight: 700; }
+  .cats button:hover:not(.on) { background: var(--panel); }
+  .grid { padding: 12px; overflow: auto; }
+  .grid .search { display: flex; gap: 8px; margin-bottom: 10px; }
+  .grid .search input { flex: 0 1 260px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 7px; }
+  .part { aspect-ratio: 1; border-radius: 9px; background: var(--panel); border: 1px solid #323b5a; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; font-size: 12px; cursor: pointer; line-height: 1.15; padding: 3px; position: relative; user-select: none; }
+  .part small { font-size: 9px; color: var(--ink-dim); }
+  .part:hover { border-color: var(--ink-muted); }
+  .part.pressed { transform: scale(.96); }
+  .part.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .part.none { border-style: dashed; color: var(--ink-dim); }
+  .part.trans { border-style: dashed; color: var(--ink-dim); font-size: 16px; }
+  .part.wide { grid-column: span 2; aspect-ratio: auto; }
+
+  /* キーテスター・設定（下段が行の一覧になる） */
+  .rows { padding: 6px 24px 20px; overflow: auto; background: var(--shelf); min-height: 250px; }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line-soft); gap: 20px; }
+  .row .nm { color: var(--ink-muted); }
+  .row .nm small { display: block; color: var(--ink-dim); font-size: 11px; margin-top: 2px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 6px 12px; cursor: pointer; color: var(--ink-muted); }
+  .seg button.on { background: var(--ink); color: var(--bg); font-weight: 700; }
+  .swatches { display: flex; gap: 8px; }
+  .swatches b { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; display: inline-block; }
+  .swatches b.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor, 0 0 14px currentColor; }
+  .btn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .btn.danger { color: var(--err); border-color: #5a2a33; }
+  .testlog { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--ink-muted); }
+
+  .hide { display: none !important; }
+  /* 明るい透明（すりガラス）: 設定で切り替えると質感だけ変わる（色相は別軸） */
+  body.glass { --bg: #c9d3ea; --bg-grad: #eef2fb; --panel: rgba(255,255,255,.55); --panel2: rgba(255,255,255,.45); --shelf: rgba(255,255,255,.35);
+    --line: rgba(40,55,90,.18); --line-soft: rgba(40,55,90,.12); --ink: #172036; --ink-muted: #3b4766; --ink-dim: #6f7a96;
+    --key: rgba(255,255,255,.55); --key-top: rgba(255,255,255,.8); --key-edge: rgba(40,55,90,.25); --key-ink: #172036; --key-empty: rgba(255,255,255,.25); }
+  body.glass .top, body.glass .side, body.glass .picked, body.glass .shelf, body.glass .rows { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  body.glass .screen { background: rgba(20,26,44,.85); }
+</style>
+</head>
+<body class="show-callouts">
+
+<!-- ======================= モック専用の帯（本物には作らない） ======================= -->
+<div class="mockbar">
+  <b>モック専用</b> 状態を見る:
+  <button data-mock="dirty" aria-pressed="false">未保存の変更あり</button>
+  <button data-mock="offline" aria-pressed="false">Hub 未接続</button>
+  <span style="opacity:.8">／ 機能は無い。押すと色が変わるだけ</span>
+</div>
+
+<!-- ======================= 上の帯 ======================= -->
+<header class="top">
+  <div class="brand"><i></i>KeyDeck</div>
+  <nav class="tabs">
+    <button data-tab="edit" class="on">⌨ 編集</button>
+    <button data-tab="test">◉ キーテスター</button>
+    <button data-tab="settings">⚙ 設定</button>
+  </nav>
+  <div class="right">
+    <span class="pill" id="devPill"><span class="dot"></span><span id="devName">iPad 12.9（リビング）</span> ▾</span>
+    <button class="savebtn" id="saveBtn">保存</button>
+  </div>
+</header>
+<div class="devmenu" id="devMenu">
+  <div class="dv on" data-dev="iPad 12.9（リビング）"><span>▣</span><div>iPad 12.9（リビング）<small>接続中・盤面 note_story</small></div><span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></span></div>
+  <div class="dv" data-dev="Android 1（机の左）"><span>▯</span><div>Android 1（机の左）<small>接続中・盤面 game_iphone7_land</small></div><span style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></span></div>
+  <div class="dv" data-dev="Android 2（空き）"><span>▯</span><div>Android 2<small>未接続 — QR を出して繋ぐ</small></div><span style="width:8px;height:8px;border-radius:50%;background:var(--ink-dim)"></span></div>
+  <div class="add">端末は最大3台。繋ぐときは ⚙ 設定 → 端末 の QR から（案）</div>
+</div>
+
+<div class="body">
+  <!-- ======================= 左: 何を編集するか ======================= -->
+  <aside class="side">
+    <h3>編集するもの</h3>
+    <div class="it on" data-what="board">▦ 盤面（区画）<span class="n">10</span></div>
+    <div class="it" data-what="keymap">⌨ キー<span class="n">22</span></div>
+    <div class="it" data-what="deck">▤ Deck<span class="n">6</span></div>
+    <div class="it" data-what="surface">◎ トラックボール<span class="n">2</span></div>
+    <div class="it" data-what="macro" style="opacity:.5">⋯ マクロ（未）</div>
+    <h3>盤面</h3>
+    <div class="boards">
+      <div class="it on">note_story</div>
+      <div class="it">ipad_main</div>
+      <div class="it">ipad_youtube</div>
+      <div class="it">game_ipad</div>
+      <div class="it">shortborad</div>
+    </div>
+    <h3>保存・読み込み</h3>
+    <div class="it">⇩ 書き出し</div>
+    <div class="it">⇧ 取り込み</div>
+  </aside>
+
+  <!-- ======================= 作業場 ======================= -->
+  <main class="work">
+    <section class="stage">
+      <div class="stagehead">
+        <div class="layers" id="layers"><span>LAYER</span>
+          <button class="on">0</button><button>1</button><button>2</button><button>3</button>
+          <span class="lname" id="lname">既定</span>
+        </div>
+        <div class="spacer"></div>
+        <label class="toggle" id="coToggle"><span class="sw on"></span>割り当てを図に出す</label>
+      </div>
+
+      <div class="device"><div class="screen" id="screen"></div></div>
+    </section>
+
+    <!-- 選んだキー（編集タブのみ） -->
+    <div class="picked" id="picked">
+      <span class="where" id="pWhere">キーを選んでください（上の図を押す）</span>
+      <span class="now" id="pNow"></span>
+      <label>表示名 <input id="pLabel" placeholder="例: 続ける"></label>
+      <span class="hint">下の棚から部品を押すと、このキーに入る</span>
+    </div>
+
+    <!-- 部品棚（編集タブ） -->
+    <section class="shelf" id="shelf">
+      <div class="cats" id="cats"></div>
+      <div class="grid">
+        <div class="search"><input placeholder="🔍 部品を探す（例: コピー / F13 / スクロール）"></div>
+        <div class="parts" id="parts"></div>
+      </div>
+    </section>
+
+    <!-- キーテスター -->
+    <section class="rows hide" id="testRows">
+      <div class="row"><div class="nm">押したキーを図の上で光らせる<small>iPad で押すと、上の図の同じキーが緑に光る（PCへ届いたかどうかも見える）</small></div><span class="sw on"></span></div>
+      <div class="row"><div class="nm">PC へ送らずに試す<small>オンの間は押しても PC にキーが飛ばない。配置の確認だけしたいとき用</small></div><span class="sw"></span></div>
+      <div class="row"><div class="nm">押した音</div><span class="sw on"></span></div>
+      <div class="row"><div class="nm">届いた記録<small>新しい順</small></div><div class="testlog" id="testlog">— まだ何も押されていない（上の図のキーを押すと、ここに出る）</div></div>
+    </section>
+
+    <!-- 設定 -->
+    <section class="rows hide" id="setRows">
+      <div class="row"><div class="nm">質感<small>ダーク（既定）／明るい透明（すりガラス）。色相とは別の軸</small></div>
+        <div class="seg" id="matSeg"><button class="on" data-mat="dark">ダーク</button><button data-mat="glass">明るい透明</button></div></div>
+      <div class="row"><div class="nm">色相<small>選択とアクセントの色。いまの /api/theme（blue / red / green）</small></div>
+        <div class="swatches" id="hue"><b class="on" style="background:#5b8cff;color:#5b8cff" data-c="#5b8cff"></b><b style="background:#e2555a;color:#e2555a" data-c="#e2555a"></b><b style="background:#35c47a;color:#35c47a" data-c="#35c47a"></b></div></div>
+      <div class="row"><div class="nm">最初に出す盤面<small>端末ごとに決められる（案）</small></div><select class="btn"><option>note_story</option><option>ipad_main</option><option>game_ipad</option></select></div>
+      <div class="row"><div class="nm">端末（最大3台）<small>いま 2台接続中。QR は大きく1つずつ出す（案）</small></div><button class="btn">＋ 端末を繋ぐ（QR）</button></div>
+      <div class="row"><div class="nm">押した感<small>文字キー＝バウンス／たまに押すボタン＝凹み（36_演出カタログより）</small></div>
+        <div class="seg"><button class="on">バウンス</button><button>凹み</button><button>波紋</button></div></div>
+      <div class="row"><div class="nm">構成を読み直す<small>JSON を手で直したあと</small></div><button class="btn">再読込</button></div>
+      <div class="row"><div class="nm">既定に戻す</div><button class="btn danger">リセット</button></div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+// =====================================================================
+// 見本データ（実物の note_story を手で写したもの。Hub とは繋がっていない）
+// =====================================================================
+var CAST = [["人物1","#7b4b2a","ミ"],["人物2","#2a4f7b","ハ"],["人物3","#5a2a7b","ユ"],["人物4","#2a7b5a","ソ"],["人物5","#7b2a3f","カ"],
+            ["人物6","#6b6b2a","リ"],["人物7","#2a6b7b","ネ"],["人物8","#4b2a7b","ア"],["人物9","#7b5a2a","ト"],["ナレーション","#41495e","語"]];
+var SECTIONS = [
+  { id: "SEC-CAST", r: 1, c: 1, rs: 4, cs: 8, cols: 5, tag: "話者 deck note_cast",
+    keys: CAST.map(function (p, i) { return { l: p[0], icon: p, act: "ALT+" + (i < 9 ? i + 1 : 0), cat: "chord" }; }) },
+  { id: "SEC-MOVE", r: 1, c: 9, rs: 4, cs: 2, cols: 1, tag: "行の移動",
+    keys: [{ l: "↑", s: "前のセリフ", act: "ALT+↑", cat: "chord" }, { l: "続ける", act: "CTRL+ENTER", cat: "chord" }, { l: "↓", s: "次のセリフ", act: "ALT+↓", cat: "chord" }] },
+  { id: "SEC-BALL", r: 1, c: 11, rs: 4, cs: 2, type: "jog", tag: "ホイール" },
+  { id: "SEC-TOOLS", r: 5, c: 1, rs: 5, cs: 4, cols: 3, tag: "書く道具",
+    keys: [{ l: "[Char]", act: "F13", cat: "key" }, { l: "[Scene]", act: "F14", cat: "key" }, { l: "[演出]", act: "F15", cat: "key" },
+           { l: "柱：", act: "文字「柱：」", cat: "text" }, { l: "備考：", act: "文字「備考：」", cat: "text" }, { l: "2カラム", act: "F16", cat: "key" },
+           { l: "Fn", hold: "押す間", act: "レイヤー1（押している間）", cat: "layer" }, { empty: true }, { trans: true }] },
+  { id: "SEC-TB", r: 5, c: 5, rs: 5, cs: 5, type: "trackball", tag: "トラックボール tb01" },
+  { id: "SEC-EDGE", r: 5, c: 10, rs: 5, cs: 3, cols: 2, tag: "ふち",
+    keys: [{ l: "?", act: "CTRL+/", cat: "chord" }, { l: "戻る", act: "CTRL+Z", cat: "chord" }, { l: "Esc", act: "ESC", cat: "key" }, { l: "キー確認", act: "F17", cat: "key" },
+           { l: "Note Story", s: "開く", act: "アプリ起動 note_story", cat: "board" }, { l: "既定へ", s: "戻る", act: "盤面を既定へ", cat: "board" }] },
+];
+var CATS = [
+  { id: "key", name: "キー", color: "var(--cat-key)", parts: ["A","B","C","…","Z","0","1","…","9","F1","…","F13","F14","F15","F16","F17","…","F24","Enter","Esc","Tab","Space","Bksp","Del","↑","↓","←","→","Home","End","PgUp","PgDn","音量＋","音量−","ミュート","PrtSc"] },
+  { id: "chord", name: "同時押し", color: "var(--cat-chord)", parts: ["コピー|CTRL+C","貼り付け|CTRL+V","切り取り|CTRL+X","元に戻す|CTRL+Z","やり直し|CTRL+Y","保存|CTRL+S","全選択|CTRL+A","検索|CTRL+F","ALT+↑","ALT+↓","CTRL+ENTER","ALT+1","ALT+2","ALT+0","WIN+1","WIN+SHIFT+S","＋ 組み合わせを作る"] },
+  { id: "text", name: "文字", color: "var(--cat-text)", parts: ["柱：","備考：","ナレーション：「」","[bg_room]","# ","// ","＋ 文字を作る"] },
+  { id: "mouse", name: "マウス", color: "var(--cat-mouse)", parts: ["左クリック","右クリック","ダブルクリック","ホイール↑","ホイール↓","押しっぱなし"] },
+  { id: "layer", name: "レイヤー", color: "var(--cat-layer)", parts: ["押す間 1|mo","押す間 2|mo","切替 1|tg","切替 2|tg","切替＋送る|tg.fire"] },
+  { id: "board", name: "盤面・アプリ", color: "var(--cat-board)", parts: ["盤面を移る","既定へ戻る","アプリ起動","キーマップ切替","キーマップを戻す"] },
+  { id: "special", name: "特別", color: "var(--cat-special)", parts: [] },
+];
+
+var $ = function (id) { return document.getElementById(id); };
+var screen = $("screen");
+
+// ---- 図を描く ----
+function renderScreen() {
+  screen.innerHTML = "";
+  SECTIONS.forEach(function (s) {
+    var el = document.createElement("div");
+    el.className = "sec";
+    el.style.gridRow = s.r + " / span " + s.rs;
+    el.style.gridColumn = s.c + " / span " + s.cs;
+    var tag = document.createElement("span"); tag.className = "tag"; tag.textContent = s.tag; el.appendChild(tag);
+    if (s.type === "trackball") { el.classList.add("tbwrap"); el.appendChild(buildTrackball()); }
+    else if (s.type === "jog") { el.classList.add("jog"); var w = document.createElement("div"); w.className = "wheel"; el.appendChild(w); }
+    else {
+      el.style.gridTemplateColumns = "repeat(" + s.cols + ", 1fr)";
+      s.keys.forEach(function (k, i) { el.appendChild(buildKey(k, s.id + ":" + i)); });
+    }
+    screen.appendChild(el);
+  });
+}
+function buildKey(k, id) {
+  var b = document.createElement("div");
+  b.className = "key"; b.dataset.id = id;
+  if (k.empty) { b.classList.add("empty"); b.textContent = "空き"; b._k = { l: "空き", act: "何もしない（none）", cat: "special" }; }
+  else if (k.trans) { b.classList.add("trans"); b.textContent = "▽"; b._k = { l: "▽", act: "下のレイヤーへ素通し（trans）", cat: "special" }; }
+  else {
+    b._k = k;
+    if (k.icon) {
+      b.classList.add("icon");
+      var av = document.createElement("div"); av.className = "av"; av.textContent = k.icon[2];
+      av.style.background = "linear-gradient(135deg," + k.icon[1] + ",#14161c)"; b.appendChild(av);
+    }
+    if (k.hold) { var h = document.createElement("div"); h.className = "hold"; h.textContent = k.hold; b.appendChild(h); }
+    var m = document.createElement("div"); m.textContent = k.l; b.appendChild(m);
+    if (k.s) { var s = document.createElement("div"); s.className = "sub"; s.textContent = k.s; b.appendChild(s); }
+  }
+  b.addEventListener("pointerdown", function () { b.classList.add("pressed"); if (tab === "test") lightUp(b); });
+  b.addEventListener("pointerup", function () { b.classList.remove("pressed"); if (tab === "edit") pick(b); });
+  b.addEventListener("pointerleave", function () { b.classList.remove("pressed"); });
+  return b;
+}
+function buildTrackball() {
+  var wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center";
+  var zl = document.createElement("div"); zl.className = "tbzone l"; zl.textContent = "左";
+  var zr = document.createElement("div"); zr.className = "tbzone r"; zr.textContent = "右";
+  var bz = document.createElement("div"); bz.className = "bezel";
+  var ball = document.createElement("div"); ball.className = "ball"; bz.appendChild(ball);
+  // なでると表面の模様が流れる（見た目だけ）
+  var last = null, mx = 0, my = 0;
+  bz.addEventListener("pointerdown", function (e) { last = [e.clientX, e.clientY]; bz.setPointerCapture && bz.setPointerCapture(e.pointerId); bz.style.cursor = "grabbing"; });
+  bz.addEventListener("pointermove", function (e) { if (!last) return; mx += e.clientX - last[0]; my += e.clientY - last[1]; last = [e.clientX, e.clientY];
+    ball.style.setProperty("--mx", (mx % 14) + "px"); ball.style.setProperty("--my", (my % 14) + "px"); });
+  bz.addEventListener("pointerup", function () { last = null; bz.style.cursor = "grab"; });
+  wrap.appendChild(zl); wrap.appendChild(bz); wrap.appendChild(zr);
+  // 割り当ての札（surfaces/trackball.json の gestures を写したもの）
+  var co = document.createElement("div"); co.className = "callouts";
+  var tags = [
+    [50, -4, "転がす", "カーソル移動"], [8, 20, "左の帯", "左クリック"], [92, 20, "右の帯", "右クリック"],
+    [6, 86, "2回たたく", "ダブルクリック"], [94, 86, "押して動かす", "ドラッグ"], [50, 104, "✋つかむ", "押しっぱなし"],
+  ];
+  var svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">';
+  tags.forEach(function (t) { svg += '<line x1="50" y1="50" x2="' + t[0] + '" y2="' + t[1] + '" stroke="#3a4568" stroke-width="0.6" vector-effect="non-scaling-stroke"/>'; });
+  co.innerHTML = svg + "</svg>";
+  tags.forEach(function (t) { var d = document.createElement("div"); d.className = "co"; d.style.left = t[0] + "%"; d.style.top = t[1] + "%"; d.innerHTML = "<small>" + t[2] + "</small>" + t[3]; co.appendChild(d); });
+  wrap.appendChild(co);
+  return wrap;
+}
+
+// ---- 選ぶ（編集タブ） ----
+var selected = null;
+function catOf(id) { for (var i = 0; i < CATS.length; i++) if (CATS[i].id === id) return CATS[i]; return CATS[CATS.length - 1]; }
+function pick(b) {
+  if (selected) selected.classList.remove("selected");
+  selected = b; b.classList.add("selected");
+  var k = b._k, c = catOf(k.cat);
+  $("pWhere").textContent = b.dataset.id.split(":")[0] + " の " + (Number(b.dataset.id.split(":")[1]) + 1) + " 番目";
+  $("pNow").innerHTML = '<span class="chip"><span class="bar" style="background:' + c.color + '"></span>' + c.name + "｜" + k.act + "</span>";
+  $("pLabel").value = k.l;
+}
+
+// ---- 部品棚 ----
+var curCat = "chord";
+function renderCats() {
+  $("cats").innerHTML = "";
+  CATS.forEach(function (c) {
+    var b = document.createElement("button"); if (c.id === curCat) b.className = "on";
+    b.innerHTML = '<span class="bar" style="background:' + c.color + '"></span>' + c.name;
+    b.addEventListener("click", function () { curCat = c.id; renderCats(); renderParts(); });
+    $("cats").appendChild(b);
+  });
+}
+function renderParts() {
+  var p = $("parts"); p.innerHTML = "";
+  // 空欄と ▽ はいつも先頭（VIA と同じ）
+  [["", "none", "何もしない"], ["▽", "trans", "素通し"]].forEach(function (x) {
+    var d = document.createElement("div"); d.className = "part " + x[1]; d.innerHTML = x[0] + "<small>" + x[2] + "</small>"; hookPart(d); p.appendChild(d);
+  });
+  catOf(curCat).parts.forEach(function (name) {
+    var d = document.createElement("div"); d.className = "part";
+    var bits = name.split("|");
+    if (bits[0].length > 7 || name.indexOf("＋") === 0) d.classList.add("wide");
+    d.innerHTML = bits[0] + (bits[1] ? "<small>" + bits[1] + "</small>" : "");
+    hookPart(d); p.appendChild(d);
+  });
+}
+function hookPart(d) {
+  d.addEventListener("pointerdown", function () { d.classList.add("pressed"); });
+  d.addEventListener("pointerup", function () {
+    d.classList.remove("pressed");
+    document.querySelectorAll(".part.selected").forEach(function (x) { x.classList.remove("selected"); });
+    d.classList.add("selected");
+    if (selected) document.body.classList.add("dirty");   // 見た目だけ: 未保存の印
+  });
+}
+
+// ---- キーテスター ----
+function lightUp(b) {
+  b.classList.add("lit");
+  setTimeout(function () { b.classList.remove("lit"); }, 350);
+  var log = $("testlog");
+  if (log.dataset.n === undefined) { log.innerHTML = ""; log.dataset.n = 0; }
+  var line = document.createElement("div");
+  line.textContent = new Date().toLocaleTimeString() + "  " + b._k.l.replace(/\n/g, " ") + " → " + b._k.act;
+  log.insertBefore(line, log.firstChild);
+}
+
+// ---- タブ ----
+var tab = "edit";
+document.querySelectorAll(".tabs button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    tab = b.dataset.tab;
+    document.querySelectorAll(".tabs button").forEach(function (x) { x.classList.toggle("on", x === b); });
+    $("picked").classList.toggle("hide", tab !== "edit");
+    $("shelf").classList.toggle("hide", tab !== "edit");
+    $("testRows").classList.toggle("hide", tab !== "test");
+    $("setRows").classList.toggle("hide", tab !== "settings");
+    if (selected && tab !== "edit") { selected.classList.remove("selected"); selected = null; }
+  });
+});
+
+// ---- 細かい操作（すべて見た目だけ） ----
+document.querySelectorAll("#layers button").forEach(function (b, i) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("#layers button").forEach(function (x) { x.classList.toggle("on", x === b); });
+    $("lname").textContent = ["既定", "記号", "数字", "Fn"][i];
+  });
+});
+$("coToggle").addEventListener("click", function () { document.body.classList.toggle("show-callouts"); this.querySelector(".sw").classList.toggle("on"); });
+$("devPill").addEventListener("click", function () { $("devMenu").classList.toggle("open"); });
+document.querySelectorAll(".devmenu .dv").forEach(function (d) {
+  d.addEventListener("click", function () {
+    document.querySelectorAll(".devmenu .dv").forEach(function (x) { x.classList.toggle("on", x === d); });
+    $("devName").textContent = d.dataset.dev; $("devMenu").classList.remove("open");
+  });
+});
+document.querySelectorAll(".side .it").forEach(function (it) {
+  it.addEventListener("click", function () {
+    var group = it.parentElement.querySelectorAll(".it");
+    group.forEach(function (x) { x.classList.toggle("on", x === it); });
+  });
+});
+document.querySelectorAll("#matSeg button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("#matSeg button").forEach(function (x) { x.classList.toggle("on", x === b); });
+    document.body.classList.toggle("glass", b.dataset.mat === "glass");
+  });
+});
+document.querySelectorAll("#hue b").forEach(function (s) {
+  s.addEventListener("click", function () {
+    document.querySelectorAll("#hue b").forEach(function (x) { x.classList.toggle("on", x === s); });
+    document.documentElement.style.setProperty("--accent", s.dataset.c);
+  });
+});
+$("saveBtn").addEventListener("click", function () { document.body.classList.remove("dirty"); document.querySelector('[data-mock=dirty]').setAttribute("aria-pressed", "false"); });
+document.querySelectorAll(".mockbar button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", on); document.body.classList.toggle(b.dataset.mock, on);
+  });
+});
+
+renderScreen(); renderCats(); renderParts();
+</script>
+</body>
+</html>
