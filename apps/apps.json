@@ -10,11 +10,12 @@
     {
       "id": "note_story",
       "label": "Note Story",
-      "exe": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "exe": "C:\\Program Files\\Google\\Chrome\\Application\\chrome_proxy.exe",
       "args": [
-        "--app=https://kanban-note01.vercel.app"
+        "--profile-directory=Default",
+        "--app-id=addplacbfmomdnicgdfhmekgmlgfakhg"
       ],
-      "description": "Note Story（カンバンNote V2.1）を Chrome のアプリ窓で開く。普通のタブだと Alt+数字 を Chrome がタブ切り替えに取るため、アプリ窓で開く（REQ-20260928-001）。"
+      "description": "Note Story（カンバンNote）を、Chrome にインストールした PWA として開く（REQ-20260928-001 / REQ-20261001-001）。引数はスタートメニューの「Chrome アプリ」フォルダーの Note Story ショートカットと同じ（--app-id は PWA をインストールしたときに Chrome が付けた id。入れ直すと変わる）。普通のタブだと Alt+数字 を Chrome がタブ切り替えに取るため、アプリ窓で開く。注意: すでに開いていても、押すたびに窓が1つ増える（2026-10-01 に実測）。増やさないには Note Story の manifest に launch_handler（client_mode: focus-existing）が要る"
     }
   ]
 }

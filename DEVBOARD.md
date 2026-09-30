@@ -2293,3 +2293,15 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - 検証: `cargo test --workspace` = **174 passed**（+1 `/api/devices`）、警告0。本物の Hub で2台（Pixel 6a・iPad Pro）が実物の盤面で描かれる。**実マウス・実キーボード**で: [Char] を選ぶ→表示名を打つ→Ctrl+Z で戻る→Ctrl+Y→保存 → Hub が配り直した構成に新しい名前、QR（token 付き）が出る。確認後にファイルを git から戻して `/api/reload`。[Scene] に部品「A」→Ctrl+Z で F14 に戻る。Deck のタイル（note_cast C3）を選べる
 - 直したこと: 縦リストの Deck に正方形用の fitDeck を当てて幅48pxに潰れていた／800px 幅でフォーカスが図を点にしていた（空きが 420px 未満ならフォーカスしない）
 - 未確認・未実装: 実機、キーテスター（端末で押したキーを光らせる）、トラックボールのジェスチャー編集、区画の編集、表示レイアウトの Hub 保存（views/・不変条件6へは実装時に追記）
+
+## 2026-10-01 B-002 修正＋ Note Story 起動の Hooks（REQ-20261001-001）— Claude Code（Opus 5.5）
+
+- **B-002 修正**: 起動時の許可リスト作りで入れ子 fire を全部たどる（`startup.rs` の `with_nested`。tg.fire・layout.switch・app.launch）。テスト `nested_fire_of_every_kind_reaches_the_allow_list` で3種すべてを固定
+- **読み込みの決まりを広げた（利用者裁定 2026-10-01）**: app.launch の fire に限り、fire を持たない layout.switch を許す（proto-keymap `check_nested_fire`）。盤面移動は画面の話で PC へは何も送らない。入れ子は2段まで
+- **塞いだ穴**: Deck の app.launch の fire を何も検査していなかった（deck.rs）。キーボード側と同じ規則に
+- **読み込み時の確認を追加**: layout.switch の移る先が実在する盤面か（入れ子も含む）
+- データ: `apps.json` の note_story を PWA の `--app-id`（chrome_proxy.exe・Default）に。`appswitch` に A3「Note Story 起動」（app.launch＋fire layout.switch note_story）、board を3列に
+- 実測: `--app-id` で2回起動すると Note Story の窓が 1→2→3 と増える（manifest に launch_handler が無い）。案は Note Story 側の `launch_handler: { client_mode: "focus-existing" }`（返事に記載）
+- 検証: `cargo test --workspace` = **178 passed**（+4: B-002・fire の決まり・Deck・未知の盤面）。本物の Hub で iPad を名乗る画面の A3 を実マウスで押す → `app launched` → `layout switch; this device only device="ipad"`、iPad だけ note_story へ、Pixel は不変
+- 同時に: 利用者のテスト保存で変わっていた `game_action` GA2（ジャンプ→N）と `note_tools` T1（[Char]→Y）を 22e8bc0 の内容へ戻した（実データのテストが GA2 の変化を検出した）
+- 未確認・未決: iPad 実機。「既定へ戻る」の行き先（iPad の既定が note_story なので戻っても note_story のまま。返事で A/B を質問）

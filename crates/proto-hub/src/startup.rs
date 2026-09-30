@@ -255,6 +255,22 @@ pub fn load_startup_data(
         }
     }
 
+    // 2026-10-01: `layout.switch` の移る先（入れ子も含む）が実在する盤面か。
+    // これまでは押した瞬間に初めて INTERNAL で分かっていた。起動のあとに盤面を移す Hooks
+    // （app.launch の中の layout.switch）ができたので、読み込みの時点で止める
+    if errors.is_empty() {
+        for (source, action) in all_actions_with_source(&keymaps, &decks) {
+            if let Action::LayoutSwitch { id: Some(id), .. } = action {
+                if !layouts.contains_key(id) {
+                    errors.push(format!(
+                        "[{}] {source}: layout.switch references unknown layoutId '{id}'",
+                        proto_keymap::LOAD_SCHEMA_INVALID
+                    ));
+                }
+            }
+        }
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -278,6 +294,27 @@ pub fn load_startup_data(
 
 /// `all_actions` と同じものを、**どのファイル由来か**を付けて返す。
 /// 「どのアプリが無い」だけでは、どのキーを直せばよいか分からないため。
+/// B-002（2026-10-01 修正）: アクションと、その**入れ子の `fire` を全部**並べる。
+///
+/// 入れ子 `fire` を持つのは `tg.fire`・`layout.switch`・`app.launch` の3種。
+/// 以前は最上位しか辿らなかったため、`layout.switch` / `app.launch` の内側が
+/// 起動時の許可リストに一度も載らず、押すと「画面は変わるのに PC に届かない」になっていた
+/// （T21 で `tg.fire` だけ直していた穴が、後から足した2種で再発した）。
+/// 入れ子アクションを増やしたら、ここの match にも足すこと（テスト
+/// `nested_fire_of_every_kind_reaches_the_allow_list` が3種すべてを固定している）。
+fn with_nested(action: &Action) -> Vec<&Action> {
+    let mut out = vec![action];
+    let inner = match action {
+        Action::TgFire { fire, .. } => Some(fire.as_ref()),
+        Action::LayoutSwitch { fire, .. } | Action::AppLaunch { fire, .. } => fire.as_deref(),
+        _ => None,
+    };
+    if let Some(inner) = inner {
+        out.extend(with_nested(inner));
+    }
+    out
+}
+
 fn all_actions_with_source<'a>(
     keymaps: &'a BTreeMap<String, Keymap>,
     decks: &'a BTreeMap<String, DeckSetlist>,
@@ -286,19 +323,16 @@ fn all_actions_with_source<'a>(
         .iter()
         .flat_map(|(id, keymap)| {
             keymap.layers.iter().flat_map(move |layer| {
-                layer
-                    .keys
-                    .iter()
-                    .map(move |(key_id, key_def)| {
-                        (
-                            format!("keymap '{id}' layer {} key '{key_id}'", layer.id),
-                            &key_def.action,
-                        )
-                    })
+                layer.keys.iter().flat_map(move |(key_id, key_def)| {
+                    let source = format!("keymap '{id}' layer {} key '{key_id}'", layer.id);
+                    with_nested(&key_def.action).into_iter().map(move |action| (source.clone(), action))
+                })
             })
         })
         .chain(decks.iter().flat_map(|(id, deck)| {
-            deck.actions().map(move |action| (format!("deck '{id}'"), action))
+            deck.actions()
+                .flat_map(with_nested)
+                .map(move |action| (format!("deck '{id}'"), action))
         }))
 }
 
@@ -312,6 +346,7 @@ fn all_actions<'a>(
         .flat_map(|layer| layer.keys.values())
         .map(|key_def| &key_def.action)
         .chain(decks.values().flat_map(|deck| deck.actions()))
+        .flat_map(with_nested)
 }
 
 #[cfg(test)]
@@ -464,6 +499,63 @@ mod tests {
         let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
             .expect("missing surfaces dir must not block startup");
         assert!(data.surfaces.is_empty());
+    }
+
+    /// B-002（2026-10-01）: 入れ子 `fire` を持つ3種（tg.fire・layout.switch・app.launch）の
+    /// **すべて**で、内側のアクションが起動時の許可リストに載る。
+    /// 1種だけを見るテストでは、次に入れ子アクションを足したときにまた同じ穴が開く
+    /// （T21 で tg.fire だけ直したあと、layout.switch / app.launch で再発したのがそれ）。
+    #[test]
+    fn nested_fire_of_every_kind_reaches_the_allow_list() {
+        let dir = TempDir::new("nested_fire");
+        write_empty_deck(&dir);
+        std::fs::create_dir_all(dir.0.join("apps")).expect("apps dir");
+        dir.write(
+            "apps/apps.json",
+            r#"{ "apps": [ { "id": "memo", "label": "メモ帳", "exe": "C:\\Windows\\System32\\notepad.exe" } ] }"#,
+        );
+        dir.write(
+            "keymaps/layers/ipad01_vol12_layer0.json",
+            r#"{ "layer": 0, "keys": {
+                "K1": { "label": "tg", "action": { "t": "tg.fire", "layer": 1, "fire": { "t": "chord", "keys": ["CTRL", "F21"] } } },
+                "K2": { "label": "sw", "action": { "t": "layout.switch", "fire": { "t": "chord", "keys": ["CTRL", "F22"] } } },
+                "K3": { "label": "ap", "action": { "t": "app.launch", "id": "memo", "fire": { "t": "chord", "keys": ["CTRL", "F23"] } } }
+            } }"#,
+        );
+        dir.write("keymaps/layers/ipad01_vol12_layer1.json", r#"{ "layer": 1, "keys": {} }"#);
+        dir.write(
+            "keymaps/keymap_ipad01_vol12.json",
+            r#"{ "keymapId": "ipad01_vol12", "kind": "single",
+                 "board": { "cols": 3, "keys": [ { "id": "K1", "row": 1, "col": 1 }, { "id": "K2", "row": 1, "col": 2 }, { "id": "K3", "row": 1, "col": 3 } ] },
+                 "layerFiles": ["layers/ipad01_vol12_layer0.json", "layers/ipad01_vol12_layer1.json"] }"#,
+        );
+        let data = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
+            .expect("fixture must load");
+        for (kind, inner) in [("tg.fire", "chord:CTRL+F21"), ("layout.switch", "chord:CTRL+F22"), ("app.launch", "chord:CTRL+F23")] {
+            assert!(data.command_registry.is_allowed(inner), "{kind} の内側 {inner} が許可リストに無い");
+        }
+        // app.launch は自分自身（app:memo）も載ったまま（内側だけにすると今度は起動側が弾かれる）
+        assert!(data.command_registry.is_allowed("app:memo"));
+    }
+
+    /// 2026-10-01: layout.switch の移る先は、入れ子（app.launch の fire）も含めて実在する盤面だけ。
+    #[test]
+    fn layout_switch_to_unknown_board_is_rejected_even_when_nested() {
+        let dir = TempDir::new("unknown_board");
+        write_empty_deck(&dir);
+        std::fs::create_dir_all(dir.0.join("apps")).expect("apps dir");
+        dir.write("apps/apps.json", r#"{ "apps": [ { "id": "memo", "label": "メモ帳", "exe": "C:\\Windows\\System32\\notepad.exe" } ] }"#);
+        dir.write(
+            "keymaps/layers/ipad01_vol12_layer0.json",
+            r#"{ "layer": 0, "keys": { "K1": { "label": "x", "action": { "t": "app.launch", "id": "memo", "fire": { "t": "layout.switch", "id": "no_such_board" } } } } }"#,
+        );
+        dir.write(
+            "keymaps/keymap_ipad01_vol12.json",
+            r#"{ "keymapId": "ipad01_vol12", "kind": "single", "board": { "cols": 1, "keys": [ { "id": "K1", "row": 1, "col": 1 } ] }, "layerFiles": ["layers/ipad01_vol12_layer0.json"] }"#,
+        );
+        let errors = load_startup_data(&dir.keymaps_dir(), &dir.decks_dir(), &dir.surfaces_dir(), &dir.layouts_dir(), &dir.apps_dir())
+            .expect_err("存在しない盤面へ移るボタンは読み込みで止める");
+        assert!(errors.iter().any(|e| e.contains("no_such_board")), "{errors:?}");
     }
 
     /// T21: リポジトリの実データ（keymaps/・decks/）で起動し、「英数⇄日本語」が撃つ

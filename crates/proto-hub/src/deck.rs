@@ -226,7 +226,33 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
             // アプリ起動も押した瞬間に1回で終わるので、Deckに置いてよい。
             // 参照先のアプリが実在するかは startup 側でまとめて確認する
             // （ここからは apps/apps.json が見えないため）。
-            Action::AppLaunch { .. } => {}
+            // 2026-10-01: 中の fire を検証する（以前は何も見ておらず、どんな入れ子でも通っていた）。
+            // キーボード側（proto_keymap::check_nested_fire の app.launch）と同じ規則:
+            // key / chord / text、または fire を持たない layout.switch（起動のあとに盤面を移す Hooks）
+            Action::AppLaunch { fire, .. } => {
+                if let Some(inner) = fire.as_ref() {
+                    let bad_vk = match inner.as_ref() {
+                        Action::Key { vk } => (!is_known_vk(vk)).then(|| vk.clone()),
+                        Action::Chord { keys } => keys.iter().find(|vk| !is_known_vk(vk)).cloned(),
+                        Action::Text { .. } | Action::LayoutSwitch { fire: None, .. } => None,
+                        other => {
+                            return Err(DeckError::new(
+                                LOAD_SCHEMA_INVALID,
+                                format!(
+                                    "{source}: slot '{}': app.launch.fire must be key/chord/text or layout.switch without fire, got {other:?}",
+                                    slot.slot_id
+                                ),
+                            ));
+                        }
+                    };
+                    if let Some(vk) = bad_vk {
+                        return Err(DeckError::new(
+                            LOAD_VK_UNKNOWN,
+                            format!("{source}: slot '{}': unknown vk '{vk}' in app.launch", slot.slot_id),
+                        ));
+                    }
+                }
+            }
             // 表示するboardを切り替えるだけなので、Deckに置いても問題ない
             // （押した瞬間に1回で終わる。離す機会を必要としない）。
             // 中の fire は Key/Chord と同じ規則で vk を検証する。
@@ -416,4 +442,28 @@ mod tests {
         let deck = load_deck_from_path(path).expect("decks/deck_default.json must load");
         assert_eq!(deck.deck_id, "default");
     }
+
+    /// 2026-10-01: Deck の app.launch の fire も検証する（以前は何でも通っていた）。
+    /// 許すのは key/chord/text と、fire を持たない layout.switch（Hooks）だけ。
+    #[test]
+    fn app_launch_fire_on_deck_is_checked() {
+        let deck = |action: &str| format!(
+            r#"{{ "deckId": "d", "grid": {{ "cols": 1, "rows": 1 }}, "pages": [ {{ "id": 1, "slots": [ {{ "slotId": "S1", "label": "x", "action": {action} }} ] }} ] }}"#
+        );
+        for ok in [
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "layout.switch", "id": "note_story" } }"#,
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "chord", "keys": ["WIN", "1"] } }"#,
+        ] {
+            load_deck_str("test", &deck(ok)).unwrap_or_else(|e| panic!("通るべき: {ok} {e:?}"));
+        }
+        for bad in [
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "mo", "layer": 1 } }"#,
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "keymap.switch", "id": "x" } }"#,
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "layout.switch", "id": "a", "fire": { "t": "key", "vk": "A" } } }"#,
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "key", "vk": "NOT_A_KEY" } }"#,
+        ] {
+            assert!(load_deck_str("test", &deck(bad)).is_err(), "拒否されるべき: {bad}");
+        }
+    }
 }
+

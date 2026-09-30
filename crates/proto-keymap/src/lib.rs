@@ -860,11 +860,17 @@ fn check_nested_fire(
             }
         }
         Action::Text { .. } => {}
+        // REQ-20261001-001（2026-10-01・利用者裁定）: **起動のあとに盤面を移す**（Hooks）ため、
+        // app.launch の fire に限って layout.switch を許す。盤面の切り替えは画面の話で PC へは
+        // 何も送らないので、送れるものは増えない。入れ子は2段まで（その layout.switch に
+        // さらに fire は付けられない）。起動に失敗したら fire は撃たれない（ws.rs）。
+        Action::LayoutSwitch { fire: None, .. } if what == "app.launch" => {}
         other => {
             return Err(KeymapError::new(
                 LOAD_SCHEMA_INVALID,
                 format!(
-                    "{source}: layer {layer_id} key '{key_id}': {what}.fire must be key/chord/text, got {other:?}"
+                    "{source}: layer {layer_id} key '{key_id}': {what}.fire must be key/chord/text{}, got {other:?}",
+                    if what == "app.launch" { " or layout.switch without fire" } else { "" }
                 ),
             ));
         }
@@ -2074,4 +2080,27 @@ mod tests {
         assert!(serde_json::from_str::<Action>(r#"{"t":"layout.switch","id":"a","to":"android1"}"#).is_err());
         assert!(serde_json::from_str::<Action>(r#"{"t":"layout.switch","to":"everyone"}"#).is_err());
     }
+
+    /// REQ-20261001-001: app.launch の fire に限り、fire を持たない layout.switch を許す（Hooks）。
+    /// ほかの入れ子（layout.switch の中の layout.switch、tg.fire の中、2段を超える入れ子）は拒否のまま。
+    #[test]
+    fn only_app_launch_may_fire_a_plain_layout_switch() {
+        let manifest = r#"{ "keymapId": "t_hook", "kind": "single",
+            "board": { "cols": 1, "keys": [ { "id": "K1", "row": 1, "col": 1 } ] },
+            "layerFiles": ["l0.json"] }"#;
+        let with = |action: &str| format!(r#"{{ "layer": 0, "keys": {{ "K1": {{ "label": "x", "action": {action} }} }} }}"#);
+        let ok = with(r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "layout.switch", "id": "note_story" } }"#);
+        load_test_keymap(manifest, &[("l0.json", &ok)]).expect("起動のあとに盤面を移すのは通る");
+        for bad in [
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "layout.switch", "id": "a", "fire": { "t": "key", "vk": "A" } } }"#,
+            r#"{ "t": "layout.switch", "id": "a", "fire": { "t": "layout.switch", "id": "b" } }"#,
+            r#"{ "t": "tg.fire", "layer": 0, "fire": { "t": "layout.switch", "id": "b" } }"#,
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "app.launch", "id": "memo" } }"#,
+            r#"{ "t": "app.launch", "id": "memo", "fire": { "t": "mo", "layer": 1 } }"#,
+        ] {
+            let layer = with(bad);
+            assert!(load_test_keymap(manifest, &[("l0.json", &layer)]).is_err(), "拒否されるべき: {bad}");
+        }
+    }
 }
+
