@@ -1,0 +1,8 @@
+{
+  "description": "端末スロットの見本（P-008）。Hub はこのファイルを読まない。使うときは同じ中身で devices.json を作る（手で書く。Hub は読むだけ）。\n\n■ 書き方\n  id             [a-z0-9_] 1〜32文字。QR の URL に device=<id> として載る\n  label          画面に出す名前\n  kind           tablet / phone\n  orientation    landscape（横）/ portrait（縦）\n  defaultLayout  この端末に最初に出す盤面（layouts/layout_<id>.json の id）。省略可\n\n■ 決まり\n  最大3台。devices.json が無ければ、今までどおり端末を区別しない（盤面の切り替えは全端末へ）。\n  devices.json があると、盤面の切り替えは押した端末だけに届く。3台そろって移したいボタンには layout.switch に \"to\": \"all\" を付ける。\n  devices.json は Hub の起動時にだけ読む（書き換えたら Hub を再起動する）。",
+  "devices": [
+    { "id": "ipad", "label": "iPad 12.9（リビング）", "kind": "tablet", "orientation": "landscape", "defaultLayout": "note_story" },
+    { "id": "android1", "label": "Android 1（机の左）", "kind": "phone", "orientation": "portrait", "defaultLayout": "game_iphone7_port" },
+    { "id": "android2", "label": "Android 2（机の右）", "kind": "phone", "orientation": "portrait", "defaultLayout": "iphone7_portrait" }
+  ]
+}

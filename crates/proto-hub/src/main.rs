@@ -5,6 +5,7 @@
 
 mod app_launch;
 mod deck;
+mod device;
 mod layout;
 mod error;
 mod icon;
@@ -36,6 +37,10 @@ const LAYOUTS_DIR: &str = "layouts";
 /// 起動してよいアプリの許可リスト（`apps/apps.json`）。無くても起動する
 /// （その場合は起動できるアプリが0件になるだけ）。
 const APPS_DIR: &str = "apps";
+
+/// P-008: 端末スロット（`devices/devices.json`）。無ければ端末を区別しない（従来どおり）。
+/// 起動時にだけ読む。書き換えたら Hub を再起動する。
+const DEVICES_DIR: &str = "devices";
 
 #[tokio::main]
 async fn main() {
@@ -89,6 +94,17 @@ async fn main() {
         "allow-list built"
     );
 
+    // P-008: 端末スロット。defaultLayout の実在確認に盤面が要るので、盤面を読んだ後に読む
+    let devices = match device::load_devices(Path::new(DEVICES_DIR), &layouts) {
+        Ok(devices) => devices,
+        Err(error) => {
+            eprintln!("proto-hub: startup rejected due to 1 error(s):");
+            eprintln!("  1. {error}");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!(chk = "P008", devices = devices.len(), "device slots loaded");
+
     let token = AccessToken::generate();
     let adapter_tx = state::spawn_adapter_worker();
 
@@ -129,6 +145,7 @@ async fn main() {
         lan_ip.clone(),
     );
     hub_state.set_hosts(hosts.clone());
+    hub_state.set_devices(devices);
     let shared = std::sync::Arc::new(std::sync::Mutex::new(hub_state));
 
     // 起動バナー用に1本持っておく（routerへはこの後moveされるため）
@@ -153,6 +170,18 @@ async fn main() {
             println!("    {name}: http://{ip}:{PORT}/connect?token={}", token.value());
         }
         println!("    （QRギャラリー右上の「つなぎ先」で切り替えると、QRもこちらになります）");
+    }
+    // P-008: 端末スロットがあれば、端末ごとの入口を先に出す（その端末専用の URL）
+    {
+        let s = banner_state.lock().unwrap();
+        if !s.devices.is_empty() {
+            println!("  ▼ 端末ごとの入口（devices/devices.json。盤面の切り替えはその端末だけに届く）");
+            for slot in s.devices.iter() {
+                if let Some(url) = s.connection_url(&format!("device:{}", slot.id)) {
+                    println!("    {}: {url}", slot.label);
+                }
+            }
+        }
     }
     println!("  ▼ 端末で開く（QRギャラリーから読み取るのが早い）");
     // T9: 一覧は手書きしない。`connection_targets()`（ws.rs）が唯一の表で、

@@ -35,6 +35,11 @@ pub struct TokenQuery {
 pub struct WsQuery {
     pub token: Option<String>,
     pub surface: Option<String>,
+    /// P-008: 端末スロットを名乗る（`devices/devices.json` の id）。省略で従来どおり。
+    pub device: Option<String>,
+    /// P-008: 端末がいま出している盤面。Hub が端末ごとの盤面を覚えるために使う
+    /// （実在しない id は無視する）。
+    pub layout: Option<String>,
 }
 
 pub fn router(state: SharedState) -> Router {
@@ -214,6 +219,22 @@ fn token_ok(state: &SharedState, token: Option<&str>) -> bool {
     token.is_some_and(|candidate| s.token.is_valid(candidate))
 }
 
+/// P-008: 名乗った端末が devices.json に無ければ、確立する前に断る（403 `WS_DEVICE_UNKNOWN`）。
+/// 黙って「端末なし」にすると、盤面の切り替えが全端末へ飛ぶ（名乗った意味が消える）。
+fn check_device(state: &SharedState, device: Option<&str>) -> Result<(), Response> {
+    let Some(device) = device else { return Ok(()) };
+    if state.lock().unwrap().devices.contains(device) {
+        return Ok(());
+    }
+    tracing::error!(
+        chk = "P008",
+        code = WS_DEVICE_UNKNOWN,
+        cause = %format!("device '{device}' is not listed in devices/devices.json"),
+        "rejecting websocket upgrade"
+    );
+    Err((StatusCode::FORBIDDEN, WS_DEVICE_UNKNOWN).into_response())
+}
+
 async fn ws_handler(
     State(state): State<SharedState>,
     Query(query): Query<WsQuery>,
@@ -230,8 +251,13 @@ async fn ws_handler(
         return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
     }
     let surface = SurfaceKind::from_query(query.surface.as_deref());
-    tracing::info!(chk = "T3-2", ?surface, "websocket upgrade authorized");
-    upgrade.on_upgrade(move |socket| handle_socket(socket, state, surface))
+    if let Err(response) = check_device(&state, query.device.as_deref()) {
+        return response;
+    }
+    let device = query.device.clone();
+    let layout = query.layout.clone();
+    tracing::info!(chk = "T3-2", ?surface, ?device, "websocket upgrade authorized");
+    upgrade.on_upgrade(move |socket| handle_socket(socket, state, surface, device, layout))
 }
 
 #[derive(Debug, Deserialize)]
@@ -346,7 +372,7 @@ async fn schema_handler(State(state): State<SharedState>, Query(query): Query<To
         { "t": "none",         "fields": [],                "note": "何も起きない（空きマス）" },
         { "t": "keymap.switch","fields": ["id"],            "note": "別のキーマップへ切り替える" },
         { "t": "keymap.reset", "fields": [],                "note": "default へ戻す" },
-        { "t": "layout.switch","fields": ["id?", "fire?"],  "note": "表示するboardを切り替える。idを省くと既定へ戻る。fireがあれば切り替えたあとそれも撃つ" },
+        { "t": "layout.switch","fields": ["id?", "fire?", "to?"],  "note": "表示するboardを切り替える。idを省くと既定へ戻る。fireがあれば切り替えたあとそれも撃つ。devices/devices.json があると、押した端末だけが移る（to: \"all\" で全端末）" },
         { "t": "app.launch",   "fields": ["id", "fire?"],   "note": "登録済みのアプリを起動する。起動できるのは apps/apps.json に書いたものだけ" },
         { "t": "mouse.click",  "fields": ["button"],        "note": "left / right" },
         { "t": "mouse.dblclick","fields": ["button"],       "note": "left / right" },
@@ -1755,7 +1781,13 @@ async fn reload_handler(State(state): State<SharedState>, Query(query): Query<To
         .into_response()
 }
 
-async fn handle_socket(socket: WebSocket, state: SharedState, surface: SurfaceKind) {
+async fn handle_socket(
+    socket: WebSocket,
+    state: SharedState,
+    surface: SurfaceKind,
+    device: Option<String>,
+    layout: Option<String>,
+) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
@@ -1763,10 +1795,14 @@ async fn handle_socket(socket: WebSocket, state: SharedState, surface: SurfaceKi
         let mut s = state.lock().unwrap();
         let id = s.next_client_id;
         s.next_client_id += 1;
-        s.register_client(id, tx.clone(), surface);
+        s.register_client(id, tx.clone(), surface, device.clone());
+        // P-008: 端末が名乗った盤面を「いまの盤面」として覚える（実在するものだけ）
+        if let (Some(device), Some(layout)) = (device.as_deref(), layout.as_deref()) {
+            s.note_device_layout(device, layout);
+        }
         id
     };
-    tracing::info!(chk = "T3-3", client_id, ?surface, "client connected");
+    tracing::info!(chk = "T3-3", client_id, ?surface, ?device, "client connected");
 
     let forward_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
@@ -2369,7 +2405,10 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
                 Box::pin(fire_action(state, client_id, (**inner).clone())).await;
             }
         }
-        Action::LayoutSwitch { id, fire } => {
+        Action::LayoutSwitch { id, fire, to } => {
+            // P-008: 押した端末（名乗っていれば）。`to: "all"` なら全端末
+            let device = state.lock().unwrap().device_of(client_id);
+            let to_all = matches!(to, Some(proto_keymap::SwitchScope::All));
             // 実在しないboardへ移すと、端末が空の画面に当たって原因が分からなくなる
             let resolved = {
                 let s = state.lock().unwrap();
@@ -2387,16 +2426,39 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
                         return;
                     }
                     Some(want) => Some(want.clone()),
-                    // null は「既定へ戻る」。既定が決まっていなければそのまま null を配る
-                    None => s.default_layout.clone(),
+                    // null は「既定へ戻る」。端末を名乗っていれば、その端末の既定を先に見る。
+                    // 既定が決まっていなければそのまま null を配る
+                    None => match device.as_deref() {
+                        Some(device) if !to_all => s.device_default_layout(device),
+                        _ => s.default_layout.clone(),
+                    },
                 }
             };
             let wire = crate::protocol::LayoutSwitchWire { layout_id: resolved.clone() };
             match serde_json::to_string(&ServerMessage::LayoutSwitch(wire)) {
                 Ok(text) => {
-                    tracing::info!(chk = "LAYOUTSW", layout = ?resolved, "layout switch; broadcasting");
-                    let s = state.lock().unwrap();
-                    s.broadcast_to(SurfaceKind::Layout, &text);
+                    let mut s = state.lock().unwrap();
+                    match device.as_deref() {
+                        // P-008 既定: 押した端末だけ（同じ端末を名乗る画面が2つあれば両方）
+                        Some(device) if !to_all => {
+                            let sent = s.broadcast_to_device(SurfaceKind::Layout, device, &text);
+                            if let Some(layout_id) = resolved.as_deref() {
+                                s.note_device_layout(device, layout_id);
+                            }
+                            tracing::info!(chk = "LAYOUTSW", layout = ?resolved, device, sent, "layout switch; this device only");
+                        }
+                        // `to: "all"`、または端末を名乗っていない接続（従来どおり）: 全端末
+                        _ => {
+                            s.broadcast_to(SurfaceKind::Layout, &text);
+                            if let Some(layout_id) = resolved.as_deref() {
+                                let ids: Vec<String> = s.devices.iter().map(|d| d.id.clone()).collect();
+                                for d in ids {
+                                    s.note_device_layout(&d, layout_id);
+                                }
+                            }
+                            tracing::info!(chk = "LAYOUTSW", layout = ?resolved, to_all, "layout switch; broadcasting");
+                        }
+                    }
                 }
                 Err(error) => {
                     tracing::error!(code = INTERNAL, cause = %error, "failed to serialize layout.switch");
@@ -2703,6 +2765,7 @@ mod tests {
             "static/settings.html",
             "static/panel.html",
             "static/layout.html",
+            "static/lab_multigesture.html",
         ] {
             assert!(
                 root.join(path).exists(),
@@ -3240,5 +3303,140 @@ mod tests {
             assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
         }
         assert!(!std::path::Path::new("static/icons/never_written.png").exists());
+    }
+
+    // ------------------------------------------------------------------
+    // P-008 段階A: 端末スロットと layout.switch の送り先
+    // ------------------------------------------------------------------
+
+    /// 盤面2枚と端末3台（ipad / android1 / android2）を持つ状態。
+    fn device_state() -> SharedState {
+        let (state, _rx) = test_state(r#"{ "surfaces": [] }"#);
+        {
+            let mut s = state.lock().unwrap();
+            for id in ["note", "game"] {
+                let layout = crate::layout::load_layout_str(
+                    "t",
+                    &format!(r#"{{ "layoutId": "{id}", "grid": {{ "cols": 1, "rows": 1 }}, "sections": [
+                        {{ "id": "S1", "row": 1, "col": 1, "colSpan": 1, "rowSpan": 1, "component": {{ "kind": "deck", "ref": "default" }} }}
+                    ] }}"#),
+                )
+                .expect("layout");
+                s.layouts.insert(id.to_string(), layout);
+            }
+            let devices = crate::device::load_devices_str(
+                "t",
+                r#"{ "devices": [
+                    { "id": "ipad", "label": "iPad", "kind": "tablet", "orientation": "landscape", "defaultLayout": "note" },
+                    { "id": "android1", "label": "A1", "kind": "phone", "orientation": "portrait", "defaultLayout": "game" },
+                    { "id": "android2", "label": "A2", "kind": "phone", "orientation": "portrait" }
+                ] }"#,
+                &s.layouts,
+            )
+            .expect("devices");
+            s.set_devices(devices);
+        }
+        state
+    }
+
+    /// 接続を1つ登録し、その接続に届いた文字列を受け取る口を返す。
+    fn connect(state: &SharedState, id: ClientId, device: Option<&str>) -> mpsc::UnboundedReceiver<Message> {
+        let (tx, rx) = mpsc::unbounded_channel::<Message>();
+        state.lock().unwrap().register_client(id, tx, SurfaceKind::Layout, device.map(str::to_string));
+        rx
+    }
+
+    fn switched_to(rx: &mut mpsc::UnboundedReceiver<Message>) -> Option<Option<String>> {
+        match rx.try_recv() {
+            Ok(Message::Text(text)) => {
+                let v: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                assert_eq!(v["type"], "layout.switch");
+                Some(v.get("layoutId").and_then(|x| x.as_str()).map(str::to_string))
+            }
+            _ => None,
+        }
+    }
+
+    /// 既定: 押した端末だけが移る。ほかの端末には何も届かない。いまの盤面を覚える。
+    #[tokio::test]
+    async fn p008_layout_switch_goes_to_the_pressing_device_only() {
+        let state = device_state();
+        let mut ipad = connect(&state, 1, Some("ipad"));
+        let mut ipad_second_tab = connect(&state, 2, Some("ipad"));
+        let mut a1 = connect(&state, 3, Some("android1"));
+        fire_action(&state, 1, Action::LayoutSwitch { id: Some("game".into()), fire: None, to: None }).await;
+        assert_eq!(switched_to(&mut ipad), Some(Some("game".into())));
+        assert_eq!(switched_to(&mut ipad_second_tab), Some(Some("game".into())), "同じ端末の別画面にも届く");
+        assert_eq!(switched_to(&mut a1), None, "ほかの端末は動かない");
+        assert_eq!(state.lock().unwrap().device_layouts.get("ipad").map(String::as_str), Some("game"));
+        assert!(state.lock().unwrap().device_layouts.get("android1").is_none());
+    }
+
+    /// `to: "all"`: 全端末がそろって移る（名乗っていない接続も含む）。全端末のいまの盤面を更新する。
+    #[tokio::test]
+    async fn p008_layout_switch_to_all_moves_every_device() {
+        let state = device_state();
+        let mut ipad = connect(&state, 1, Some("ipad"));
+        let mut a1 = connect(&state, 2, Some("android1"));
+        let mut legacy = connect(&state, 3, None);
+        fire_action(&state, 1, Action::LayoutSwitch { id: Some("game".into()), fire: None, to: Some(proto_keymap::SwitchScope::All) }).await;
+        for rx in [&mut ipad, &mut a1, &mut legacy] {
+            assert_eq!(switched_to(rx), Some(Some("game".into())));
+        }
+        let s = state.lock().unwrap();
+        for d in ["ipad", "android1", "android2"] {
+            assert_eq!(s.device_layouts.get(d).map(String::as_str), Some("game"), "{d}");
+        }
+    }
+
+    /// 端末を名乗っていない接続から押したら従来どおり全端末（devices.json を置く前と同じ）。
+    #[tokio::test]
+    async fn p008_unnamed_client_still_broadcasts() {
+        let state = device_state();
+        let mut ipad = connect(&state, 1, Some("ipad"));
+        let _legacy = connect(&state, 2, None);
+        fire_action(&state, 2, Action::LayoutSwitch { id: Some("note".into()), fire: None, to: None }).await;
+        assert_eq!(switched_to(&mut ipad), Some(Some("note".into())));
+    }
+
+    /// 「既定へ戻る」（id 省略）は、端末の defaultLayout → Hub 全体の既定 の順。
+    #[tokio::test]
+    async fn p008_back_to_default_uses_the_device_default() {
+        let state = device_state();
+        state.lock().unwrap().set_default_layout(Some("note"));
+        let mut a1 = connect(&state, 1, Some("android1"));
+        let mut a2 = connect(&state, 2, Some("android2"));
+        fire_action(&state, 1, Action::LayoutSwitch { id: None, fire: None, to: None }).await;
+        assert_eq!(switched_to(&mut a1), Some(Some("game".into())), "android1 の既定は game");
+        fire_action(&state, 2, Action::LayoutSwitch { id: None, fire: None, to: None }).await;
+        assert_eq!(switched_to(&mut a2), Some(Some("note".into())), "android2 は既定が無いので Hub 全体の既定");
+    }
+
+    /// 名乗れるのは devices.json に載っている端末だけ。未知の id は WS の確立前に 403。
+    /// 名乗らなければ従来どおり通す。
+    #[test]
+    fn p008_unknown_device_is_rejected_before_upgrade() {
+        let state = device_state();
+        assert!(check_device(&state, None).is_ok());
+        assert!(check_device(&state, Some("android1")).is_ok());
+        for bad in ["android9", "", "../ipad", "IPAD"] {
+            let res = check_device(&state, Some(bad)).expect_err(bad);
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{bad}");
+        }
+    }
+
+    /// 端末ごとの入口 URL: device= と、いまの盤面（無ければ端末の既定）が載る。未知の端末は None。
+    #[test]
+    fn p008_device_connection_url() {
+        let state = device_state();
+        let mut s = state.lock().unwrap();
+        let url = s.connection_url("device:android1").expect("known device");
+        assert!(url.contains("/layout?device=android1&id=game&token="), "{url}");
+        s.note_device_layout("android1", "note");
+        assert!(s.connection_url("device:android1").unwrap().contains("&id=note&"));
+        s.note_device_layout("android1", "does_not_exist");
+        assert!(s.connection_url("device:android1").unwrap().contains("&id=note&"), "実在しない盤面は覚えない");
+        assert!(s.connection_url("device:android9").is_none());
+        assert!(s.connection_url("device:android2").unwrap().contains("device=android2&token="), "既定が無ければ id を付けない");
     }
 }

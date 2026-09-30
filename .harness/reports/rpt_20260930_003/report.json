@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260930_003",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": "P-008-A",
+  "phase": "implementation",
+  "kind": "task_completion",
+  "date": "2026-09-30",
+  "title": "P-008 段階A: 端末スロット（端末ごとの盤面・押した端末だけ移る・to:all）",
+  "summary": "devices/devices.json（手書き・最大3台）で端末を区別できるようにした。端末ごとの入口 URL から開くと、盤面の切り替えが押した端末だけに届き、to:\"all\" のボタンだけ全端末が移る。未登録の端末名は 403。devices.json が無ければ従来どおり。本物の Hub と PC のブラウザ2枚で、片方だけが移ることを実マウスで確認。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-opus-5-5",
+  "startedAt": "2026-09-30T21:00:00+09:00",
+  "completedAt": "2026-09-30T22:40:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "crates/proto-hub/src/device.rs（新規）",
+    "layout.switch に to（\"all\"）",
+    "端末ごとの盤面・送り先の振り分け・入口 URL・未知の端末の拒否",
+    "static/layout.html が device= を WS に載せる",
+    "devices/devices.example.json、できること.md 版2.5"
+  ],
+  "verification": [
+    "cargo test --workspace = 172 passed, 0 failed（新規14）、build 警告0",
+    "本物の Hub で android1 の「既定へ戻る」→ android1 だけ移り ipad は不変（実マウス）",
+    "device=android9 は 403、android2 は 101",
+    "未確認: 実機、to:all の実ボタン"
+  ],
+  "nextActions": [
+    "端末3台の実物をもらって devices.json を置く",
+    "段階B（/api/devices と端末ごとの QR）",
+    "統合編集画面 /editor_v3 の実装（views/ の書き込み裁定を不変条件6へ追記してから）"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/device.rs",
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/ws.rs",
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/state.rs",
+    "DevApps/APP_KeyDeck01/crates/proto-keymap/src/lib.rs",
+    "DevApps/APP_KeyDeck01/static/layout.html",
+    "DevApps/APP_KeyDeck01/devices/devices.example.json",
+    "C:/00_CreatorCompass/KeyDeck/できること.md"
+  ],
+  "tags": ["keydeck", "hub", "rust", "device-slots", "P-008"],
+  "blockedEncountered": [],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": false,
+    "note": "端末の区別を『URL で名乗る＋サーバー側の許可リスト』にすると、名乗りを検査するだけで既存の位置ID方式を崩さずに済む。ファイルが無いときに従来の動きへ戻る形にしておくと、段階的に入れられる"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

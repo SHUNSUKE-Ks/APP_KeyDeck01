@@ -228,6 +228,12 @@ pub enum Action {
         id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fire: Option<Box<Action>>,
+        /// P-008（2026-09-30・ユーザー裁定）: どの端末を移すか。
+        /// 省略＝**押した端末だけ**（`device=` で繋いでいない端末からは従来どおり全端末）。
+        /// `"all"`＝繋がっている全端末をそろって移す。アプリ切り替えなど、3台同時が要る
+        /// ボタンにだけ利用者が明示して付ける。**勝手に全台にしない**ための既定。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<SwitchScope>,
     },
     /// 登録済みのアプリを起動する（2026-09-12・ユーザー裁定）。
     ///
@@ -329,6 +335,14 @@ pub enum KeymapKind {
 pub enum WheelDir {
     Up,
     Down,
+}
+
+/// P-008: `layout.switch` の `to`。いまは `"all"` だけ（省略＝押した端末だけ）。
+/// 未知の値はロード時に拒否される（serde の enum）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SwitchScope {
+    All,
 }
 
 /// ダイヤル部品の形。どちらも「目盛りを越えるたびに CW/CCW を1回押す」だけで、違うのは見た目と指の動かし方。
@@ -2040,5 +2054,24 @@ mod tests {
         }"#;
         let layer = r#"{ "layer": 0, "keys": {} }"#;
         load_test_keymap(manifest, &[("l0.json", layer)]).expect("隣接は通るべき");
+    }
+
+    /// P-008: `layout.switch` の `to` は省略（押した端末だけ）か `"all"` だけ。
+    /// 省略した既存の JSON がそのまま読め、書き出しても欄が増えないこと。
+    #[test]
+    fn layout_switch_to_accepts_all_and_defaults_to_none() {
+        let plain: Action = serde_json::from_str(r#"{"t":"layout.switch","id":"a"}"#).unwrap();
+        assert_eq!(plain, Action::LayoutSwitch { id: Some("a".into()), fire: None, to: None });
+        assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"t":"layout.switch","id":"a"}"#);
+
+        let all: Action = serde_json::from_str(r#"{"t":"layout.switch","id":"a","to":"all"}"#).unwrap();
+        assert_eq!(all, Action::LayoutSwitch { id: Some("a".into()), fire: None, to: Some(SwitchScope::All) });
+    }
+
+    /// 未知の `to` はロード時に拒否する（任意の送り先を書けないように）。
+    #[test]
+    fn layout_switch_to_rejects_unknown_scope() {
+        assert!(serde_json::from_str::<Action>(r#"{"t":"layout.switch","id":"a","to":"android1"}"#).is_err());
+        assert!(serde_json::from_str::<Action>(r#"{"t":"layout.switch","to":"everyone"}"#).is_err());
     }
 }

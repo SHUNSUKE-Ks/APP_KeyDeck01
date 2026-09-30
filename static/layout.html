@@ -609,9 +609,14 @@
     function connect() {
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
       setStatus("接続中…");
+      // P-008: 端末専用の入口（?device=<id>）から開いたら、その名前で繋ぐ。
+      // Hub は盤面の切り替えをこの端末だけに届け、いまの盤面を覚える（layout= で伝える）。
+      // devices.json に無い名前だと Hub が接続を断る（WS_DEVICE_UNKNOWN）
+      const device = params.get("device");
       socket = new WebSocket(
         (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host +
-          "/ws?surface=layout&token=" + encodeURIComponent(token)
+          "/ws?surface=layout&token=" + encodeURIComponent(token) +
+          (device ? "&device=" + encodeURIComponent(device) + "&layout=" + encodeURIComponent(layoutId) : "")
       );
 
       socket.addEventListener("open", () => {

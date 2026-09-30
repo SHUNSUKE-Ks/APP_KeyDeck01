@@ -45,3 +45,6 @@ pub const DECK_SAVE_FAILED: &str = "DECK_SAVE_FAILED";
 pub const ICON_SAVE_REJECTED: &str = "ICON_SAVE_REJECTED";
 /// 2026-09-25: アイコン保存の失敗（ファイル操作そのもの、または読み直しの不一致）。巻き戻される。
 pub const ICON_SAVE_FAILED: &str = "ICON_SAVE_FAILED";
+
+/// P-008: `device=<id>` で名乗った端末が `devices/devices.json` に無い。WS の確立前に断る。
+pub const WS_DEVICE_UNKNOWN: &str = "WS_DEVICE_UNKNOWN";

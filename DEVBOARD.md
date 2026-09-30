@@ -2265,3 +2265,14 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - `ws.rs` にルート1行 `/lab/multigesture`（ServeFile）。何も送らないページなので、書き込み口・通信は増えていない。ナビに「実験」部門を追加
 - 検証: `cargo test --workspace` = 158 passed。本物の Hub から配信を確認。**PC の実マウス**でパン→・パン↑・左ボタン・右ボタン・なしの5回すべて正しく判定。2本指と長押しはマウスで作れないため**合成 PointerEvent** で判定ロジックだけ確認（ズームイン/アウト・回転↻↺・ひねり＋わずかな広がり＝回転・0.6秒押し→傾け←）。途中で、ブラウザが知らない pointerId に `setPointerCapture` が例外を投げて2本目が落ちる不具合を見つけ、try/catch で直した
 - **未確認**: iPad での実測（受け入れ基準の本体）。返事は `依頼\REQ-20260929-001.reply.md`
+- 2026-09-30 22:31 keydeck-guardian: P-008 段階A（e870e66以降の作業ツリー）点検 **PASS**。`cargo test --workspace` = 172 passed（hub-core 7 + adapter 8 + proto-hub 109 + keymap 48、+14）。凍結領域差分なし（brief/proposals の裁定追記のみ）。起動中Hub(8770・変更前バイナリ)で静的5ページ200・token無しWS/API 401。新バイナリでの実機通しは未確認 → `reports/guardian_20260930_2231.md`
+
+## 2026-09-30 P-008 段階A 端末スロット — Claude Code（Opus 5.5・統括チャット）
+
+- 設計: `brief/proposals/P-008_device_slots.md`（利用者の裁定: devices.json は手書き／既定は押した端末だけ・`"to": "all"` を必要なボタンに明示して付ける／レイヤーは端末ごとにキーマップを分ければ独立／新しい編集画面は Hub の中に作る／表示レイアウトは Hub に保存＝`views/` の書き込み裁定済み・未実装・不変条件6へは実装時に追記）
+- 実装: 新規 `device.rs`（`devices/devices.json`・最大3台・id `[a-z0-9_]{1,32}`・無ければ空＝従来どおり）、`Action::LayoutSwitch` に `to`（`"all"` のみ）、接続ごとの device・端末ごとのいまの盤面（メモリのみ）・`broadcast_to_device`・`connection_url("device:<id>")`、`check_device`（未知の device は WS 確立前に 403 `WS_DEVICE_UNKNOWN`）、起動バナーに端末ごとの入口、`layout.html` が `?device=` と今の盤面を WS に載せる。見本 `devices/devices.example.json`。`/api/schema` の layout.switch に `to?`、`できること.md` 版2.5
+- 検証: `cargo test --workspace` = **172 passed**（+14）、build 警告0。本物の Hub を一時の devices.json（見本の写し）で起動し、起動ログ `device slots loaded devices=3`・バナーに3台の入口。PC のブラウザ2枚（ipad／android1、どちらも note_story）で **android1 の「既定へ戻る」を実マウスでクリック → android1 だけ game_iphone7_port、ipad は不変**（ログ `this device only device="android1" sent=1`）。`device=android9` の WS は 403、`android2` は 101。確認後に devices.json は消した（端末の実物が未回答）
+  - 注: guardian 報告の「起動中の Hub は変更前のバイナリ」は誤り。変更後にビルドした Hub を起動し、上の確認はそれで行った
+- 未確認: 実機、`to:"all"` を付けた実物のボタン
+- 既知の注意（guardian）: 端末の画面のセレクトで盤面を手で変えると、再接続まで Hub の「いまの盤面」が古い／reload・保存で消した盤面の id が端末の入口 URL に残り得る／token を持てば登録済みのどの端末でも名乗れる（名札であって認証ではない）
+- **以前からの穴（guardian が発見・統括が再現）**: `/api/qr` は token を確かめずに token 入り URL の QR を返す（token なしで 200）。LAN 内の誰でも QR を読めば token が手に入る。直すには呼び出し元10画面に token を渡す必要があり、凍結中の `editor_v1_1.html` も含むため利用者の判断待ち

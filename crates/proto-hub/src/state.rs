@@ -52,6 +52,9 @@ impl SurfaceKind {
 struct ClientEntry {
     tx: mpsc::UnboundedSender<Message>,
     surface: SurfaceKind,
+    /// P-008: この接続が名乗った端末スロット（`device=<id>`）。名乗らなければ None（従来どおり）。
+    /// 接続時に devices.json に載っているかを確かめてから入れる。
+    device: Option<String>,
 }
 
 /// D8: 起動時生成・stdout1回表示・URLクエリ・定数時間比較（本線D4の簡略流用。有効期限は無し）。
@@ -203,6 +206,11 @@ pub struct HubState {
     /// **この一覧に載っているものだけ**へ切り替えられるようにする。
     /// 一覧外を受け取らないので、外から任意のホストを差し込むことはできない。
     pub lan_ips: Vec<(String, String)>,
+    /// P-008: 端末スロット（`devices/devices.json`）。空なら端末を区別しない（従来どおり）。
+    pub devices: crate::device::DeviceRegistry,
+    /// P-008: 端末ごとの「いまの盤面」。`layout.switch` と、接続時に端末が名乗った盤面で更新する。
+    /// **Hubを終了すると消える**（既定の board と同じ理由でディスクには書かない）。
+    pub device_layouts: BTreeMap<String, String>,
 }
 
 impl HubState {
@@ -243,7 +251,35 @@ impl HubState {
             default_keymap: None,
             lan_ips: vec![("この端末".to_string(), lan_ip.clone())],
             lan_ip,
+            devices: crate::device::DeviceRegistry::empty(),
+            device_layouts: BTreeMap::new(),
         }
+    }
+
+    /// P-008: 起動時に読んだ端末スロットを登録する。
+    pub fn set_devices(&mut self, devices: crate::device::DeviceRegistry) {
+        self.devices = devices;
+    }
+
+    /// P-008: その接続が名乗った端末（無ければ None）。
+    pub fn device_of(&self, client_id: ClientId) -> Option<String> {
+        self.clients.get(&client_id).and_then(|entry| entry.device.clone())
+    }
+
+    /// P-008: 端末のいまの盤面を覚える。**実在する盤面だけ**（無いものは覚えない）。
+    pub fn note_device_layout(&mut self, device: &str, layout_id: &str) {
+        if self.devices.contains(device) && self.layouts.contains_key(layout_id) {
+            self.device_layouts.insert(device.to_string(), layout_id.to_string());
+        }
+    }
+
+    /// P-008: 端末の「既定へ戻る」の行き先。端末の defaultLayout → Hub 全体の既定 の順。
+    pub fn device_default_layout(&self, device: &str) -> Option<String> {
+        self.devices
+            .get(device)
+            .and_then(|slot| slot.default_layout.clone())
+            .filter(|id| self.layouts.contains_key(id))
+            .or_else(|| self.default_layout.clone())
     }
 
     /// 既定の board を決める。**実在するidだけ**を受け付ける。
@@ -316,6 +352,24 @@ impl HubState {
         // P-005: `layout:<layoutId>` でレイアウトごとのURLを作れるようにする。
         // レイアウトが増えても、iPad側は「ランディングページのQRを読む」だけで
         // 目的の画面に飛べる（URLを手で打たなくてよい）。
+        // P-008: `device:<id>` でその端末専用の URL。いまの盤面（無ければ端末の既定）を id に載せる
+        if let Some(device) = target.strip_prefix("device:") {
+            if !self.devices.contains(device) {
+                return None;
+            }
+            let layout = self
+                .device_layouts
+                .get(device)
+                .cloned()
+                .or_else(|| self.device_default_layout(device));
+            let layout_part = layout.map(|id| format!("&id={id}")).unwrap_or_default();
+            return Some(format!(
+                "http://{}:{}/layout?device={device}{layout_part}&token={}",
+                self.lan_ip,
+                PORT,
+                self.token.value()
+            ));
+        }
         if let Some(layout_id) = target.strip_prefix("layout:") {
             if !self.layouts.contains_key(layout_id) {
                 return None;
@@ -353,8 +407,9 @@ impl HubState {
         client_id: ClientId,
         tx: mpsc::UnboundedSender<Message>,
         surface: SurfaceKind,
+        device: Option<String>,
     ) {
-        self.clients.insert(client_id, ClientEntry { tx, surface });
+        self.clients.insert(client_id, ClientEntry { tx, surface, device });
     }
 
     /// P-005 段階C: 押下/解放を台帳に反映する。戻り値は「実際に状態が変わったか」。
@@ -419,6 +474,19 @@ impl HubState {
                 let _ = entry.tx.send(Message::Text(text.to_string().into()));
             }
         }
+    }
+
+    /// P-008: その端末を名乗っている接続だけへ送る（同じ端末で2画面開いていれば両方）。
+    /// 返り値は送った接続の数。
+    pub fn broadcast_to_device(&self, surface: SurfaceKind, device: &str, text: &str) -> usize {
+        let mut sent = 0;
+        for entry in self.clients.values() {
+            if entry.surface == surface && entry.device.as_deref() == Some(device) {
+                let _ = entry.tx.send(Message::Text(text.to_string().into()));
+                sent += 1;
+            }
+        }
+        sent
     }
 }
 
