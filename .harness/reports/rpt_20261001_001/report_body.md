@@ -79,3 +79,9 @@ Note Story の manifest に `launch_handler` が無いため、Chrome は起動�
 4. **F13〜F17** — デプロイ済みなので「押して登録」は不要のはず。効かなければ Note Story の 設定 → ショートカット → PC タブで確認
 5. **iPad 実機で通し** — 入口の盤面（shortborad）の A3「Note Story 起動」を押す → PC に Note Story の窓が出る・iPad の盤面が note_story に変わる
 6. **PWA を入れ直したとき** — スタートメニュー「Chrome アプリ」→ Note Story ショートカットのプロパティの「リンク先」にある `--app-id=…` を、apps.json の `note_story` の args へ写して Hub を再起動
+
+## 追記（2026-10-01）: 「戻る(盤)」の行き先 — 利用者が A に決定
+
+- `devices/devices.json` の iPad の `defaultLayout` を **`shortborad`（入口の盤面）** にした。QR や端末の入口 URL から開くと入口が出て、A3「Note Story 起動」で Note Story へ移る
+- 本物の Hub で確認: iPad を名乗る画面（note_story）の「既定へ戻る」を実マウスで押す → **shortborad に戻った**
+- guardian 点検（b3ba42f）: **PASS**（reports/guardian_20261001_0029.md）。起動に失敗したとき盤面が移らないことはコードを読んでの確認で、テストは次に手を入れるときに足す
