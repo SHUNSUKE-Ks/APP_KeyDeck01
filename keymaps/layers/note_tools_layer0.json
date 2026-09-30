@@ -2,47 +2,11 @@
   "layer": 0,
   "description": "書く道具。F13〜F17 は Note Story が「登録しなくても動く既定キー」として持つ（shortcuts.ts の EXTERNAL_DEFAULTS。本番は次のデプロイから）。柱：と備考：は text アクション（KEYEVENTF_UNICODE・クリップボードは触らない）。",
   "keys": {
-    "T1": {
-      "label": "[Char]",
-      "action": {
-        "t": "key",
-        "vk": "F13"
-      }
-    },
-    "T2": {
-      "label": "[Scene]",
-      "action": {
-        "t": "key",
-        "vk": "F14"
-      }
-    },
-    "T3": {
-      "label": "[演出]",
-      "action": {
-        "t": "key",
-        "vk": "F15"
-      }
-    },
-    "T4": {
-      "label": "柱：",
-      "action": {
-        "t": "text",
-        "string": "柱："
-      }
-    },
-    "T5": {
-      "label": "備考：",
-      "action": {
-        "t": "text",
-        "string": "備考："
-      }
-    },
-    "T6": {
-      "label": "2カラム",
-      "action": {
-        "t": "key",
-        "vk": "F16"
-      }
-    }
+    "T1": { "label": "Y", "action": { "t": "key", "vk": "Y" } },
+    "T2": { "label": "[Scene]", "action": { "t": "key", "vk": "F14" } },
+    "T3": { "label": "[演出]", "action": { "t": "key", "vk": "F15" } },
+    "T4": { "label": "柱：", "action": { "string": "柱：", "t": "text" } },
+    "T5": { "label": "備考：", "action": { "string": "備考：", "t": "text" } },
+    "T6": { "label": "2カラム", "action": { "t": "key", "vk": "F16" } }
   }
 }

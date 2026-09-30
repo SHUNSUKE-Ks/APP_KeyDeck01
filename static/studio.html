@@ -287,7 +287,7 @@
       <div class="bhead"><b>下の棚</b><span id="bPicked"></span><span class="grow"></span><button class="btn" id="bSwap">重ねる ⇄ 並べる</button><button class="btn" id="bClose">× 閉じる</button></div>
       <div class="bbody"><div class="bcats" id="bCats"></div><div class="bgrid"><div class="parts" id="bParts"></div></div></div>
     </section>
-    <div class="qrbar"><span>保存しました。端末で QR を読むと、その端末専用の画面が開きます（繋がっている端末には自動で反映済み）</span><button class="btn" id="qrClose">閉じる</button></div>
+    <div class="qrbar"><span id="qrMsg">端末で QR を読むと、その端末専用の画面が開きます</span><button class="btn" id="qrClose">閉じる</button></div>
     <div class="menu" id="navset">
       <h5>パネルを開いたとき</h5>
       <div class="seg" id="focusSeg"><button class="on" data-focus="on">フォーカス（1台を中央に）</button><button data-focus="off">重ねるだけ</button></div>
@@ -609,7 +609,12 @@ function setLabel(v) {
 function undo() { var ch = undoStack.pop(); if (!ch) return; applyChange(ch, "before"); redoStack.push(ch); setDirty(undoStack.length > 0); renderAll(); flash("元に戻しました: " + ch.what); }
 function redo() { var ch = redoStack.pop(); if (!ch) return; applyChange(ch, "after"); undoStack.push(ch); setDirty(true); renderAll(); flash("やり直しました: " + ch.what); }
 function renderUndo() { $("undoBtn").disabled = !undoStack.length; $("redoBtn").disabled = !redoStack.length; }
-function setDirty(on) { app.classList.toggle("dirty", on); }
+// 変更が無いときの保存ボタンは「QR」。押すと各端末の QR をすぐ出す（何か変えなくても繋げるように）
+function setDirty(on) {
+  app.classList.toggle("dirty", on);
+  $("saveBtn").textContent = on ? "保存" : "QR";
+  $("saveBtn").title = on ? "変更を保存（保存後に各端末の QR を出す）" : "各端末の QR を出す";
+}
 $("undoBtn").addEventListener("click", undo); $("redoBtn").addEventListener("click", redo);
 document.addEventListener("keydown", function (e) {
   if (!(e.ctrlKey || e.metaKey)) return;
@@ -629,7 +634,7 @@ async function save() {
     jobs.push({ what: kmId + " L" + layer, url: "/api/layer/save", body: { keymapId: kmId, layer: layer, description: (l && l.description) || "", keys: drafts[key] } });
   });
   Object.keys(deckDrafts).forEach(function (id) { jobs.push({ what: "Deck " + id, url: "/api/deck/save", body: deckDrafts[id] }); });
-  if (!jobs.length) { flash("保存するものはありません"); return; }
+  if (!jobs.length) { showQr(); return; }
   $("saveBtn").disabled = true;
   var failed = [];
   for (var i = 0; i < jobs.length; i++) {
@@ -644,8 +649,17 @@ async function save() {
   if (failed.length) { flash("保存できないものがありました: " + failed.join(" ／ "), true); return; }
   drafts = {}; deckDrafts = {}; undoStack = []; redoStack = []; setDirty(false);
   // 繋がっている端末には Hub が新しい構成を配り直している。QR は新しく繋ぐ端末のため
-  if (DEVICES.some(function (d) { return d.id; })) { app.classList.add("showqr"); loadQrImages(); }
+  if (DEVICES.some(function (d) { return d.id; })) showQr(true);
   else flash("保存しました（" + jobs.length + " 件）。繋がっている端末にも反映されます");
+}
+function showQr(saved) {
+  $("qrMsg").textContent = saved
+    ? "保存しました。繋がっている端末には反映済み。新しく繋ぐ端末は QR を読む"
+    : "端末で QR を読むと、その端末専用の画面が開きます";
+  if (!DEVICES.some(function (d) { return d.id; })) { flash("端末が登録されていません（devices/devices.json）。QR ギャラリーは歯車の「旧画面」から", true); return; }
+  // フォーカス中は1台しか出ていないので、並べた表示に戻してから全端末に QR を出す
+  openL = openR = null; renderRails(); renderOv();
+  app.classList.add("showqr"); loadQrImages();
 }
 $("saveBtn").addEventListener("click", save);
 $("qrClose").addEventListener("click", function () { app.classList.remove("showqr"); });
@@ -922,7 +936,7 @@ function connect() {
 setInterval(async function () { if (!CONFIG) return; var before = JSON.stringify(DEVICES.map(function (d) { return d.connections; })); await loadDevices(); if (JSON.stringify(DEVICES.map(function (d) { return d.connections; })) !== before) renderAll(); }, 5000);
 window.addEventListener("resize", function () { layout(); });
 if (!token) { $("stage").innerHTML = '<div class="empty-msg">URL に token がありません。Hub が起動時に表示した URL（…/?token=…）から開いてください。</div>'; }
-else { syncSegs(); renderRails(); connect(); }
+else { syncSegs(); setDirty(false); renderRails(); connect(); }
 </script>
 </body>
 </html>

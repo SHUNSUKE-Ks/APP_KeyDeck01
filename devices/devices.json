@@ -1,6 +1,7 @@
 {
-  "description": "端末スロット（P-008）。手で書く。Hub は起動時にだけ読む（書き換えたら Hub を再起動）。最大3台。3台目（iPhone）はあとで足す。見本と書き方は devices.example.json。",
+  "description": "端末スロット（P-008）。手で書く。Hub は起動時にだけ読む（書き換えたら Hub を再起動）。最大3台。\n並びの意味: 統合編集画面では、携帯を書いた順に iPad の左 → 右へ置く（android2 が左、pixel が右）。\n見本と書き方は devices.example.json。",
   "devices": [
+    { "id": "android2", "label": "Android（左）", "kind": "phone", "orientation": "portrait", "defaultLayout": "iphone7_portrait" },
     { "id": "ipad", "label": "iPad Pro", "kind": "tablet", "orientation": "landscape", "defaultLayout": "note_story" },
     { "id": "pixel", "label": "Pixel 6a", "kind": "phone", "orientation": "portrait", "defaultLayout": "game_iphone7_port" }
   ]
