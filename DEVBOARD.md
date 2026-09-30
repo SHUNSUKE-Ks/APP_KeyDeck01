@@ -2305,3 +2305,4 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - 検証: `cargo test --workspace` = **178 passed**（+4: B-002・fire の決まり・Deck・未知の盤面）。本物の Hub で iPad を名乗る画面の A3 を実マウスで押す → `app launched` → `layout switch; this device only device="ipad"`、iPad だけ note_story へ、Pixel は不変
 - 同時に: 利用者のテスト保存で変わっていた `game_action` GA2（ジャンプ→N）と `note_tools` T1（[Char]→Y）を 22e8bc0 の内容へ戻した（実データのテストが GA2 の変化を検出した）
 - 未確認・未決: iPad 実機。「既定へ戻る」の行き先（iPad の既定が note_story なので戻っても note_story のまま。返事で A/B を質問）
+- 2026-10-01 00:29 keydeck-guardian: b3ba42f（REQ-20261001-001 B-002・Hooks）点検 **PASS**。`cargo test --workspace` = 178 passed（7+8+114+49、+4・削除なし）。凍結領域差分なし。3段入れ子はキーボード/Deck両方でロード拒否、起動失敗時 fire 不発はコード目視。起動中Hub(8770)で静的5ページ200・token無しWS/API/QR 401（ボタン押下なし） → `reports/guardian_20261001_0029.md`
