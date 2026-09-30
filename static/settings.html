@@ -252,7 +252,7 @@
       const img = document.getElementById("qrImage");
       img.alt = "QR: " + label;
       // targetの `layout:xxx` はコロンを含むので必ずエンコードする
-      img.src = "/api/qr?target=" + encodeURIComponent(target);
+      img.src = "/api/qr?target=" + encodeURIComponent(target) + "&token=" + encodeURIComponent(token);
       modal.hidden = false;
       document.getElementById("qrClose").focus();
     }

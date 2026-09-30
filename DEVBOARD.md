@@ -2276,3 +2276,10 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - 未確認: 実機、`to:"all"` を付けた実物のボタン
 - 既知の注意（guardian）: 端末の画面のセレクトで盤面を手で変えると、再接続まで Hub の「いまの盤面」が古い／reload・保存で消した盤面の id が端末の入口 URL に残り得る／token を持てば登録済みのどの端末でも名乗れる（名札であって認証ではない）
 - **以前からの穴（guardian が発見・統括が再現）**: `/api/qr` は token を確かめずに token 入り URL の QR を返す（token なしで 200）。LAN 内の誰でも QR を読めば token が手に入る。直すには呼び出し元10画面に token を渡す必要があり、凍結中の `editor_v1_1.html` も含むため利用者の判断待ち
+
+## 2026-09-30 `/api/qr` に token を必須にした（guardian が見つけた以前からの穴）— Claude Code（Opus 5.5）
+
+- 穴: `/api/qr` は token を確かめずに token 入り URL の QR を返していた（token なしで 200 を再現）。同じ Wi-Fi の誰でも QR を読めば token（編集もできる鍵）が手に入った
+- 利用者裁定 A（2026-09-30）: token を必須にし、QR を出す**11画面**すべてに token を渡す。**凍結中の `editor_v1_1.html`・`trackball_v1_1.html` も1行だけ足す（凍結の例外。該当行にコメントで明記）**
+- 変更: `ws.rs` の `QrQuery` に token・`qr_image` の入口で `token_ok`（無い・違うは 401 `WS_TOKEN_INVALID`）。JS で作る画面（editor / editor_v2 / editor_v1_1 / gallery / kb / settings）は URL に `&token=` を足した。HTML に直接書いていた画面（ipad / layout / panel / trackball）は `data-qr` にして、token を読んだ直後に src を入れる。trackball_v1_1 は token の行に1行で上書き
+- 検証: `cargo test --workspace` = **173 passed**（+1 `qr_requires_token`）。再起動した本物の Hub で token なしの `/api/qr` が 401。ipad / layout / panel / trackball / trackball_v1_1 の QR 画像が token 付きで 225px に読み込まれる。QR ギャラリーでカードの「QR」を実マウスで押して token 付きで表示。deck / kb-left / layout:note_story を token 付きで取ると 200

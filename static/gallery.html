@@ -259,7 +259,7 @@
         const on = card.classList.toggle("flipped");
         btn.textContent = on ? "戻す" : "QR";
         // QR画像は開くまで読み込まない。9枚ぶんを最初に取りに行かないため。
-        if (on && !img.src) img.src = "/api/qr?target=" + encodeURIComponent(item.target);
+        if (on && !img.src) img.src = "/api/qr?target=" + encodeURIComponent(item.target) + "&token=" + encodeURIComponent(token);
       });
       head.appendChild(btn);
       card.appendChild(head);

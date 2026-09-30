@@ -1711,7 +1711,7 @@ function openQr() {
   img.alt = "QR: " + layoutId;
   // `layout:xxx` はコロンを含むので必ずエンコードする。
   // 毎回付け直すのは、レイアウトを切り替えたときに古い画像が残らないようにするため。
-  img.src = "/api/qr?target=" + encodeURIComponent(target) + "&t=" + Date.now();
+  img.src = "/api/qr?target=" + encodeURIComponent(target) + "&token=" + encodeURIComponent(token) + "&t=" + Date.now(); // 2026-09-30 凍結の例外（/api/qr に token 必須。利用者裁定 A）
   // URLはHub側にしか無いので /api/formats から引く（tokenをこのJSに埋めない）
   fetch("/api/formats?token=" + encodeURIComponent(token))
     .then((r) => (r.ok ? r.json() : null))

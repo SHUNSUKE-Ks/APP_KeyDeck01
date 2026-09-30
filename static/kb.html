@@ -150,7 +150,7 @@
     // D25: ヘッダQRボタン→中央モーダルに自ページ(kb-left/kb-right)のQR（1画面1QR）。
     const qrTarget = half === "right" ? "kb-right" : "kb-left";
     document.getElementById("qrTitle").textContent = qrTarget;
-    document.getElementById("qrImg").src = "/api/qr?target=" + qrTarget;
+    document.getElementById("qrImg").src = "/api/qr?target=" + qrTarget + "&token=" + encodeURIComponent(token);
     document.getElementById("qrOpenBtn").addEventListener("click", () => {
       document.getElementById("qrModal").classList.add("on");
     });

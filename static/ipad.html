@@ -145,7 +145,7 @@
   <div id="qrModal">
     <div class="qr-card">
       <h2>ipad01_vol12</h2>
-      <img src="/api/qr?target=ipad" alt="QR: ipad01_vol12">
+      <img data-qr="ipad" alt="QR: ipad01_vol12">
       <button class="qr-close" id="qrCloseBtn">閉じる</button>
     </div>
   </div>
@@ -154,6 +154,8 @@
     // ---- 起動時の文脈 --------------------------------------------------
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
+    // /api/qr は token が要る（2026-09-30）。token を読んでから QR の画像を読み込む
+    document.querySelectorAll("img[data-qr]").forEach(function (im) { im.src = "/api/qr?target=" + encodeURIComponent(im.dataset.qr) + "&token=" + encodeURIComponent(token); });
 
     const statusEl = document.getElementById("status");
     const statusBtnEl = document.getElementById("statusBtn");

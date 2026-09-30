@@ -340,7 +340,7 @@
     }
 
     const params = new URLSearchParams(location.search);
-    const token = params.get("token") || "";
+    const token = params.get("token") || ""; document.querySelectorAll('img[src^="/api/qr"]').forEach(function (im) { im.src = im.getAttribute("src") + "&token=" + encodeURIComponent(token); }); // 2026-09-30 凍結の例外（/api/qr に token 必須。利用者裁定 A）
     // D28: surfaces/trackball.jsonに登録済みの自分の識別子。出口(binding)はここには無い。
     const SURFACE_ID = "tb01";
     // この面は surface.config を受け取らない（keymapを持たないため）ので、

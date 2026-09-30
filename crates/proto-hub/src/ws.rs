@@ -195,9 +195,21 @@ pub struct QrQuery {
     /// `kb-left` のような固定target、または `layout:<layoutId>`。
     /// 解決は `HubState::connection_url` が一手に引き受ける。
     pub target: String,
+    /// 2026-09-30: 必須。QR には token 入りの URL が載るので、token を持っている人にだけ返す。
+    /// （以前は無しで返していて、同じ Wi-Fi の誰でも QR を読めば token が手に入った）
+    pub token: Option<String>,
 }
 
 async fn qr_image(State(state): State<SharedState>, Query(query): Query<QrQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(
+            chk = "QR",
+            code = WS_TOKEN_INVALID,
+            cause = "missing or invalid token on /api/qr",
+            "rejecting qr request"
+        );
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
     let url = {
         let s = state.lock().unwrap();
         s.connection_url(&query.target)
@@ -3286,6 +3298,20 @@ mod tests {
         let s = state.lock().unwrap();
         let ids: Vec<String> = connection_targets(&s).into_iter().map(|(t, _, _)| t).collect();
         assert!(ids.iter().any(|t| t == "trackball"), "surfaceがあるのに出ていない: {ids:?}");
+    }
+
+    /// 2026-09-30: QR は token 入りの URL を載せるので、token が無い・違うなら 401。
+    /// 以前は token 無しで返していて、同じ Wi-Fi の誰でも QR を読めば token が手に入った。
+    #[tokio::test]
+    async fn qr_requires_token() {
+        let (state, _rx) = test_state(TB01_JSON);
+        for token in [None, Some("wrong".to_string())] {
+            let res = qr_image(State(state.clone()), Query(QrQuery { target: "deck".into(), token })).await;
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        }
+        let good = state.lock().unwrap().token.value().to_string();
+        let res = qr_image(State(state.clone()), Query(QrQuery { target: "deck".into(), token: Some(good) })).await;
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     /// アイコン保存は token 無しなら、ディスクに触る前に 401 で断る。
