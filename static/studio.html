@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck</title>
+<!-- ============================================================
+  KeyDeck 統合編集画面（studio）— 2026-09-30〜
+  URL: /?token=…   （トップ。旧来のレイアウト編集は /editor へ移した）
+
+  ■ 見た目の正
+    00_勉強フォルダー/41_統合編集画面_VIA型モック_v0.4.html（モック v0.4.1）。
+    VIA / Remap 型: 上＝端末の図、部品棚は横（左 NAV）か下（下の棚）、左右に細い NAV。
+
+  ■ この画面でできること（段階1）
+    - 端末（devices/devices.json）を1台／3台で並べ、いまの盤面を実物と同じ描画で出す
+    - キーボードのキー・Deck のタイルを押して選び、部品棚から動作を入れる／表示名を変える
+    - 元に戻す（Ctrl+Z）・やり直す（Ctrl+Y）
+    - 保存（キー＝POST /api/layer/save、Deck＝POST /api/deck/save。どちらも既存の口）
+      保存したら、各端末の図に黒をかぶせて、その端末専用の QR を出す
+    - まだ旧画面でやること: 区画の並べ替え（/editor）、キーの位置（/keys）、Deck の色・アイコン・取り込み（/deckedit）
+      → 歯車の「旧画面」から開ける
+
+  ■ 守っていること
+    - 書き込みは既存の API だけ（新しい書き込み口は作っていない）
+    - 部品の一覧は components.js の buildActionParts（キー編集・Deck編集と同じもの）
+    - 表示レイアウト（KeyDeck の名前から選ぶもの）と NAV の並びは、段階1ではこのブラウザにだけ覚える
+      （Hub への保存 views/ は利用者裁定済み・次の段階で作る）
+============================================================ -->
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1220; --bg-grad: #151b2e;
+    --panel: #1a2033; --panel2: #141a2a; --shelf: #121726;
+    --line: #2a3250; --line-soft: #222a42;
+    --ink: #eef2ff; --ink-muted: #b3bbd3; --ink-dim: #69738f;
+    --accent: #5b8cff; --accent-soft: rgba(91,140,255,0.18);
+    --ok: #35c47a; --warn: #e8b44a; --err: #e2555a;
+    --rail: 60px; --panel-w: 300px; --bottomH: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "Yu Gothic UI", sans-serif; font-size: 13px; color: var(--ink); overflow: hidden; }
+  button, select, input { font: inherit; color: inherit; }
+  #app { position: relative; display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---- header 1段目 ---- */
+  .top { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel2); white-space: nowrap; overflow: hidden; }
+  .top button, .top .pill { flex: none; }
+  .brand { font-weight: 700; letter-spacing: .5px; display: flex; align-items: center; gap: 7px; background: transparent; border: 0; padding: 4px 6px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .brand:hover { background: var(--panel); }
+  .brand i { width: 8px; height: 8px; border-radius: 50%; background: var(--err); display: inline-block; }
+  #app.online .brand i { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .boardsel { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 2px 4px 2px 10px; }
+  .boardsel small { color: var(--ink-dim); }
+  .boardsel select { background: transparent; border: 0; padding: 4px; cursor: pointer; max-width: 220px; }
+  .boardsel select option { background: var(--panel); }
+  .tabs { display: flex; gap: 4px; margin-left: 12px; }
+  .tabs button { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--ink-muted); }
+  .tabs button:hover { background: var(--panel); }
+  .tabs button.on { background: var(--accent); color: #fff; }
+  .grow { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+  .pill .dot, .dmenu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); flex: none; }
+  .pill .dot.on, .dmenu .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .savebtn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--ink-muted); }
+  #app.dirty .savebtn { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #app.dirty .savebtn::before { content: "● "; }
+  .gear { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 16px; }
+  .gear.on { background: var(--ink); color: var(--bg); }
+
+  /* ---- header 2段目 ---- */
+  .sub { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; height: 42px; padding: 0 calc(var(--rail) + 12px); border-bottom: 1px solid var(--line-soft); background: #11162a; white-space: nowrap; overflow: hidden; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 4px 11px; cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+  .seg button.on { background: var(--ink); color: var(--bg); font-weight: 700; }
+  .seg button:disabled { opacity: .35; cursor: default; }
+  .lbl { color: var(--ink-dim); font-size: 11px; letter-spacing: .5px; }
+  .layers { display: flex; align-items: center; gap: 3px; }
+  .layers button { min-width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink-muted); cursor: pointer; font-size: 12px; }
+  .layers button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 700; }
+  .toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-muted); font-size: 12px; cursor: pointer; user-select: none; }
+  .sw { width: 30px; height: 18px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink-muted); transition: left .15s; }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 15px; background: #fff; }
+  .picked { color: var(--ink-dim); font-size: 12px; display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+  .picked b { color: var(--ink); font-weight: 600; }
+  .picked input { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; width: 150px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 2px 8px; background: var(--panel); border: 1px solid var(--line); font-size: 11px; }
+  .undo { display: inline-flex; gap: 4px; }
+  .undo button { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 3px 9px; cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+  .undo button:disabled { opacity: .35; cursor: default; }
+  .undo kbd { font-family: inherit; font-size: 10px; color: var(--ink-dim); margin-left: 4px; }
+
+  /* ---- 本体 ---- */
+  .main { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: var(--rail) 1fr var(--rail); grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+  .rail { background: var(--panel2); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; z-index: 5; }
+  .rail.left { grid-column: 1; grid-row: 1 / span 2; border-right: 1px solid var(--line); }
+  .rail.right { grid-column: 3; grid-row: 1 / span 2; border-left: 1px solid var(--line); }
+  .rbtn { width: 48px; height: 52px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--ink-dim); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; position: relative; }
+  .rbtn svg { width: 22px; height: 22px; }
+  .rbtn span { font-size: 9.5px; letter-spacing: .02em; text-align: center; line-height: 1.1; }
+  .rbtn:hover { color: var(--ink); background: rgba(255,255,255,.04); }
+  .rbtn.on { color: var(--ink); border-color: rgba(91,140,255,.45); background: var(--accent-soft); }
+  .rail .anchor { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .rbtn.sm { height: 44px; }
+  .mini-sw { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; }
+  .mini-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--ink-muted); }
+  .rbtn.on .mini-sw { background: var(--accent); } .rbtn.on .mini-sw::after { left: 13px; background: #fff; }
+  #app.nolabel .rbtn span:not(.mini-sw) { display: none; }
+
+  .stage { grid-column: 2; grid-row: 1; position: relative; min-width: 0; min-height: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 25%, var(--bg-grad), var(--bg) 72%);
+    display: flex; align-items: center; justify-content: center; gap: 22px; padding: 16px; }
+  .stage .empty-msg { color: var(--ink-dim); text-align: center; line-height: 1.8; }
+  .col { display: flex; flex-direction: column; gap: 30px; align-items: center; }
+  .dev { position: relative; background: #07090f; border-radius: 22px; padding: 12px; cursor: pointer; flex: none;
+    box-shadow: 0 0 0 2px #262d43, 0 18px 44px rgba(0,0,0,.55); transition: box-shadow .15s, opacity .15s; }
+  .dev.phone { border-radius: 26px; padding: 14px 8px; }
+  .dev.active { box-shadow: 0 0 0 2px var(--ok), 0 0 26px rgba(53,196,122,.28), 0 18px 44px rgba(0,0,0,.55); }
+  .dev:not(.active) { opacity: .8; }
+  .dev .name { position: absolute; left: 12px; top: -22px; font-size: 11px; color: var(--ink-dim); white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+  .dev .name .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); }
+  .dev.active .name { color: var(--ink); } .dev .name .d.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dev .name .ly { color: #ff7aa8; }
+  .screen { position: relative; border-radius: 8px; background: #0b0f1a; overflow: hidden; }
+  .inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; display: grid; gap: 6px; padding: 8px; }
+  .sec { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .sec > .kd-surface { flex: 1; min-height: 0; }
+  .sec .kbgrid, .sec .deckgrid { height: 100%; }
+  /* 選んでいるキー・タイル */
+  .key.sel, .slot.sel { outline: 3px solid var(--accent) !important; outline-offset: -3px; box-shadow: 0 0 18px rgba(91,140,255,.6) !important; }
+  .key.lit, .slot.lit { background: #1f7a52 !important; color: #fff !important; }
+  .jogbox { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; background: repeating-linear-gradient(180deg, #2b3350 0 3px, #1a2033 3px 9px); }
+  .jogbox .jk { background: #1a2033; border: 1px solid #3a4568; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
+  .jogbox .jk.sel { outline: 3px solid var(--accent); }
+  .jogbox .jn { font-size: 12px; color: var(--ink-dim); background: #0b0f1a; padding: 2px 8px; border-radius: 6px; }
+
+  .tbwrap { flex: 1; display: flex; align-items: center; justify-content: center; container-type: size; position: relative; }
+  .bezel { position: relative; width: min(92cqw, 92cqh); height: min(92cqw, 92cqh); flex: none; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #1b2030 55%, #0b0e17 70%, #232a3d 71%, #0c0f18 76%); box-shadow: 0 10px 24px rgba(0,0,0,.6), inset 0 0 0 1px #2a3148; }
+  .ball { position: absolute; inset: 14%; border-radius: 50%; overflow: hidden;
+    background: radial-gradient(circle at 34% 26%, rgba(255,255,255,.95) 0, rgba(255,255,255,.5) 5%, rgba(255,255,255,0) 17%),
+      radial-gradient(circle at 70% 82%, rgba(120,150,255,.28) 0, rgba(120,150,255,0) 30%),
+      radial-gradient(circle at 42% 38%, #3a4058 0%, #151926 48%, #05060a 78%, #000 100%);
+    box-shadow: inset -10px -14px 24px rgba(0,0,0,.85), inset 6px 8px 18px rgba(255,255,255,.08); }
+  .ball::after { content: ""; position: absolute; left: 18%; top: 12%; width: 40%; height: 18%; border-radius: 50%; background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0)); transform: rotate(-18deg); }
+  .callouts { position: absolute; inset: 0; pointer-events: none; }
+  .callouts svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .co { position: absolute; transform: translate(-50%, -50%); background: #0e1322; border: 1px solid #3a4568; color: var(--ink); font-size: 13px; padding: 4px 9px; border-radius: 6px; white-space: nowrap; }
+  .co small { color: var(--ink-dim); margin-right: 5px; }
+  #app:not(.show-callouts) .callouts { display: none; }
+
+  /* 保存後の QR（各端末に黒をかぶせる） */
+  .qr { position: absolute; inset: 0; border-radius: inherit; background: rgba(4,6,12,.8); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; z-index: 3; cursor: default; }
+  #app.showqr .qr { display: flex; }
+  .qr img { width: min(60%, 200px); background: #fff; border-radius: 8px; padding: 6px; }
+  .qr .t { font-size: 12px; color: #fff; text-align: center; padding: 0 8px; }
+  .qrbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; display: none; gap: 10px; align-items: center; background: #0e1322; border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px 6px 16px; white-space: nowrap; }
+  #app.showqr .qrbar { display: flex; }
+  .thumbs { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 2; }
+  #app.b-overlay .thumbs { bottom: calc(var(--bottomH) + 12px); }
+  .thumbs button { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+  .thumbs button.on { color: var(--ink); border-color: var(--ok); }
+  .focusnote { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--ink-dim); z-index: 2; white-space: nowrap; }
+
+  /* ---- オーバーレイのパネル ---- */
+  .ov { position: absolute; top: 0; bottom: 0; width: var(--panel-w); background: rgba(20,26,42,.97); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0,0,0,.55);
+    z-index: 4; padding: 14px; overflow: auto; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; }
+  .ov.left { left: var(--rail); transform: translateX(-12px); border-left: 0; }
+  .ov.right { right: var(--rail); transform: translateX(12px); border-right: 0; }
+  .ov.open { opacity: 1; transform: none; pointer-events: auto; }
+  #app.b-dock .ov { bottom: var(--bottomH); }
+  .ov h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: .12em; color: var(--ink-muted); }
+  .ov .lead { margin: 0 0 10px; font-size: 11px; color: var(--ink-dim); line-height: 1.6; }
+  .ov .x { position: absolute; top: 8px; right: 10px; background: transparent; border: 0; color: var(--ink-dim); cursor: pointer; font-size: 16px; }
+  .parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .part { min-height: 56px; border-radius: 9px; background: var(--panel); border: 1px solid #323b5a; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; font-size: 11px; cursor: pointer; line-height: 1.15; padding: 4px 3px; user-select: none; white-space: pre-line; word-break: break-all; }
+  .part small { font-size: 9px; color: var(--ink-dim); }
+  .part:hover { border-color: var(--ink-muted); }
+  .part.dash { border-style: dashed; color: var(--ink-dim); }
+  .part.off { opacity: .35; pointer-events: none; }
+  .ptabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .ptabs button { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; color: var(--ink-muted); font-size: 11px; }
+  .ptabs button.on { background: var(--ink); color: var(--bg); font-weight: 700; }
+  .list .li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--ink-muted); text-decoration: none; }
+  .list a.li:hover { background: var(--panel); color: var(--ink); }
+  .list .li small { margin-left: auto; color: var(--ink-dim); font-size: 11px; }
+
+  /* 下の棚 */
+  .bshelf { display: none; flex-direction: column; background: rgba(18,23,38,.98); border-top: 1px solid var(--line); height: var(--bottomH); min-height: 0; z-index: 3; }
+  #app.b-overlay .bshelf, #app.b-dock .bshelf { display: flex; }
+  #app.b-dock .bshelf { grid-column: 2; grid-row: 2; }
+  #app.b-overlay .bshelf { position: absolute; left: var(--rail); right: var(--rail); bottom: 0; box-shadow: 0 -16px 40px rgba(0,0,0,.55); }
+  .bgrip { flex: none; height: 10px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; touch-action: none; }
+  .bgrip::before { content: ""; width: 44px; height: 4px; border-radius: 2px; background: var(--line); }
+  .bhead { flex: none; display: flex; align-items: center; gap: 12px; padding: 2px 16px 8px; font-size: 12px; color: var(--ink-dim); border-bottom: 1px solid var(--line-soft); }
+  .bhead b { color: var(--ink); }
+  .bbody { flex: 1; min-height: 0; display: grid; grid-template-columns: 170px 1fr; }
+  .bcats { border-right: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
+  .bcats button { text-align: left; background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; color: var(--ink-muted); cursor: pointer; }
+  .bcats button.on { background: var(--ink); color: var(--bg); font-weight: 700; }
+  .bgrid { padding: 10px 12px; overflow: auto; }
+  .bgrid .parts { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+
+  /* メニュー類 */
+  .menu { position: absolute; z-index: 35; background: rgba(20,26,42,.98); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.6); padding: 6px; display: none; }
+  .menu.open { display: block; }
+  .menu .h { font-size: 10px; letter-spacing: .14em; color: var(--ink-dim); padding: 8px 10px 4px; }
+  .menu .i { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink-muted); text-decoration: none; }
+  .menu .i:hover { background: var(--panel); color: var(--ink); }
+  .menu .i small { display: block; color: var(--ink-dim); font-size: 11px; }
+  .menu .sep { height: 1px; background: var(--line); margin: 6px 4px; }
+  #viewMenu { top: 48px; left: 10px; width: 300px; }
+  #devMenu { top: 48px; right: 110px; width: 280px; }
+  #settings { top: 52px; right: 12px; width: 420px; max-height: calc(100% - 64px); overflow: auto; padding: 6px 16px 12px; }
+  #navset { right: calc(var(--rail) + 8px); bottom: 10px; width: 280px; padding: 6px 14px 10px; }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line-soft); gap: 14px; }
+  .row .nm { color: var(--ink-muted); } .row .nm small { display: block; color: var(--ink-dim); font-size: 11px; margin-top: 2px; }
+  .btn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .swatches { display: flex; gap: 8px; }
+  .swatches b { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; display: inline-block; }
+  .swatches b.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor; }
+  h5 { margin: 12px 0 2px; font-size: 11px; color: var(--ink-dim); letter-spacing: .12em; }
+
+  /* 並び替えダイアログ */
+  .dlg-back { position: absolute; inset: 0; background: rgba(3,5,10,.62); z-index: 40; display: none; align-items: center; justify-content: center; }
+  .dlg-back.open { display: flex; }
+  .dlg { width: min(1280px, 94%); max-height: 92%; overflow: auto; background: #151a2b; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px 18px; }
+  .dlg header { display: flex; align-items: center; gap: 10px; }
+  .dlg header h3 { margin: 0; font-size: 17px; } .dlg header p { margin: 0; color: var(--ink-dim); font-size: 12px; }
+  .zones { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 20px; margin-top: 20px; }
+  .zone { position: relative; border: 1.5px dashed #3a4568; border-radius: 12px; padding: 22px 10px 10px; min-height: 400px; display: flex; flex-direction: column; gap: 6px; }
+  .zone .ztag { position: absolute; top: -11px; left: 12px; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 6px; background: #4b4f5e; color: #fff; }
+  .zone.left .ztag { background: #3c5fb8; } .zone.right .ztag { background: #2e8a78; }
+  .zone.over { background: var(--accent-soft); border-color: var(--accent); }
+  .zone.hidden { display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+  .zone .grp { grid-column: 1 / -1; font-size: 10px; color: var(--ink-dim); letter-spacing: .1em; margin: 6px 2px 0; }
+  .zone .fixed { margin-top: auto; font-size: 11px; color: var(--ink-dim); border-top: 1px solid var(--line-soft); padding-top: 8px; }
+  .tile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; background: var(--panel); border: 1px solid #323b5a; cursor: grab; font-size: 14px; }
+  .tile svg { width: 20px; height: 20px; flex: none; color: var(--ink-muted); }
+  .tile .g { margin-left: auto; font-size: 10px; color: var(--ink-dim); }
+  .tile.dragging { opacity: .35; } .tile.ins { box-shadow: 0 -3px 0 var(--accent); }
+  .dlg footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+  .flash { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); background: #0e1322; border: 1px solid var(--line); border-radius: 999px; padding: 6px 16px; font-size: 12px; z-index: 60; opacity: 0; transition: opacity .15s; pointer-events: none; }
+  .flash.on { opacity: 1; } .flash.err { border-color: var(--err); color: #ffb3b5; }
+  .hide { display: none !important; }
+
+  #app.glass { --bg: #c9d3ea; --bg-grad: #eef2fb; --panel: rgba(255,255,255,.55); --panel2: rgba(255,255,255,.5); --line: rgba(40,55,90,.18); --line-soft: rgba(40,55,90,.12);
+    --ink: #172036; --ink-muted: #3b4766; --ink-dim: #6f7a96; }
+  #app.glass .sub { background: rgba(255,255,255,.35); }
+  #app.glass .ov, #app.glass .menu { background: rgba(255,255,255,.72); backdrop-filter: blur(14px); }
+</style>
+</head>
+<body>
+<div id="app" class="show-callouts">
+  <header class="top">
+    <button class="brand" id="brandBtn" title="表示レイアウト"><i title="Hub との接続"></i>KeyDeck</button>
+    <span class="boardsel" title="編集中の端末の盤面（ここで選ぶのは編集する盤面。端末の画面は変わらない）"><small>盤面</small><select id="boardSel"></select></span>
+    <nav class="tabs"><button data-tab="edit" class="on">編集</button><button data-tab="test">キーテスター</button></nav>
+    <div class="grow"></div>
+    <span class="pill" id="devPill" title="編集中の端末（常に1台）"><span class="dot" id="devDot"></span><span id="devName">—</span> ▾</span>
+    <button class="savebtn" id="saveBtn">保存</button>
+    <button class="gear" id="gearBtn" title="設定・旧画面・読み直し">⚙</button>
+  </header>
+  <div class="sub">
+    <span class="lbl">表示</span>
+    <div class="seg" id="viewSeg"><button data-view="one">1台</button><button data-view="three" class="on">並べる</button></div>
+    <label class="toggle" id="stackToggle" title="携帯はレイヤー0と1を縦に並べて出す"><span class="sw"></span>携帯は L0・L1</label>
+    <span class="lbl">LAYER</span>
+    <div class="layers" id="layers"></div>
+    <label class="toggle" id="coToggle"><span class="sw on"></span>割り当てを図に</label>
+    <div class="grow"></div>
+    <span class="picked" id="picked">キーを押して選ぶ</span>
+    <div class="undo"><button id="undoBtn">↶ 元に戻す<kbd>Ctrl+Z</kbd></button><button id="redoBtn">↷ やり直す<kbd>Ctrl+Y</kbd></button></div>
+  </div>
+
+  <div class="main" id="main">
+    <nav class="rail left" id="railL" aria-label="左の NAV"></nav>
+    <section class="stage" id="stage"><div class="empty-msg">Hub に接続しています…</div></section>
+    <nav class="rail right" id="railR" aria-label="右の NAV"></nav>
+    <aside class="ov left" id="ovL"><button class="x" data-close="L">×</button><div id="ovLBody"></div></aside>
+    <aside class="ov right" id="ovR"><button class="x" data-close="R">×</button><div id="ovRBody"></div></aside>
+    <section class="bshelf" id="bottom" aria-label="下の棚">
+      <div class="bgrip" id="bGrip" title="つかんで高さを変える"></div>
+      <div class="bhead"><b>下の棚</b><span id="bPicked"></span><span class="grow"></span><button class="btn" id="bSwap">重ねる ⇄ 並べる</button><button class="btn" id="bClose">× 閉じる</button></div>
+      <div class="bbody"><div class="bcats" id="bCats"></div><div class="bgrid"><div class="parts" id="bParts"></div></div></div>
+    </section>
+    <div class="qrbar"><span>保存しました。端末で QR を読むと、その端末専用の画面が開きます（繋がっている端末には自動で反映済み）</span><button class="btn" id="qrClose">閉じる</button></div>
+    <div class="menu" id="navset">
+      <h5>パネルを開いたとき</h5>
+      <div class="seg" id="focusSeg"><button class="on" data-focus="on">フォーカス（1台を中央に）</button><button data-focus="off">重ねるだけ</button></div>
+      <h5>下の棚の出し方</h5>
+      <div class="seg" id="bottomModeSeg"><button class="on" data-bm="overlay">重ねる</button><button data-bm="dock">並べる</button></div>
+      <h5>ボタンの見た目</h5>
+      <div class="seg" id="labelSeg"><button class="on" data-lab="on">アイコン＋名前</button><button data-lab="off">アイコンだけ</button></div>
+    </div>
+  </div>
+
+  <div class="menu" id="viewMenu"></div>
+  <div class="menu" id="devMenu"></div>
+  <div class="menu" id="settings">
+    <h5>見た目</h5>
+    <div class="row"><div class="nm">質感<small>このブラウザだけ</small></div><div class="seg" id="matSeg"><button class="on" data-mat="dark">ダーク</button><button data-mat="glass">明るい透明</button></div></div>
+    <div class="row"><div class="nm">色相<small>全端末に配られる（/api/theme）</small></div><div class="swatches" id="hue"><b style="background:#2d67d9;color:#2d67d9" data-t="blue"></b><b style="background:#e2555a;color:#e2555a" data-t="red"></b><b style="background:#35c47a;color:#35c47a" data-t="green"></b></div></div>
+    <h5>Hub</h5>
+    <div class="row"><div class="nm">構成を読み直す<small>JSON を手で直したあと</small></div><button class="btn" id="reloadBtn">再読込</button></div>
+    <h5>旧画面（新しい画面に移すまでの間ここから）</h5>
+    <div class="list" id="legacyList"></div>
+  </div>
+
+  <div class="dlg-back" id="dlgBack"><div class="dlg" role="dialog" aria-label="NAV の並び替え">
+    <header><h3>NAV の並び替え</h3><p>ボタンをドラッグして、左右の NAV・非表示のあいだで動かす。枠の中の上下でも並べ替えられる。</p></header>
+    <div class="zones">
+      <div class="zone left" data-zone="left"><span class="ztag">左 NAV</span></div>
+      <div class="zone right" data-zone="right"><span class="ztag">右 NAV</span></div>
+      <div class="zone hidden" data-zone="hidden"><span class="ztag">非表示</span></div>
+    </div>
+    <footer><button class="btn" id="dlgReset">最初の並びに戻す</button><button class="btn" id="dlgDone" style="background:var(--accent);border-color:var(--accent);color:#fff">完了</button></footer>
+  </div></div>
+  <div class="flash" id="flash"></div>
+</div>
+
+<script src="/components.js"></script>
+<script>
+"use strict";
+// =====================================================================
+// 起動時の文脈
+// =====================================================================
+var params = new URLSearchParams(location.search);
+var token = params.get("token") || "";
+var $ = function (id) { return document.getElementById(id); };
+var app = $("app");
+function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem("keydeck.studio." + k) || "null"); localStorage.setItem("keydeck.studio." + k, JSON.stringify(v)); } catch (e) { return null; } }
+function log(code, msg, extra) { if (code === "OK") console.log("[KD][studio]", msg, extra || ""); else console.error("[KD][ERR][" + code + "]", msg, extra || ""); }
+function flash(msg, isErr) { var f = $("flash"); f.textContent = msg; f.classList.toggle("err", !!isErr); f.classList.add("on"); clearTimeout(flash.t); flash.t = setTimeout(function () { f.classList.remove("on"); }, isErr ? 5000 : 2200); }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+var CONFIG = null;          // surface.config（Hub が配る一式）
+var DEVICES = [];           // /api/devices。空なら仮の1台
+var state = { view: store("view") || "three", stack: !!store("stack"), active: null, tab: "edit", sel: null };
+var pref = Object.assign({ focus: true, bottomMode: "overlay", label: true }, store("pref") || {});
+var drafts = {};            // "keymapId:layer" → keys（保存前の中身）
+var deckDrafts = {};        // deckId → deck
+var undoStack = [], redoStack = [];
+
+// =====================================================================
+// 端末と盤面
+// =====================================================================
+var REAL = { tablet: { w: 1366, h: 980 }, phone: { w: 412, h: 840 } };   // 端末の画面（実寸・CSS px）
+function activeDev() { return DEVICES.filter(function (d) { return d.id === state.active; })[0] || DEVICES[0]; }
+function layoutOf(dev) { return CONFIG && CONFIG.layouts ? CONFIG.layouts[dev.board] : null; }
+function keymapIdsOf(layout) {
+  var ids = [];
+  (layout ? layout.sections : []).forEach(function (s) { if ((s.component.kind === "keyboard" || s.component.kind === "jog") && ids.indexOf(s.component.ref) < 0) ids.push(s.component.ref); });
+  return ids;
+}
+function maxLayer(layout) {
+  var m = 0;
+  keymapIdsOf(layout).forEach(function (id) { var km = CONFIG.keymaps[id]; (km && km.layers || []).forEach(function (l) { m = Math.max(m, l.id); }); });
+  return m;
+}
+function effKeymap(id) {
+  var km = CONFIG.keymaps[id]; if (!km) return null;
+  var has = Object.keys(drafts).some(function (k) { return k.indexOf(id + ":") === 0; });
+  if (!has) return km;
+  var c = Object.assign({}, km);
+  c.layers = km.layers.map(function (l) { var d = drafts[id + ":" + l.id]; return d ? Object.assign({}, l, { keys: d }) : l; });
+  return c;
+}
+function effDeck(id) { return deckDrafts[id] || (CONFIG.decks || {})[id]; }
+
+async function loadDevices() {
+  try {
+    var res = await fetch("/api/devices?token=" + encodeURIComponent(token));
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    var body = await res.json();
+    var prevBoards = {}; DEVICES.forEach(function (d) { prevBoards[d.id] = d.board; });
+    DEVICES = (body.devices || []).map(function (d) {
+      return { id: d.id, label: d.label, kind: d.kind, orientation: d.orientation, connections: d.connections,
+        board: prevBoards[d.id] || d.currentLayout || d.defaultLayout, layer: 0 };
+    });
+  } catch (e) { log("DEVICES", "端末一覧を取れない: " + e); DEVICES = []; }
+  if (!DEVICES.length) {
+    // devices.json が無い構成: 盤面を1枚だけ編集する仮の端末
+    var first = CONFIG && CONFIG.layouts ? (CONFIG.defaultLayout || Object.keys(CONFIG.layouts)[0]) : null;
+    DEVICES = [{ id: "", label: "盤面", kind: "tablet", connections: 0, board: (DEVICES[0] && DEVICES[0].board) || first, layer: 0 }];
+  }
+  DEVICES.forEach(function (d) { if (!CONFIG.layouts[d.board]) d.board = Object.keys(CONFIG.layouts)[0]; });
+  if (!DEVICES.some(function (d) { return d.id === state.active; })) state.active = (DEVICES.filter(function (d) { return d.kind === "tablet"; })[0] || DEVICES[0]).id;
+}
+
+// =====================================================================
+// 描画
+// =====================================================================
+function layerState(n) { return { momentary: [], toggled: n > 0 ? [n] : [] }; }
+function isSel(kind, a, b) { return state.sel && state.sel.kind === kind && state.sel.a === a && state.sel.b === b; }
+
+function renderBoard(inner, dev, layerN, bigCallouts) {
+  var layout = layoutOf(dev);
+  if (!layout) { inner.innerHTML = "<div style='padding:20px;color:#999'>盤面が見つかりません: " + esc(dev.board) + "</div>"; return; }
+  inner.style.gridTemplateColumns = "repeat(" + layout.grid.cols + ", minmax(0,1fr))";
+  inner.style.gridTemplateRows = "repeat(" + layout.grid.rows + ", minmax(0,1fr))";
+  layout.sections.forEach(function (s) {
+    var sec = document.createElement("div"); sec.className = "sec";
+    sec.style.gridColumn = s.col + " / span " + (s.colSpan || 1); sec.style.gridRow = s.row + " / span " + (s.rowSpan || 1);
+    inner.appendChild(sec);
+    var c = s.component;
+    if (c.kind === "keyboard") {
+      var host = document.createElement("div"); sec.appendChild(host);
+      KDComponents.renderKeyboard(host, effKeymap(c.ref), layerState(layerN), { editable: true });
+      host.querySelectorAll(".key").forEach(function (btn) {
+        var kid = btn.dataset.keyId;
+        if (isSel("key", c.ref, kid)) btn.classList.add("sel");
+        btn.addEventListener("click", function (e) { e.stopPropagation(); onPick(dev, { kind: "key", a: c.ref, b: kid, layer: layerN }, btn); });
+      });
+    } else if (c.kind === "deck") {
+      var h2 = document.createElement("div"); sec.appendChild(h2);
+      var deck = effDeck(c.ref);
+      var grid = KDComponents.renderDeck(h2, deck, { editable: true });
+      // 正方形タイルだけ区画の高さに合わせる（縦リストは横いっぱいのままでよい）
+      if (grid && deck && deck.render !== "list") requestAnimationFrame(function () { try { KDComponents.fitDeck(h2, grid, deck.grid.cols, deck.grid.rows); } catch (e) {} });
+      h2.querySelectorAll(".slot").forEach(function (btn) {
+        btn.disabled = false;
+        var sid = btn.dataset.slotId;
+        if (isSel("slot", c.ref, sid)) btn.classList.add("sel");
+        btn.addEventListener("click", function (e) { e.stopPropagation(); onPick(dev, { kind: "slot", a: c.ref, b: sid }, btn); });
+      });
+    } else if (c.kind === "jog") {
+      var jb = document.createElement("div"); jb.className = "jogbox"; sec.appendChild(jb);
+      var km = effKeymap(c.ref);
+      var jn = document.createElement("span"); jn.className = "jn"; jn.textContent = (km && km.jog && km.jog.shape === "wheel" ? "ホイール " : "ダイヤル ") + c.ref; jb.appendChild(jn);
+      ["CCW", "CW"].forEach(function (kid) {
+        var def = km ? KDComponents.resolveDisplay(km, layerState(layerN), kid) : null;
+        var b = document.createElement("div"); b.className = "jk" + (isSel("key", c.ref, kid) ? " sel" : "");
+        b.textContent = (kid === "CW" ? "↻ " : "↺ ") + ((def && def.label) || kid);
+        b.addEventListener("click", function (e) { e.stopPropagation(); onPick(dev, { kind: "key", a: c.ref, b: kid, layer: layerN }, b); });
+        jb.appendChild(b);
+      });
+    } else if (c.kind === "trackball") {
+      var tw = document.createElement("div"); tw.className = "tbwrap"; sec.appendChild(tw);
+      tw.innerHTML = '<div class="bezel"><div class="ball"></div></div>';
+      if (bigCallouts) {
+        // 割り当ての札（surfaces/trackball.json の gestures。ジェスチャーの中身はまだこの画面では変えられない）
+        var tags = [[50, 3, "転がす", "カーソル移動"], [10, 24, "左の帯", "左クリック"], [90, 24, "右の帯", "右クリック"], [10, 80, "2回", "ダブル"], [90, 80, "押して動かす", "ドラッグ"], [50, 97, "✋つかむ", "押しっぱなし"]];
+        var co = document.createElement("div"); co.className = "callouts";
+        var sv = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">';
+        tags.forEach(function (t) { sv += '<line x1="50" y1="50" x2="' + t[0] + '" y2="' + t[1] + '" stroke="#3a4568" stroke-width="1" vector-effect="non-scaling-stroke"/>'; });
+        co.innerHTML = sv + "</svg>";
+        tags.forEach(function (t) { var d = document.createElement("div"); d.className = "co"; d.style.left = t[0] + "%"; d.style.top = t[1] + "%"; d.innerHTML = "<small>" + t[2] + "</small>" + t[3]; co.appendChild(d); });
+        tw.appendChild(co);
+      }
+    }
+  });
+}
+
+function buildDevice(dev, layerN, w, showLayerTag) {
+  var real = REAL[dev.kind] || REAL.tablet, k = w / real.w, h = real.h * k;
+  var d = document.createElement("div"); d.className = "dev " + dev.kind + (dev.id === state.active ? " active" : ""); d.dataset.dev = dev.id;
+  var nm = document.createElement("div"); nm.className = "name";
+  nm.innerHTML = '<span class="d' + (dev.connections > 0 ? " on" : "") + '"></span>' + esc(dev.label) + " ・ " + esc(dev.board) +
+    (showLayerTag ? ' <span class="ly">L' + layerN + "</span>" : "") + (dev.id && !dev.connections ? "　未接続" : "");
+  d.appendChild(nm);
+  var sc = document.createElement("div"); sc.className = "screen"; sc.style.width = w + "px"; sc.style.height = h + "px";
+  var inner = document.createElement("div"); inner.className = "inner"; inner.style.width = real.w + "px"; inner.style.height = real.h + "px"; inner.style.transform = "scale(" + k + ")";
+  sc.appendChild(inner); d.appendChild(sc);
+  renderBoard(inner, dev, layerN, w > 420);
+  if (dev.id) {
+    var q = document.createElement("div"); q.className = "qr";
+    q.innerHTML = '<img alt="QR ' + esc(dev.label) + '" data-src="/api/qr?target=' + encodeURIComponent("device:" + dev.id) + "&token=" + encodeURIComponent(token) + '"><div class="t">' + esc(dev.label) + "</div>";
+    d.appendChild(q);
+  }
+  d.addEventListener("click", function () { setActive(dev.id); });
+  return d;
+}
+
+// 左右のパネル（300px ずつ）を空けても図に 420px 以上残る幅のときだけフォーカスする。
+// 狭い画面で空けると、図がほぼ消える（実際に 800px 幅で点になった）
+function isFocus() { return pref.focus && state.view === "three" && DEVICES.length > 1 && !!(openL || openR) && $("stage").clientWidth - 600 >= 420; }
+function layout() {
+  var st = $("stage"); st.innerHTML = "";
+  if (!CONFIG) { st.innerHTML = '<div class="empty-msg">Hub に接続しています…</div>'; return; }
+  var ins = isFocus() ? 300 : 0;
+  st.style.paddingLeft = (16 + ins) + "px"; st.style.paddingRight = (16 + ins) + "px";
+  var W = st.clientWidth - 32 - 2 * ins, H = st.clientHeight - 60;
+  var gap = 22, pad = 28;
+  function ratio(kind) { var r = REAL[kind] || REAL.tablet; return r.w / r.h; }
+  var shown = (state.view === "one" || isFocus()) ? [activeDev()] : DEVICES;
+  var tablets = shown.filter(function (d) { return d.kind === "tablet"; }), phones = shown.filter(function (d) { return d.kind !== "tablet"; });
+  var stack = state.stack && state.view === "three" && !isFocus();
+  // 並び: 携帯を左右に振り分け、タブレットを中央に
+  var left = phones.filter(function (_, i) { return i % 2 === 0; }), right = phones.filter(function (_, i) { return i % 2 === 1; });
+  var cols = [].concat(left.map(function (d) { return [d]; }), tablets.map(function (d) { return [d]; }), right.map(function (d) { return [d]; }));
+  // 高さ h をそろえ、横幅の合計が W に収まる最大の h（携帯を L0・L1 で積むときは、携帯1台の高さが h/2）
+  var sumR = 0;
+  cols.forEach(function (c) { var dv = c[0]; sumR += dv.kind === "tablet" ? ratio("tablet") : ratio("phone") * (stack ? 0.5 : 1); });
+  var h = Math.min(H - pad, (W - gap * (cols.length - 1) - pad * cols.length) / Math.max(sumR, 0.1));
+  cols.forEach(function (c) {
+    var dv = c[0];
+    if (dv.kind !== "tablet" && stack) {
+      var col = document.createElement("div"); col.className = "col";
+      var ph = (h - 30) / 2, pw = ph * ratio("phone");
+      col.appendChild(buildDevice(dv, 0, pw, true)); col.appendChild(buildDevice(dv, 1, pw, true));
+      st.appendChild(col);
+    } else {
+      st.appendChild(buildDevice(dv, dv.layer, h * ratio(dv.kind), dv.kind !== "tablet"));
+    }
+  });
+  if (isFocus()) {
+    var note = document.createElement("div"); note.className = "focusnote"; note.textContent = "フォーカス中 — パネルを閉じると並べた表示に戻る"; st.appendChild(note);
+    var th = document.createElement("div"); th.className = "thumbs";
+    DEVICES.forEach(function (dv) { var b = document.createElement("button"); if (dv.id === state.active) b.className = "on"; b.textContent = dv.label; b.addEventListener("click", function (e) { e.stopPropagation(); setActive(dv.id); }); th.appendChild(b); });
+    st.appendChild(th);
+  }
+  if (app.classList.contains("showqr")) loadQrImages();
+}
+function loadQrImages() { document.querySelectorAll(".qr img[data-src]").forEach(function (im) { if (!im.src) im.src = im.dataset.src; }); }
+
+// =====================================================================
+// header・2段目
+// =====================================================================
+function renderHeader() {
+  var dev = activeDev(); if (!dev) return;
+  $("devName").textContent = dev.label; $("devDot").classList.toggle("on", dev.connections > 0);
+  var sel = $("boardSel"); sel.innerHTML = "";
+  Object.keys(CONFIG.layouts).sort().forEach(function (id) { var o = document.createElement("option"); o.value = id; o.textContent = id; if (id === dev.board) o.selected = true; sel.appendChild(o); });
+  $("viewSeg").querySelector('[data-view="three"]').disabled = DEVICES.length < 2;
+  document.querySelectorAll("#viewSeg button").forEach(function (b) { b.classList.toggle("on", b.dataset.view === (DEVICES.length < 2 ? "one" : state.view)); });
+  $("stackToggle").querySelector(".sw").classList.toggle("on", state.stack);
+  var box = $("layers"); box.innerHTML = "";
+  var n = maxLayer(layoutOf(dev));
+  for (var i = 0; i <= n; i++) (function (i) {
+    var b = document.createElement("button"); b.textContent = i; if (i === dev.layer) b.className = "on";
+    b.title = "レイヤー" + i + " を表示・編集"; b.addEventListener("click", function () { dev.layer = i; state.sel = null; renderAll(); });
+    box.appendChild(b);
+  })(i);
+  renderPicked();
+}
+function selDef() {
+  var s = state.sel; if (!s) return null;
+  if (s.kind === "key") { var km = effKeymap(s.a); var l = km && km.layers.filter(function (x) { return x.id === s.layer; })[0]; return l ? (l.keys[s.b] || null) : null; }
+  var dk = effDeck(s.a); var slot = null; (dk && dk.pages || []).forEach(function (p) { p.slots.forEach(function (x) { if (x.slotId === s.b) slot = x; }); }); return slot;
+}
+function actionText(a) {
+  if (!a) return "（未設定）";
+  switch (a.t) {
+    case "key": return a.vk; case "chord": return a.keys.join("+"); case "text": return "文字「" + a.string + "」";
+    case "mo": return "押す間 L" + a.layer; case "tg": return "切替 L" + a.layer; case "none": return "何もしない"; case "trans": return "▽ 素通し";
+    case "layout.switch": return "盤面へ " + (a.id || "既定") + (a.to === "all" ? "（全端末）" : ""); case "app.launch": return "起動 " + a.id;
+    default: return a.t;
+  }
+}
+function renderPicked() {
+  var s = state.sel, box = $("picked");
+  if (state.tab === "test") { box.textContent = "キーテスター（準備中）: 端末で押したキーを図の上で光らせる機能は次の段階"; return; }
+  if (!s) { box.textContent = "キーかタイルを押して選ぶ"; $("bPicked").textContent = "図でキーを選んでから、部品を押す"; return; }
+  var def = selDef();
+  var where = s.kind === "key" ? s.a + " / " + s.b + "（L" + s.layer + "）" : "Deck " + s.a + " / " + s.b;
+  box.innerHTML = "<span>選択 <b>" + esc(where) + "</b></span><span class='chip'>" + esc(actionText(def && def.action)) + "</span>" +
+    "<label>表示名 <input id='labelIn' value='" + esc(def ? def.label : "") + "'></label>";
+  $("bPicked").innerHTML = "選択 <b>" + esc(where) + "</b> ・ " + esc(actionText(def && def.action));
+  $("labelIn").addEventListener("change", function () { setLabel(this.value); });
+}
+
+// =====================================================================
+// 選ぶ・入れる・元に戻す
+// =====================================================================
+function onPick(dev, sel, el) {
+  setActive(dev.id, true);
+  if (state.tab === "test") { el.classList.add("lit"); setTimeout(function () { el.classList.remove("lit"); }, 350); return; }
+  state.sel = sel;
+  renderAll();
+  // 部品棚がどこにも出ていなければ、既定（左のパネルのいちばん上の部品）を開く
+  if (!openL && !openR && bottom.mode === "off") { var first = NAV_PLACE.left.filter(function (k) { return k.indexOf("p:") === 0; })[0]; if (first) { openL = first; renderRails(); renderOv(); } }
+}
+function getKeysDraft(kmId, layer) {
+  var key = kmId + ":" + layer;
+  if (!drafts[key]) { var l = CONFIG.keymaps[kmId].layers.filter(function (x) { return x.id === layer; })[0]; drafts[key] = JSON.parse(JSON.stringify(l.keys)); }
+  return drafts[key];
+}
+function getDeckDraft(deckId) { if (!deckDrafts[deckId]) deckDrafts[deckId] = JSON.parse(JSON.stringify(CONFIG.decks[deckId])); return deckDrafts[deckId]; }
+function applyChange(ch, which) {
+  var v = which === "after" ? ch.after : ch.before;
+  if (ch.kind === "key") { var keys = getKeysDraft(ch.a, ch.layer); if (v === null) delete keys[ch.b]; else keys[ch.b] = JSON.parse(JSON.stringify(v)); }
+  else { var dk = getDeckDraft(ch.a); dk.pages.forEach(function (p) { p.slots.forEach(function (x, i) { if (x.slotId === ch.b) p.slots[i] = JSON.parse(JSON.stringify(v)); }); }); }
+}
+function change(newDef, what) {
+  var s = state.sel; if (!s) return;
+  var before = selDef();
+  if (s.kind === "key") {
+    var km = CONFIG.keymaps[s.a];
+    if (!km.layers.some(function (l) { return l.id === s.layer; })) { flash("このキーの組（" + s.a + "）にはレイヤー" + s.layer + " がありません", true); return; }
+    if (newDef && newDef.action.t === "trans" && s.layer === 0) { flash("▽ 素通しはレイヤー0には置けません", true); return; }
+  }
+  var ch = { kind: s.kind, a: s.a, b: s.b, layer: s.layer, before: before ? JSON.parse(JSON.stringify(before)) : null, after: newDef, what: what };
+  applyChange(ch, "after"); undoStack.push(ch); redoStack = [];
+  setDirty(true); renderAll();
+}
+function assignPart(part) {
+  var s = state.sel; if (!s) { flash("先に図でキーかタイルを押して選んでください", true); return; }
+  if (s.kind === "key") change({ label: part.label, action: part.action }, part.label.replace(/\n/g, " "));
+  else { var slot = JSON.parse(JSON.stringify(selDef())); slot.label = part.label.replace(/\n/g, " "); slot.action = part.action; change(slot, part.label.replace(/\n/g, " ")); }
+}
+function setLabel(v) {
+  var def = selDef(); if (!def) return;
+  var nd = JSON.parse(JSON.stringify(def)); nd.label = v; change(nd, "表示名 " + v);
+}
+function undo() { var ch = undoStack.pop(); if (!ch) return; applyChange(ch, "before"); redoStack.push(ch); setDirty(undoStack.length > 0); renderAll(); flash("元に戻しました: " + ch.what); }
+function redo() { var ch = redoStack.pop(); if (!ch) return; applyChange(ch, "after"); undoStack.push(ch); setDirty(true); renderAll(); flash("やり直しました: " + ch.what); }
+function renderUndo() { $("undoBtn").disabled = !undoStack.length; $("redoBtn").disabled = !redoStack.length; }
+function setDirty(on) { app.classList.toggle("dirty", on); }
+$("undoBtn").addEventListener("click", undo); $("redoBtn").addEventListener("click", redo);
+document.addEventListener("keydown", function (e) {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  var t = e.target; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  var k = e.key.toLowerCase();
+  if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); } else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+});
+
+// =====================================================================
+// 保存（既存の口だけを使う）→ 各端末に QR
+// =====================================================================
+async function save() {
+  var jobs = [];
+  Object.keys(drafts).forEach(function (key) {
+    var p = key.split(":"), kmId = p[0], layer = Number(p[1]);
+    var l = CONFIG.keymaps[kmId].layers.filter(function (x) { return x.id === layer; })[0];
+    jobs.push({ what: kmId + " L" + layer, url: "/api/layer/save", body: { keymapId: kmId, layer: layer, description: (l && l.description) || "", keys: drafts[key] } });
+  });
+  Object.keys(deckDrafts).forEach(function (id) { jobs.push({ what: "Deck " + id, url: "/api/deck/save", body: deckDrafts[id] }); });
+  if (!jobs.length) { flash("保存するものはありません"); return; }
+  $("saveBtn").disabled = true;
+  var failed = [];
+  for (var i = 0; i < jobs.length; i++) {
+    try {
+      var res = await fetch(jobs[i].url + "?token=" + encodeURIComponent(token), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(jobs[i].body) });
+      var body = await res.json().catch(function () { return {}; });
+      if (!res.ok) { failed.push(jobs[i].what + ": " + (body.code || res.status) + " " + (body.cause || "")); log(body.code || String(res.status), "save failed " + jobs[i].what, body); }
+      else log("OK", "saved " + jobs[i].what, body);
+    } catch (e) { failed.push(jobs[i].what + ": " + e); }
+  }
+  $("saveBtn").disabled = false;
+  if (failed.length) { flash("保存できないものがありました: " + failed.join(" ／ "), true); return; }
+  drafts = {}; deckDrafts = {}; undoStack = []; redoStack = []; setDirty(false);
+  // 繋がっている端末には Hub が新しい構成を配り直している。QR は新しく繋ぐ端末のため
+  if (DEVICES.some(function (d) { return d.id; })) { app.classList.add("showqr"); loadQrImages(); }
+  else flash("保存しました（" + jobs.length + " 件）。繋がっている端末にも反映されます");
+}
+$("saveBtn").addEventListener("click", save);
+$("qrClose").addEventListener("click", function () { app.classList.remove("showqr"); });
+
+// =====================================================================
+// 左右の NAV・パネル・並び替え
+// =====================================================================
+var I = {
+  basic: "M5 6h14M12 6v12M9 18h6", special: "M4 7h16v10H4zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M8 14h8", shortcut: "M5 6h6v6H5zM13 12h6v6h-6zM11 9h2M12 9v3",
+  symbols: "M7 5v14M12 5l-2 14M17 5l-2 14M5 9h14M5 15h14", layers: "M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4", macros: "M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z",
+  special2: "M12 4v16M4 12h16", shelf: "M4 13h16v7H4zM7 16h2M11 16h2M15 16h2M8 4l4 4 4-4",
+  sec: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z", keys: "M4 7h16v10H4zM7 10h2M11 10h2M15 10h2M7 14h10",
+  deck: "M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z", ball: "M12 4a8 8 0 1 0 0 16a8 8 0 0 0 0-16M9 9.5a3 3 0 0 1 3-2",
+  qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2z", dev: "M7 3h10v18H7zM11 18h2",
+  gear: "M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6M19 12l2-1-1-3-2 .3-1.3-1.3.3-2-3-1-1 2h-2l-1-2-3 1 .3 2L6.7 7.3 4.7 7l-1 3 2 1v2l-2 1 1 3 2-.3 1.3 1.3-.3 2 3 1 1-2h2l1 2 3-1-.3-2 1.3-1.3 2 .3 1-3-2-1z",
+};
+function svg(d) { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + d + '" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
+var PART_TABS = [{ id: "basic", label: "文字" }, { id: "special", label: "特殊キー" }, { id: "shortcut", label: "ショートカット" }, { id: "symbols", label: "記号" }, { id: "layers", label: "レイヤー" }, { id: "macros", label: "Deckの操作" }];
+var NAV_ITEMS = {};
+PART_TABS.forEach(function (t) { NAV_ITEMS["p:" + t.id] = { name: t.label, icon: t.id, group: "部品棚" }; });
+NAV_ITEMS["x:shelf"] = { name: "下の棚", icon: "shelf", group: "部品棚" };
+[["sec", "区画"], ["keys", "キー"], ["deck", "Deck"], ["ball", "球"]].forEach(function (e) { NAV_ITEMS["e:" + e[0]] = { name: e[1], icon: e[0], group: "編集するもの" }; });
+NAV_ITEMS["x:qr"] = { name: "QR", icon: "qr", group: "道具" };
+NAV_ITEMS["x:dev"] = { name: "端末", icon: "dev", group: "道具" };
+function defaultPlace() { return { left: PART_TABS.map(function (t) { return "p:" + t.id; }).concat(["x:shelf"]), right: ["e:sec", "e:keys", "e:deck", "e:ball"], hidden: ["x:qr", "x:dev"] }; }
+var NAV_PLACE = (function () {
+  var saved = store("nav"), def = defaultPlace();
+  if (!saved) return def;
+  // 増えた・消えたボタンに追従（知らないものは捨て、足りないものは非表示へ）
+  var known = Object.keys(NAV_ITEMS), seen = {};
+  ["left", "right", "hidden"].forEach(function (z) { saved[z] = (saved[z] || []).filter(function (k) { if (known.indexOf(k) < 0 || seen[k]) return false; seen[k] = 1; return true; }); });
+  known.forEach(function (k) { if (!seen[k]) saved.hidden.push(k); });
+  return saved;
+})();
+var openL = null, openR = null, partTab = {};
+
+function railButton(key, side) {
+  var it = NAV_ITEMS[key], open = side === "left" ? openL : openR;
+  var on = open === key || (key === "x:shelf" && bottom.mode !== "off");
+  var b = document.createElement("button"); b.className = "rbtn" + (on ? " on" : ""); b.title = it.name;
+  b.innerHTML = svg(I[it.icon]) + "<span>" + it.name + "</span>";
+  b.addEventListener("click", function () {
+    if (key === "x:shelf") { setBottom(bottom.mode === "off" ? pref.bottomMode : "off"); return; }
+    if (side === "left") openL = openL === key ? null : key; else openR = openR === key ? null : key;
+    renderRails(); renderOv();
+  });
+  return b;
+}
+function renderRails() {
+  ["left", "right"].forEach(function (side) { var r = $(side === "left" ? "railL" : "railR"); r.innerHTML = ""; NAV_PLACE[side].forEach(function (k) { r.appendChild(railButton(k, side)); }); });
+  var an = document.createElement("div"); an.className = "anchor";
+  var sw = document.createElement("button"); sw.className = "rbtn sm" + ($("dlgBack").classList.contains("open") ? " on" : ""); sw.id = "reorderSw"; sw.title = "NAV の並び替え";
+  sw.innerHTML = '<span class="mini-sw"></span><span>並び替え</span>'; sw.addEventListener("click", function () { openReorder(!$("dlgBack").classList.contains("open")); });
+  var gs = document.createElement("button"); gs.className = "rbtn sm" + ($("navset").classList.contains("open") ? " on" : ""); gs.title = "NAV の設定";
+  gs.innerHTML = svg(I.gear) + "<span>NAV設定</span>"; gs.addEventListener("click", function () { $("navset").classList.toggle("open"); renderRails(); });
+  an.appendChild(sw); an.appendChild(gs); $("railR").appendChild(an);
+}
+function partsFor(tab) {
+  var s = state.sel;
+  var all = KDComponents.buildActionParts(CONFIG, s && s.kind === "key" ? s.a : null);
+  var list = (all[tab] || []).slice();
+  if (s && s.kind === "slot") list = list.filter(function (p) { return p.action.t !== "mo" && p.action.t !== "tg"; });
+  return list;
+}
+function partsHtml(tab, extraClass) {
+  var s = state.sel;
+  var h = "<div class='parts " + (extraClass || "") + "'>";
+  h += "<div class='part dash' data-special='none'>&nbsp;<small>何もしない</small></div>";
+  h += "<div class='part dash" + (!s || s.kind !== "key" || s.layer === 0 ? " off" : "") + "' data-special='trans'>▽<small>素通し</small></div>";
+  partsFor(tab).forEach(function (p, i) { h += "<div class='part' data-i='" + i + "'>" + esc(p.label) + (p.note ? "<small>" + esc(p.note) + "</small>" : "") + "</div>"; });
+  if (tab === "layers" && (!s || s.kind !== "key")) h += "<div style='grid-column:1/-1;color:var(--ink-dim);font-size:11px'>キーボードのキーを選ぶと、その組のレイヤー切替が並ぶ</div>";
+  return h + "</div>";
+}
+function hookParts(root, tab) {
+  var list = partsFor(tab);
+  root.querySelectorAll(".part").forEach(function (el) {
+    el.addEventListener("click", function () {
+      if (el.dataset.special === "none") assignPart({ label: "", action: { t: "none" } });
+      else if (el.dataset.special === "trans") assignPart({ label: "", action: { t: "trans" } });
+      else assignPart(list[Number(el.dataset.i)]);
+    });
+  });
+}
+function panelHtml(key) {
+  var kind = key.slice(0, 1), id = key.slice(2), dev = activeDev(), layout = layoutOf(dev);
+  if (kind === "p") return "<h4>部品棚 — " + esc(NAV_ITEMS[key].name) + "</h4><p class='lead'>図でキーかタイルを選んでから押すと、そこに入る（" + (state.sel ? "いま選んでいるもの: " + esc(state.sel.a + " / " + state.sel.b) : "まだ選んでいない") + "）。</p>" + partsHtml(id);
+  var legacy = function (href, label) { return "<a class='li' href='" + href + (href.indexOf("?") < 0 ? "?" : "&") + "token=" + encodeURIComponent(token) + "'>" + label + "<small>旧画面 ↗</small></a>"; };
+  if (id === "sec") return "<h4>区画</h4><p class='lead'>盤面 " + esc(dev.board) + " の区画。並べ替え・大きさ変更は、いまは旧画面で行う。</p><div class='list'>" +
+    (layout ? layout.sections.map(function (s) { return "<div class='li'>" + esc(s.id) + "<small>" + esc(s.component.kind + " " + s.component.ref) + "</small></div>"; }).join("") : "") + legacy("/editor?id=" + encodeURIComponent(dev.board), "区画を編集する") + "</div>";
+  if (id === "keys") return "<h4>キー</h4><p class='lead'>この盤面のキーの組。中身はこの画面で変えられる。キーの位置の編集は旧画面。</p><div class='list'>" +
+    keymapIdsOf(layout).map(function (k) { return legacy("/keys?keymap=" + encodeURIComponent(k) + "&layer=0", esc(k) + " の位置を編集"); }).join("") + "</div>";
+  if (id === "deck") {
+    var decks = (layout ? layout.sections : []).filter(function (s) { return s.component.kind === "deck"; }).map(function (s) { return s.component.ref; });
+    return "<h4>Deck</h4><p class='lead'>タイルの文字と動作はこの画面で変えられる。色・アイコン・取り込みは旧画面。</p><div class='list'>" + decks.map(function (d) { return legacy("/deckedit?deck=" + encodeURIComponent(d), esc(d) + " の色・アイコン"); }).join("") + "</div>";
+  }
+  if (id === "ball") return "<h4>球（トラックボール）</h4><p class='lead'>ジェスチャーの割り当ては surfaces/trackball.json。この画面ではまだ変えられない（図の札は見本）。</p><div class='list'>" + legacy("/trackball", "トラックボール画面") + "</div>";
+  if (id === "qr") return "<h4>QR</h4><p class='lead'>端末ごとの QR。読むとその端末専用の画面が開く。</p><div class='list'>" + DEVICES.filter(function (d) { return d.id; }).map(function (d) { return "<div class='li'>" + esc(d.label) + "</div><img style='width:160px;background:#fff;border-radius:8px;padding:6px;margin:0 10px 10px' src='/api/qr?target=" + encodeURIComponent("device:" + d.id) + "&token=" + encodeURIComponent(token) + "'>"; }).join("") + legacy("/connect", "QR ギャラリー") + "</div>";
+  if (id === "dev") return "<h4>端末</h4><p class='lead'>devices/devices.json に書いた端末（最大3台）。書き換えたら Hub を再起動。</p><div class='list'>" + DEVICES.map(function (d) { return "<div class='li'>" + esc(d.label) + "<small>" + (d.connections ? "接続中 " + d.connections : "未接続") + "</small></div>"; }).join("") + "</div>";
+  return "";
+}
+function renderOv() {
+  $("ovL").classList.toggle("open", !!openL); $("ovR").classList.toggle("open", !!openR);
+  [["ovLBody", openL], ["ovRBody", openR]].forEach(function (p) {
+    if (!p[1]) return;
+    var body = $(p[0]); body.innerHTML = panelHtml(p[1]);
+    if (p[1].indexOf("p:") === 0) hookParts(body, p[1].slice(2));
+  });
+  layout();
+}
+document.querySelectorAll("[data-close]").forEach(function (x) { x.addEventListener("click", function () { if (x.dataset.close === "L") openL = null; else openR = null; renderRails(); renderOv(); }); });
+
+var dragKey = null;
+function openReorder(on) { $("dlgBack").classList.toggle("open", on); if (on) renderZones(); renderRails(); }
+function tileEl(key) {
+  var it = NAV_ITEMS[key], t = document.createElement("div"); t.className = "tile"; t.draggable = true; t.dataset.key = key;
+  t.innerHTML = svg(I[it.icon]) + "<span>" + it.name + "</span><span class='g'>" + it.group + "</span>";
+  t.addEventListener("dragstart", function (ev) { dragKey = key; t.classList.add("dragging"); try { ev.dataTransfer.setData("text/plain", key); } catch (e) {} });
+  t.addEventListener("dragend", function () { dragKey = null; t.classList.remove("dragging"); clearMarks(); });
+  return t;
+}
+function clearMarks() { document.querySelectorAll(".tile.ins").forEach(function (x) { x.classList.remove("ins"); }); document.querySelectorAll(".zone.over").forEach(function (z) { z.classList.remove("over"); }); }
+function renderZones() {
+  document.querySelectorAll(".zone").forEach(function (z) {
+    var zone = z.dataset.zone; z.querySelectorAll(".tile,.grp,.fixed").forEach(function (x) { x.remove(); });
+    if (zone === "hidden") {
+      var groups = {}; NAV_PLACE.hidden.forEach(function (k) { var g = NAV_ITEMS[k].group; (groups[g] = groups[g] || []).push(k); });
+      Object.keys(groups).forEach(function (g) { var gh = document.createElement("div"); gh.className = "grp"; gh.textContent = g; z.appendChild(gh); groups[g].forEach(function (k) { z.appendChild(tileEl(k)); }); });
+    } else {
+      NAV_PLACE[zone].forEach(function (k) { z.appendChild(tileEl(k)); });
+      if (zone === "right") { var f = document.createElement("div"); f.className = "fixed"; f.textContent = "右下に固定: 並び替え ／ NAV設定"; z.appendChild(f); }
+    }
+  });
+}
+function dropBefore(z, y) { var ts = [].slice.call(z.querySelectorAll(".tile:not(.dragging)")); for (var i = 0; i < ts.length; i++) { var r = ts[i].getBoundingClientRect(); if (y < r.top + r.height / 2) return ts[i]; } return null; }
+document.querySelectorAll(".zone").forEach(function (z) {
+  z.addEventListener("dragover", function (ev) { if (!dragKey) return; ev.preventDefault(); clearMarks(); z.classList.add("over"); if (z.dataset.zone !== "hidden") { var b = dropBefore(z, ev.clientY); if (b) b.classList.add("ins"); } });
+  z.addEventListener("drop", function (ev) {
+    ev.preventDefault(); if (!dragKey) return;
+    var zone = z.dataset.zone, b = zone === "hidden" ? null : dropBefore(z, ev.clientY);
+    ["left", "right", "hidden"].forEach(function (zn) { var i = NAV_PLACE[zn].indexOf(dragKey); if (i >= 0) NAV_PLACE[zn].splice(i, 1); });
+    var at = b ? NAV_PLACE[zone].indexOf(b.dataset.key) : -1; if (at < 0) NAV_PLACE[zone].push(dragKey); else NAV_PLACE[zone].splice(at, 0, dragKey);
+    if (openL === dragKey && zone !== "left") openL = null; if (openR === dragKey && zone !== "right") openR = null;
+    store("nav", NAV_PLACE); clearMarks(); renderZones(); renderRails(); renderOv();
+  });
+});
+$("dlgDone").addEventListener("click", function () { openReorder(false); });
+$("dlgReset").addEventListener("click", function () { NAV_PLACE = defaultPlace(); store("nav", NAV_PLACE); openL = openR = null; renderZones(); renderRails(); renderOv(); });
+
+// =====================================================================
+// 下の棚
+// =====================================================================
+var bottom = { mode: "off", h: store("bottomH") || 300, cat: "shortcut" };
+function setBottom(mode) {
+  bottom.mode = mode; app.classList.remove("b-overlay", "b-dock"); if (mode !== "off") app.classList.add("b-" + mode);
+  app.style.setProperty("--bottomH", bottom.h + "px"); renderBottom(); renderRails(); layout();
+}
+function renderBottom() {
+  if (bottom.mode === "off") return;
+  var cats = $("bCats"); cats.innerHTML = "";
+  PART_TABS.forEach(function (t) { var b = document.createElement("button"); if (t.id === bottom.cat) b.className = "on"; b.textContent = t.label; b.addEventListener("click", function () { bottom.cat = t.id; renderBottom(); }); cats.appendChild(b); });
+  var g = $("bParts"); g.outerHTML = partsHtml(bottom.cat).replace("<div class='parts ", "<div id='bParts' class='parts ");
+  hookParts($("bParts"), bottom.cat); renderPicked();
+}
+$("bClose").addEventListener("click", function () { setBottom("off"); });
+$("bSwap").addEventListener("click", function () { pref.bottomMode = bottom.mode === "dock" ? "overlay" : "dock"; store("pref", pref); setBottom(pref.bottomMode); syncSegs(); });
+(function () {
+  var grip = $("bGrip"), sy = 0, sh = 0, on = false;
+  grip.addEventListener("pointerdown", function (e) { on = true; sy = e.clientY; sh = bottom.h; try { grip.setPointerCapture(e.pointerId); } catch (err) {} });
+  grip.addEventListener("pointermove", function (e) { if (!on) return; bottom.h = Math.max(180, Math.min(Math.round($("main").clientHeight * 0.6), sh + (sy - e.clientY))); app.style.setProperty("--bottomH", bottom.h + "px"); if (bottom.mode === "dock") layout(); });
+  grip.addEventListener("pointerup", function () { on = false; store("bottomH", bottom.h); layout(); });
+})();
+
+// =====================================================================
+// 端末・表示レイアウト・設定
+// =====================================================================
+function setActive(id, keep) {
+  if (state.active === id) return;
+  state.active = id; if (!keep) state.sel = null;
+  renderAll();
+}
+function renderAll() { if (!CONFIG) return; renderHeader(); layout(); if (openL || openR) { [["ovLBody", openL], ["ovRBody", openR]].forEach(function (p) { if (p[1]) { $(p[0]).innerHTML = panelHtml(p[1]); if (p[1].indexOf("p:") === 0) hookParts($(p[0]), p[1].slice(2)); } }); } renderBottom(); renderUndo(); }
+$("boardSel").addEventListener("change", function () { var d = activeDev(); d.board = this.value; d.layer = 0; state.sel = null; renderAll(); flash("編集する盤面を " + this.value + " にしました（端末の画面は変わりません）"); });
+document.querySelectorAll("#viewSeg button").forEach(function (b) { b.addEventListener("click", function () { if (b.disabled) return; state.view = b.dataset.view; store("view", state.view); renderAll(); }); });
+$("stackToggle").addEventListener("click", function () { state.stack = !state.stack; store("stack", state.stack); renderAll(); });
+$("coToggle").addEventListener("click", function () { app.classList.toggle("show-callouts"); this.querySelector(".sw").classList.toggle("on"); });
+document.querySelectorAll(".tabs button").forEach(function (b) { b.addEventListener("click", function () { state.tab = b.dataset.tab; document.querySelectorAll(".tabs button").forEach(function (x) { x.classList.toggle("on", x === b); }); state.sel = null; renderAll(); }); });
+
+function toggleMenu(id, e) { e && e.stopPropagation(); ["viewMenu", "devMenu", "settings"].forEach(function (m) { if (m !== id) $(m).classList.remove("open"); }); $(id).classList.toggle("open"); $("gearBtn").classList.toggle("on", $("settings").classList.contains("open")); }
+document.addEventListener("click", function (e) { ["viewMenu", "devMenu", "settings"].forEach(function (m) { var el = $(m); if (el.classList.contains("open") && !el.contains(e.target)) el.classList.remove("open"); }); $("gearBtn").classList.toggle("on", $("settings").classList.contains("open")); });
+$("devPill").addEventListener("click", function (e) {
+  var m = $("devMenu"), h = "<div class='h'>編集する端末（常に1台）</div>";
+  DEVICES.forEach(function (d) { h += "<div class='i' data-d='" + esc(d.id) + "'><span class='dot" + (d.connections ? " on" : "") + "'></span><div>" + esc(d.label) + "<small>" + esc(d.board) + (d.id ? (d.connections ? " ・ 接続中" : " ・ 未接続") : "") + "</small></div></div>"; });
+  h += "<div class='sep'></div><div class='i' style='font-size:11px;color:var(--ink-dim)'>端末は devices/devices.json（最大3台）</div>";
+  m.innerHTML = h; m.querySelectorAll("[data-d]").forEach(function (el) { el.addEventListener("click", function () { setActive(el.dataset.d); m.classList.remove("open"); }); });
+  toggleMenu("devMenu", e);
+});
+$("gearBtn").addEventListener("click", function (e) { toggleMenu("settings", e); });
+$("settings").addEventListener("click", function (e) { e.stopPropagation(); });
+
+// 表示レイアウト（段階1はこのブラウザに覚える。Hub の views/ へは次の段階）
+var BUILTIN_VIEWS = [
+  { id: "std", name: "標準（並べる）", v: { view: "three", stack: false, bottom: "off" } },
+  { id: "via", name: "VIA 型（1台＋下の棚）", v: { view: "one", stack: false, bottom: "dock" } },
+  { id: "layers", name: "レイヤー確認（携帯 L0・L1）", v: { view: "three", stack: true, bottom: "off" } },
+];
+function views() { return BUILTIN_VIEWS.concat(store("views") || []); }
+function applyView(v) { state.view = v.view; state.stack = !!v.stack; if (v.place) NAV_PLACE = JSON.parse(JSON.stringify(v.place)); openL = openR = null; store("view", state.view); store("stack", state.stack); setBottom(v.bottom || "off"); renderAll(); renderRails(); renderOv(); }
+$("brandBtn").addEventListener("click", function (e) {
+  var m = $("viewMenu"), cur = store("curView"), h = "<div class='h'>表示レイアウト</div>";
+  views().forEach(function (x) { h += "<div class='i' data-v='" + esc(x.id) + "'><span style='width:14px;color:var(--ok)'>" + (x.id === cur ? "●" : "") + "</span><div>" + esc(x.name) + (x.id.indexOf("u") === 0 ? "<small>保存した表示</small>" : "") + "</div></div>"; });
+  h += "<div class='sep'></div><div class='i' id='vmSave'><span style='width:14px'>＋</span><div>今の表示を保存…<small>名前に「専用」を入れるとアプリ専用の目印（いまはこのブラウザだけ）</small></div></div>";
+  m.innerHTML = h;
+  m.querySelectorAll("[data-v]").forEach(function (el) { el.addEventListener("click", function () { var x = views().filter(function (v) { return v.id === el.dataset.v; })[0]; store("curView", x.id); applyView(x.v); m.classList.remove("open"); }); });
+  $("vmSave").addEventListener("click", function () {
+    var name = prompt("表示の名前（例: Blender 専用）", "新しい表示"); if (!name) return;
+    var list = store("views") || []; var id = "u" + Date.now();
+    list.push({ id: id, name: name, v: { view: state.view, stack: state.stack, bottom: bottom.mode, place: NAV_PLACE } }); store("views", list); store("curView", id);
+    m.classList.remove("open"); flash("「" + name + "」を保存しました（このブラウザ）");
+  });
+  toggleMenu("viewMenu", e);
+});
+
+function syncSegs() {
+  document.querySelectorAll("#focusSeg button").forEach(function (x) { x.classList.toggle("on", (x.dataset.focus === "on") === pref.focus); });
+  document.querySelectorAll("#bottomModeSeg button").forEach(function (x) { x.classList.toggle("on", x.dataset.bm === pref.bottomMode); });
+  document.querySelectorAll("#labelSeg button").forEach(function (x) { x.classList.toggle("on", (x.dataset.lab === "on") === pref.label); });
+  app.classList.toggle("nolabel", !pref.label);
+}
+document.querySelectorAll("#focusSeg button").forEach(function (b) { b.addEventListener("click", function () { pref.focus = b.dataset.focus === "on"; store("pref", pref); syncSegs(); layout(); }); });
+document.querySelectorAll("#bottomModeSeg button").forEach(function (b) { b.addEventListener("click", function () { pref.bottomMode = b.dataset.bm; store("pref", pref); syncSegs(); if (bottom.mode !== "off") setBottom(pref.bottomMode); }); });
+document.querySelectorAll("#labelSeg button").forEach(function (b) { b.addEventListener("click", function () { pref.label = b.dataset.lab === "on"; store("pref", pref); syncSegs(); }); });
+document.querySelectorAll("#matSeg button").forEach(function (b) { b.addEventListener("click", function () { store("mat", b.dataset.mat); app.classList.toggle("glass", b.dataset.mat === "glass"); document.querySelectorAll("#matSeg button").forEach(function (x) { x.classList.toggle("on", x === b); }); }); });
+if (store("mat") === "glass") { app.classList.add("glass"); document.querySelectorAll("#matSeg button").forEach(function (x) { x.classList.toggle("on", x.dataset.mat === "glass"); }); }
+document.querySelectorAll("#hue b").forEach(function (s) {
+  s.addEventListener("click", async function () {
+    var res = await fetch("/api/theme?token=" + encodeURIComponent(token), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ theme: s.dataset.t }) });
+    if (res.ok) flash("色相を " + s.dataset.t + " にしました（全端末）"); else flash("色相を変えられません: " + res.status, true);
+  });
+});
+$("reloadBtn").addEventListener("click", async function () {
+  var res = await fetch("/api/reload?token=" + encodeURIComponent(token), { method: "POST" });
+  var body = await res.json().catch(function () { return {}; });
+  if (res.ok) flash("読み直しました"); else flash("読み直せません: " + (body.code || res.status) + " " + (body.cause || ""), true);
+});
+(function () {
+  var L = [["/editor", "区画の編集（旧レイアウト編集）"], ["/editor_v2", "区画の編集 V2"], ["/keys", "キー編集（位置・レイヤー）"], ["/deckedit", "Deck 編集（色・アイコン・取り込み）"],
+    ["/connect", "QR ギャラリー"], ["/settings", "設定（構成の確認）"], ["/catalog", "操作カタログ"], ["/schema", "スキーマ・辞書"], ["/lab/multigesture", "実験: 1マス多重操作"]];
+  $("legacyList").innerHTML = L.map(function (x) { return "<a class='li' href='" + x[0] + "?token=" + encodeURIComponent(token) + "'>" + x[1] + "<small>↗</small></a>"; }).join("");
+})();
+
+// =====================================================================
+// Hub との接続
+// =====================================================================
+var socket = null;
+function connect() {
+  socket = new WebSocket((location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws?surface=layout&token=" + encodeURIComponent(token));
+  socket.addEventListener("open", function () { app.classList.add("online"); log("OK", "ws open"); });
+  socket.addEventListener("message", async function (ev) {
+    var data; try { data = JSON.parse(ev.data); } catch (e) { return; }
+    if (data.type === "surface.config") {
+      CONFIG = data;
+      if (KDComponents.applyTheme) KDComponents.applyTheme(data.theme);
+      await loadDevices();
+      renderAll(); renderRails(); renderOv();
+    } else if (data.type === "error") log(data.code, data.cause, data.context);
+  });
+  socket.addEventListener("close", async function () {
+    app.classList.remove("online");
+    try { var r = await fetch("/api/ping?token=" + encodeURIComponent(token)); if (r.status === 401) { flash("Hub が再起動されたため、この画面の token が古くなりました。Hub が開いた新しい URL を使ってください", true); return; } } catch (e) {}
+    setTimeout(connect, 1500);
+  });
+}
+// 端末の接続状態を時々取り直す（未接続の端末が繋がったら ● が緑になる）
+setInterval(async function () { if (!CONFIG) return; var before = JSON.stringify(DEVICES.map(function (d) { return d.connections; })); await loadDevices(); if (JSON.stringify(DEVICES.map(function (d) { return d.connections; })) !== before) renderAll(); }, 5000);
+window.addEventListener("resize", function () { layout(); });
+if (!token) { $("stage").innerHTML = '<div class="empty-msg">URL に token がありません。Hub が起動時に表示した URL（…/?token=…）から開いてください。</div>'; }
+else { syncSegs(); renderRails(); connect(); }
+</script>
+</body>
+</html>

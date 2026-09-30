@@ -266,6 +266,14 @@ impl HubState {
         self.clients.get(&client_id).and_then(|entry| entry.device.clone())
     }
 
+    /// P-008 段階B: その端末を名乗っている `/layout` の接続数（0＝未接続）。
+    pub fn device_connections(&self, device: &str) -> usize {
+        self.clients
+            .values()
+            .filter(|entry| entry.surface == SurfaceKind::Layout && entry.device.as_deref() == Some(device))
+            .count()
+    }
+
     /// P-008: 端末のいまの盤面を覚える。**実在する盤面だけ**（無いものは覚えない）。
     pub fn note_device_layout(&mut self, device: &str, layout_id: &str) {
         if self.devices.contains(device) && self.layouts.contains_key(layout_id) {

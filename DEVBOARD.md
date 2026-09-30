@@ -2283,3 +2283,13 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - 利用者裁定 A（2026-09-30）: token を必須にし、QR を出す**11画面**すべてに token を渡す。**凍結中の `editor_v1_1.html`・`trackball_v1_1.html` も1行だけ足す（凍結の例外。該当行にコメントで明記）**
 - 変更: `ws.rs` の `QrQuery` に token・`qr_image` の入口で `token_ok`（無い・違うは 401 `WS_TOKEN_INVALID`）。JS で作る画面（editor / editor_v2 / editor_v1_1 / gallery / kb / settings）は URL に `&token=` を足した。HTML に直接書いていた画面（ipad / layout / panel / trackball）は `data-qr` にして、token を読んだ直後に src を入れる。trackball_v1_1 は token の行に1行で上書き
 - 検証: `cargo test --workspace` = **173 passed**（+1 `qr_requires_token`）。再起動した本物の Hub で token なしの `/api/qr` が 401。ipad / layout / panel / trackball / trackball_v1_1 の QR 画像が token 付きで 225px に読み込まれる。QR ギャラリーでカードの「QR」を実マウスで押して token 付きで表示。deck / kb-left / layout:note_story を token 付きで取ると 200
+
+## 2026-09-30 統合編集画面（studio）段階1 — 新しいトップ `/` — Claude Code（Opus 5.5）
+
+- 利用者: 「昔の UI は一掃していいから、新しいモックの UI で再スタート」。土台は `00_勉強フォルダー/41_統合編集画面_VIA型モック_v0.4.html`（v0.4.1）。**旧画面は消さず**、新しい画面にまだ無い機能（区画の並べ替え・キーの位置・Deck の色/アイコン/取り込み）のために歯車の「旧画面」から開けるようにした（旧レイアウト編集は `/` → `/editor`）
+- 端末: `devices/devices.json` を置いた（iPad Pro＝tablet 横・既定 note_story ／ Pixel 6a＝phone 縦・既定 game_iphone7_port。iPhone は後で3台目）
+- Hub: `GET /api/devices`（P-008 段階B の一部・読み取り専用・token 必須）、`state.device_connections`、`/` を `static/studio.html` に、`/editor` に旧画面。起動バナーの文言
+- `static/studio.html`（新規・素の HTML/JS・components.js を使う）: 端末を1台／並べて（タブレット中央・携帯左右）、実寸で描いて縮小（iPad 1366×980・Pixel 412×840）。キー・ダイヤルの CW/CCW・Deck のタイルを押して選ぶ→左の部品棚（buildActionParts）か下の棚から入れる／表示名を変える。空欄・▽素通し（L0 では不可）。元に戻す Ctrl+Z／やり直す Ctrl+Y。保存はキー＝`/api/layer/save`・Deck＝`/api/deck/save`（既存の口だけ）→ 各端末に黒＋その端末専用 QR。LAYER タブ、携帯は L0・L1 を積む表示、フォーカス（狭い画面では自動で切る）、NAV の並び替え、表示レイアウト・NAV の並び・質感は**このブラウザに保存**（Hub の views/ は次の段階）。色相は `/api/theme`、再読込は `/api/reload`
+- 検証: `cargo test --workspace` = **174 passed**（+1 `/api/devices`）、警告0。本物の Hub で2台（Pixel 6a・iPad Pro）が実物の盤面で描かれる。**実マウス・実キーボード**で: [Char] を選ぶ→表示名を打つ→Ctrl+Z で戻る→Ctrl+Y→保存 → Hub が配り直した構成に新しい名前、QR（token 付き）が出る。確認後にファイルを git から戻して `/api/reload`。[Scene] に部品「A」→Ctrl+Z で F14 に戻る。Deck のタイル（note_cast C3）を選べる
+- 直したこと: 縦リストの Deck に正方形用の fitDeck を当てて幅48pxに潰れていた／800px 幅でフォーカスが図を点にしていた（空きが 420px 未満ならフォーカスしない）
+- 未確認・未実装: 実機、キーテスター（端末で押したキーを光らせる）、トラックボールのジェスチャー編集、区画の編集、表示レイアウトの Hub 保存（views/・不変条件6へは実装時に追記）

@@ -44,8 +44,12 @@ pub struct WsQuery {
 
 pub fn router(state: SharedState) -> Router {
     Router::new()
-        // トップ = レイアウトエディタ（PCで開く。区画の並べ替えをする画面）
-        .route_service("/", ServeFile::new("static/editor.html"))
+        // トップ = 統合編集画面（2026-09-30〜。モック 41_…_v0.4.html を土台に作り直したもの）。
+        // 旧来のレイアウト編集は /editor へ移した（新しい画面が区画編集を持つまでの間、そこから使う）
+        .route_service("/", ServeFile::new("static/studio.html"))
+        .route_service("/editor", ServeFile::new("static/editor.html"))
+        // P-008 段階B: 端末スロットの一覧（読み取り専用）。統合編集画面が3台を並べるのに使う
+        .route("/api/devices", get(devices_handler))
         // QRは専用ページへ移した。ギャラリー形式で、カードごとにQRへ切り替える
         .route_service("/connect", ServeFile::new("static/gallery.html"))
         .route("/api/qr", get(qr_image))
@@ -480,6 +484,39 @@ async fn theme_set_handler(
 }
 
 /// このPCが持つIPv4の一覧と、いまQRに載っているもの。
+/// P-008 段階B: 端末スロットの一覧。**読み取り専用**（何も書き換えない）。
+/// 返すもの: id / label / kind / orientation / defaultLayout / currentLayout（いまの盤面。
+/// 覚えていなければ既定）/ connections（その端末を名乗っている /layout の接続数）。
+/// devices.json が無ければ空の配列（端末を区別しない構成）。
+async fn devices_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting devices request");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let s = state.lock().unwrap();
+    let devices: Vec<_> = s
+        .devices
+        .iter()
+        .map(|slot| {
+            let current = s
+                .device_layouts
+                .get(&slot.id)
+                .cloned()
+                .or_else(|| s.device_default_layout(&slot.id));
+            json!({
+                "id": slot.id,
+                "label": slot.label,
+                "kind": slot.kind,
+                "orientation": slot.orientation,
+                "defaultLayout": slot.default_layout,
+                "currentLayout": current,
+                "connections": s.device_connections(&slot.id),
+            })
+        })
+        .collect();
+    Json(json!({ "devices": devices })).into_response()
+}
+
 async fn hosts_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
     if !token_ok(&state, query.token.as_deref()) {
         tracing::error!(code = WS_TOKEN_INVALID, "rejecting hosts request");
@@ -2778,6 +2815,8 @@ mod tests {
             "static/panel.html",
             "static/layout.html",
             "static/lab_multigesture.html",
+            "static/studio.html",
+            "static/editor.html",
         ] {
             assert!(
                 root.join(path).exists(),
@@ -3449,6 +3488,30 @@ mod tests {
             let res = check_device(&state, Some(bad)).expect_err(bad);
             assert_eq!(res.status(), StatusCode::FORBIDDEN, "{bad}");
         }
+    }
+
+    /// P-008 段階B: `/api/devices` は token 必須。端末の並び・いまの盤面・接続数を返す。
+    #[tokio::test]
+    async fn p008_devices_api_lists_slots_with_current_layout_and_connections() {
+        let state = device_state();
+        let res = devices_handler(State(state.clone()), Query(TokenQuery { token: None })).await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        let _ipad = connect(&state, 1, Some("ipad"));
+        let _ipad2 = connect(&state, 2, Some("ipad"));
+        state.lock().unwrap().note_device_layout("ipad", "game");
+        let token = state.lock().unwrap().token.value().to_string();
+        let res = devices_handler(State(state.clone()), Query(TokenQuery { token: Some(token) })).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let list = v["devices"].as_array().unwrap();
+        assert_eq!(list.iter().map(|d| d["id"].as_str().unwrap()).collect::<Vec<_>>(), ["ipad", "android1", "android2"]);
+        assert_eq!(list[0]["currentLayout"], "game", "覚えている盤面");
+        assert_eq!(list[0]["connections"], 2);
+        assert_eq!(list[1]["currentLayout"], "game", "覚えていなければ端末の既定");
+        assert_eq!(list[1]["connections"], 0);
+        assert_eq!(list[0]["kind"], "tablet");
     }
 
     /// 端末ごとの入口 URL: device= と、いまの盤面（無ければ端末の既定）が載る。未知の端末は None。

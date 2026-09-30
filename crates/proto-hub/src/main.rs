@@ -161,7 +161,7 @@ async fn main() {
 
     println!("proto-hub: listening on 0.0.0.0:{PORT}");
     println!("  ▼ PCで開く");
-    println!("    トップ（レイアウト編集）: http://{lan_ip}:{PORT}/?token={}", token.value());
+    println!("    トップ（統合編集）: http://{lan_ip}:{PORT}/?token={}", token.value());
     println!("    QRギャラリー（端末を繋ぐ）: http://{lan_ip}:{PORT}/connect?token={}", token.value());
     println!("    設定（構成の確認・再読込）: http://{lan_ip}:{PORT}/settings?token={}", token.value());
     if hosts.len() > 1 {
