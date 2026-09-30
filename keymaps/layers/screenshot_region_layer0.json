@@ -1,0 +1,7 @@
+{
+  "layer": 0,
+  "description": "範囲を選んで撮る（WIN+SHIFT+S）。撮った範囲はクリップボードに入る。",
+  "keys": {
+    "SR": { "label": "範囲\nスクショ", "action": {"t": "chord", "keys": ["WIN", "SHIFT", "S"]} }
+  }
+}

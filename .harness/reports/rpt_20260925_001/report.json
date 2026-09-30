@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260925_001",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "build",
+  "kind": "tech_trial",
+  "date": "2026-09-25",
+  "title": "Deckの取り込み＋アイコン保存（外のアプリ→KeyDeck）",
+  "summary": "PWA などが書き出した keydeck.deck_import.v1 を Deck編集の「取り込み」で読み、キャラクターの四角アイコンを static/icons/ へ、Deck を既存の保存経路へ渡せるようにした（不変条件6に static/icons/ を追加、利用者裁定）。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-opus-5-5",
+  "startedAt": "2026-09-25T08:30:00+09:00",
+  "completedAt": "2026-09-25T09:40:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "POST /api/icon/save（crates/proto-hub/src/icon.rs）: name は [a-z0-9_]{1,64}、拡張子は先頭バイトで決める（PNG/JPEG/WebP）、SVG は拒否、1MiBまで、.bak 退避→書込→読み直し→不一致なら巻き戻し",
+    "Deck編集 /deckedit に「取り込み」: 画像を /api/icon/save、Deck を既存 /api/deck/save へ。参照先の無い iconRef や形式違いは、画像を1枚も書く前に止まる",
+    "CLAUDE.md 不変条件6、できること.md（版2.2）、DEVBOARD、/api/schema の ids.iconName を更新"
+  ],
+  "verification": [
+    "cargo test --workspace = 158 passed, 0 failed（7+8+97+46。新規6件）",
+    "cargo build -p proto-hub 警告0",
+    "deckedit.html を fetch と WebSocket を差し替えた jsdom で動かし、取り込み正常系、iconRef 欠落時の通信0回、形式違いでの停止を確認",
+    "未実施: 実Hubでの通し（Hubを起動していない。利用者が再起動後に確認）"
+  ],
+  "nextActions": [
+    "Hub を再起動し、/deckedit → 取り込み → kanban-note01 が書き出したファイル → Deck が現れアイコンが出ることを確認する",
+    "取り込んだ Deck をレイアウト編集で board に置き、ALT+番号が PC の会話ログVIEW に届くことを実機で確認する"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/icon.rs",
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/ws.rs",
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/error.rs",
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/main.rs",
+    "DevApps/APP_KeyDeck01/static/deckedit.html",
+    "DevApps/APP_KeyDeck01/CLAUDE.md",
+    "DevApps/APP_KeyDeck01/DEVBOARD.md",
+    "C:/00_CreatorCompass/KeyDeck/できること.md"
+  ],
+  "tags": ["keydeck", "deck", "import", "icon", "security"],
+  "blockedEncountered": [
+    "PWA から Hub へ直接送る案は、CORS 未許可と、HTTPS の PWA から LAN の HTTP への通信が遮断されるため採らず、ファイル受け渡しにした"
+  ],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": false,
+    "note": "書き込み口を増やすときは、拡張子をクライアントから受け取らず中身から決め、同一オリジンで配る形式（SVG）を拒否する。この型は他の画像受け口でも使える"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

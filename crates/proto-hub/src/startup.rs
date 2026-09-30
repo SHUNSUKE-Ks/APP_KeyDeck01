@@ -488,6 +488,118 @@ mod tests {
         );
     }
 
+    /// 範囲スクショ（screenshot_region）と左クリック（click_left）の部品が実データで読め、
+    /// WIN+SHIFT+S が許可リストに載ること。載っていないと押しても Hub が捨てる。
+    #[test]
+    fn real_data_allows_the_region_screenshot_and_loads_the_portrait_board() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let data = load_startup_data(
+            &root.join("keymaps"),
+            &root.join("decks"),
+            &root.join("surfaces"),
+            &root.join("layouts"),
+            &root.join("apps"),
+        )
+        .expect("repository data must load");
+
+        assert!(data.command_registry.is_allowed("chord:WIN+SHIFT+S"));
+        // スクロール用ホイール（wheel_scroll）の2方向が許可リストに載る
+        assert!(data.command_registry.is_allowed("mouse.wheel:up"));
+        assert!(data.command_registry.is_allowed("mouse.wheel:down"));
+        assert!(data.keymaps.get("wheel_scroll").and_then(|k| k.jog).is_some());
+        // ラジアルボタン（radial_edit）が読め、4方向の中身が許可リストに載る
+        assert!(data.keymaps.get("radial_edit").and_then(|k| k.radial.as_ref()).is_some());
+        for chord in ["chord:CTRL+C", "chord:CTRL+V", "chord:CTRL+Z", "chord:CTRL+X"] {
+            assert!(data.command_registry.is_allowed(chord), "{chord}");
+        }
+        // 二層ラジアル（radial_edit2）。8方向×2輪＝16のキーが盤面に揃っていなければ
+        // load_keymap がここで落ちる。内側の輪だけが持つ操作も許可リストに載る
+        let radial2 = data
+            .keymaps
+            .get("radial_edit2")
+            .and_then(|k| k.radial.as_ref())
+            .expect("radial_edit2 must load");
+        assert_eq!((radial2.sectors, radial2.rings), (8, 2));
+        assert_eq!(
+            data.keymaps["radial_edit2"]
+                .board
+                .as_ref()
+                .expect("radial board")
+                .keys
+                .len(),
+            16
+        );
+        for cmd in [
+            "chord:CTRL+SHIFT+V",
+            "chord:CTRL+Y",
+            "chord:CTRL+SHIFT+S",
+            "chord:CTRL+H",
+            "chord:CTRL+SHIFT+T",
+            "chord:CTRL+O",
+            "key:DEL",
+        ] {
+            assert!(data.command_registry.is_allowed(cmd), "{cmd}");
+        }
+        // アイコン付きのアプリ切り替え Deck（apps）の3ボタンが許可リストに載る
+        assert!(data.decks.contains_key("apps"));
+        for chord in ["chord:WIN+1", "chord:WIN+5", "chord:WIN+6", "chord:WIN+8"] {
+            assert!(data.command_registry.is_allowed(chord), "{chord}");
+        }
+        assert!(data.keymaps.contains_key("click_left"));
+        assert!(data.layouts.contains_key("iphone7_portrait"));
+
+        // ゲーム部門（V2.1）: 3端末ぶんの盤面と、その部品が揃っていること。
+        // どれか1つでも参照先が欠けると load_startup_data がここで落ちる
+        for id in ["game_ipad", "game_iphone7_land", "game_iphone7_port"] {
+            assert!(data.layouts.contains_key(id), "{id}");
+        }
+        assert!(data.keymaps.contains_key("game_action"));
+        assert!(data.decks.contains_key("game"));
+        // アクションボタンは押しっぱなし（key.hold）と左クリックを持つ。
+        // どちらも許可リストに載っていないと、押しても何も起きない
+        for cmd in [
+            "key.hold:SPACE",
+            "key.hold:SHIFT",
+            "key.hold:CTRL",
+            "key:E",
+            "key:ESC",
+            "mouse.click:left",
+        ] {
+            assert!(data.command_registry.is_allowed(cmd), "{cmd}");
+        }
+        // 道具Deckの8ボタン。録画（WIN+ALT+R）と全画面（F11）まで通っていること
+        for cmd in ["chord:WIN+ALT+R", "key:F11", "chord:ALT+TAB", "key:MUTE"] {
+            assert!(data.command_registry.is_allowed(cmd), "{cmd}");
+        }
+
+        // Note Story 用の盤面（REQ-20260928-001）: 盤面と5つの部品が揃い、
+        // 話者（ALT+0〜9）・行の移動・F13〜F17・定型文が許可リストに載ること
+        assert!(data.layouts.contains_key("note_story"));
+        for id in ["note_move", "note_tools", "note_edge"] {
+            assert!(data.keymaps.contains_key(id), "{id}");
+        }
+        for id in ["note_cast", "note_palette"] {
+            assert!(data.decks.contains_key(id), "{id}");
+        }
+        for n in 0..=9 {
+            let cmd = format!("chord:ALT+{n}");
+            assert!(data.command_registry.is_allowed(&cmd), "{cmd}");
+        }
+        for cmd in [
+            "chord:ALT+UP",
+            "chord:ALT+DOWN",
+            "chord:CTRL+ENTER",
+            "chord:CTRL+SLASH",
+            "key:F13",
+            "key:F14",
+            "key:F15",
+            "key:F16",
+            "key:F17",
+        ] {
+            assert!(data.command_registry.is_allowed(cmd), "{cmd}");
+        }
+    }
+
     /// P-005 段階A: `decks/`に置いたファイルは全部発見される（keymapsと同じ規則）。
     /// これが無いと「Stream Deckとコピペリストを同時に出す」ができない。
     #[test]

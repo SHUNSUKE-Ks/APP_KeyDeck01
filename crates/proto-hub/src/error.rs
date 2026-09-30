@@ -33,3 +33,15 @@ pub const LAYER_SAVE_FAILED: &str = "LAYER_SAVE_FAILED";
 pub const BOARD_SAVE_REJECTED: &str = "BOARD_SAVE_REJECTED";
 /// P-007 段階B: 盤面保存の失敗（ファイル操作そのものが失敗した）。
 pub const BOARD_SAVE_FAILED: &str = "BOARD_SAVE_FAILED";
+
+/// V2.1: Deck保存の拒否（deckIdの形が不正／検証に落ちた）。
+/// ディスクは変更されないか、変更されても巻き戻される。
+pub const DECK_SAVE_REJECTED: &str = "DECK_SAVE_REJECTED";
+/// V2.1: Deck保存の失敗（ファイル操作そのものが失敗した）。
+pub const DECK_SAVE_FAILED: &str = "DECK_SAVE_FAILED";
+
+/// 2026-09-25: アイコン保存の拒否（nameの形が不正／PNG・JPEG・WebP以外／空／1MiB超）。
+/// ディスクは変更されない。
+pub const ICON_SAVE_REJECTED: &str = "ICON_SAVE_REJECTED";
+/// 2026-09-25: アイコン保存の失敗（ファイル操作そのもの、または読み直しの不一致）。巻き戻される。
+pub const ICON_SAVE_FAILED: &str = "ICON_SAVE_FAILED";

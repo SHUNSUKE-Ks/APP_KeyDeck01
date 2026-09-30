@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "bookmaker-diagram/v1.1",
+  "title": "Fnを押すとLayer 1が有効になる",
+  "source": {
+    "path": "C:\\00_master\\DevApps\\APP_KeyDeck01\\crates\\proto-keymap\\src\\lib.rs",
+    "function": "resolve",
+    "lineHint": "Action::Moの分岐"
+  },
+  "scenario": {"trigger": "Fnをpointerdownする", "message": "key.press: K101 / Down", "effectKind": "state-only"},
+  "screens": {
+    "before": {"kind": "placeholder", "caption": "Layer 0。Fnを押す前。", "focus": "Fn Componentを赤丸で囲む"},
+    "after": {"kind": "placeholder", "caption": "Layer 1。キーラベルが切り替わる。Windows入力は出ない。", "focus": "Layer表示と変化したキーを示す"}
+  },
+  "code": {
+    "language": "rust",
+    "snippet": "Action::Mo { layer } => match edge {\n    Edge::Down => {\n        state.momentary.insert(*layer);\n        Resolved::LayerChanged\n    }\n}",
+    "simplified": true,
+    "highlight": "state.momentary.insert(*layer);",
+    "annotation": "この1行だけがLayerStateを変える"
+  },
+  "flow": [
+    {"label": "ブラウザ: key.press", "kind": "message", "detailAnchor": "#before"},
+    {"label": "handle_key_press", "kind": "function", "detailAnchor": "#handle"},
+    {"label": "resolve: LayerChanged", "kind": "state", "detailAnchor": "#resolve"},
+    {"label": "broadcast_layer_state", "kind": "screen", "detailAnchor": "#broadcast"}
+  ],
+  "branches": {
+    "left": [{"label": "momentaryへ1を追加", "kind": "state", "detailAnchor": "#state"}],
+    "right": [{"label": "Fireなし: SendInputを呼ばない", "kind": "input", "detailAnchor": "#no-input"}, {"label": "比較: KeyならFire", "kind": "input", "detailAnchor": "#key"}]
+  },
+  "detailPage": "09_Fn状態変化_詳細.html"
+}

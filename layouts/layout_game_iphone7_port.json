@@ -1,0 +1,51 @@
+{
+  "layoutId": "game_iphone7_port",
+  "description": "ゲーム部門の盤面（iPhone 7 縦・5×8）。片手で持って、もう一方の指で触る持ち方。視点を上に大きく取ってある。\n\n■ 並び（上から）\n1〜3行目 視点用トラックボール（横いっぱい）\n4〜6行目 移動の十字キー（左2列）・アクションボタン6つ（右3列）\n7〜8行目 道具の8ボタン（deck game・左4列）・武器切り替えホイール（右端）\n\n■ 1マスの大きさ\n375×553 から上の帯56pxを引いた 375×497 を 5×8 に割るので、1マスは約75×62px。指で押せる44pxを縦横とも上回る。\n\n■ 縦持ちで向くゲーム\n視点を大きく動かす必要のない、見下ろし型やカード・ノベル向き。素早い視点移動が要るものは横画面（game_iphone7_land）か iPad（game_ipad）の盤面を使う。",
+  "device": "iphone7_port",
+  "grid": {
+    "cols": 5,
+    "rows": 8
+  },
+  "sections": [
+    {
+      "id": "SEC-BALL",
+      "row": 1,
+      "col": 1,
+      "colSpan": 5,
+      "rowSpan": 3,
+      "component": { "kind": "trackball", "ref": "tb01" }
+    },
+    {
+      "id": "SEC-PAD",
+      "row": 4,
+      "col": 1,
+      "colSpan": 2,
+      "rowSpan": 3,
+      "component": { "kind": "keyboard", "ref": "dpad01" }
+    },
+    {
+      "id": "SEC-ACT",
+      "row": 4,
+      "col": 3,
+      "colSpan": 3,
+      "rowSpan": 3,
+      "component": { "kind": "keyboard", "ref": "game_action" }
+    },
+    {
+      "id": "SEC-DECK",
+      "row": 7,
+      "col": 1,
+      "colSpan": 4,
+      "rowSpan": 2,
+      "component": { "kind": "deck", "ref": "game" }
+    },
+    {
+      "id": "SEC-WHEEL",
+      "row": 7,
+      "col": 5,
+      "colSpan": 1,
+      "rowSpan": 2,
+      "component": { "kind": "jog", "ref": "wheel_scroll" }
+    }
+  ]
+}

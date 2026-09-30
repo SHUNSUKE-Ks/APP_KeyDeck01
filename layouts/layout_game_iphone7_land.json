@@ -1,0 +1,43 @@
+{
+  "layoutId": "game_iphone7_land",
+  "description": "ゲーム部門の盤面（iPhone 7 横・10×4）。ゲームパッドと同じ持ち方。左の親指で移動、右の親指でアクション、真ん中で視点。\n\n■ 並び\n左 移動の十字キー（矢印キー）／中 視点用トラックボール／右上 アクションボタン6つ／右下 道具の8ボタン（deck game）\n\n■ 1マスの大きさ\n667×331 から上の帯40pxを引いた 667×291 を 10×4 に割るので、1マスは約67×73px。\n\n■ ホイールが無い理由\n10×4 では、移動・視点・アクション・道具を置くと1列も余らない。武器の切り替えホイールは iPad と iPhone 縦の盤面にある。",
+  "device": "iphone7_land",
+  "grid": {
+    "cols": 10,
+    "rows": 4
+  },
+  "sections": [
+    {
+      "id": "SEC-PAD",
+      "row": 1,
+      "col": 1,
+      "colSpan": 3,
+      "rowSpan": 4,
+      "component": { "kind": "keyboard", "ref": "dpad01" }
+    },
+    {
+      "id": "SEC-BALL",
+      "row": 1,
+      "col": 4,
+      "colSpan": 3,
+      "rowSpan": 4,
+      "component": { "kind": "trackball", "ref": "tb01" }
+    },
+    {
+      "id": "SEC-ACT",
+      "row": 1,
+      "col": 7,
+      "colSpan": 4,
+      "rowSpan": 2,
+      "component": { "kind": "keyboard", "ref": "game_action" }
+    },
+    {
+      "id": "SEC-DECK",
+      "row": 3,
+      "col": 7,
+      "colSpan": 4,
+      "rowSpan": 2,
+      "component": { "kind": "deck", "ref": "game" }
+    }
+  ]
+}

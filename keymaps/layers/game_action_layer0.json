@@ -1,0 +1,12 @@
+{
+  "layer": 0,
+  "description": "ゲーム用アクションボタンの割当。ジャンプ・ダッシュ・しゃがむは押している間ずっと押され続ける（key.hold）。決定と取消は1回押して離すだけ。",
+  "keys": {
+    "GA1": { "label": "決定\n調べる", "action": { "t": "key",      "vk": "E" } },
+    "GA2": { "label": "ジャンプ",     "action": { "t": "key.hold", "vk": "SPACE" } },
+    "GA3": { "label": "攻撃",         "action": { "t": "mouse.click", "button": "left" } },
+    "GA4": { "label": "ダッシュ",     "action": { "t": "key.hold", "vk": "SHIFT" } },
+    "GA5": { "label": "しゃがむ",     "action": { "t": "key.hold", "vk": "CTRL" } },
+    "GA6": { "label": "取消",         "action": { "t": "key",      "vk": "ESC" } }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260910_003",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "documentation",
+  "kind": "phase_report",
+  "date": "2026-09-10",
+  "title": "技術書図の縦フローと詳細ページ見本",
+  "summary": "状態変化図を縦フロー・左右の枝・詳細ページ遷移へ再構成したHTML見本を追加した。",
+  "agentId": "codex",
+  "modelProfileId": "codex-gpt-5",
+  "startedAt": "2026-09-10T00:00:00+09:00",
+  "completedAt": "2026-09-10T00:00:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "中央のコードblock下を、ブラウザから状態配信までを上から下へ追う縦フローにした。",
+    "左右の枝を状態とWindows入力へ限定し、各詳細はボタンから別HTMLページの該当見出しへ遷移する構成にした。",
+    "赤い説明文字がカード外へ漏れる問題を避け、注釈を画面内の専用領域へ収めた。"
+  ],
+  "verification": [
+    "Hubと開発サーバーを起動しない単独HTMLとして作成した。",
+    "縦フロー見本をCodex右ペインで開く操作を依頼し、アプリからqueued応答を受け取った。",
+    "実スクリーンショットは未挿入で、画面枠は差し替え前の仮表示である。"
+  ],
+  "nextActions": [
+    "利用者が横3列と縦フローの読み順、枝の数、詳細ページへの遷移を確認する。",
+    "人が示す注釈見本を受け、実スクリーンショットと同じ線・矢印・文章量へ統一する。"
+  ],
+  "deliverables": [
+    "00_勉強フォルダー/08_状態変化図_縦フロー見本.html",
+    "00_勉強フォルダー/09_Fn状態変化_詳細.html"
+  ],
+  "tags": ["documentation", "keydeck", "diagram", "drilldown"],
+  "blockedEncountered": [],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": true,
+    "note": "比較画面を左右に残し、中央を縦フロー、周囲を最大2本の枝、詳細を別ページへ逃がす型は、コード解説の情報密度を制御しやすい。"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

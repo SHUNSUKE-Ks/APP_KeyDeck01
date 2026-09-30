@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260909_001",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "documentation",
+  "kind": "phase_report",
+  "date": "2026-09-09",
+  "title": "KeyDeck技術書 初稿の作成",
+  "summary": "非エンジニア向けのKeyDeck技術書初稿と、次版に向けたレイアウト検討メモを勉強フォルダーへ追加した。",
+  "agentId": "codex",
+  "modelProfileId": "codex-gpt-5",
+  "startedAt": "2026-09-09T00:00:00+09:00",
+  "completedAt": "2026-09-09T00:00:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "12章構成のMarkdown技術書初稿を作成した。",
+    "掲載する関数を役割、場面、入力、処理順、出力、失敗時、関連、例えで説明した。",
+    "用語集、コード索引、未確認事項、個人情報の伏字規則を本文へ含めた。",
+    "既存のファイル単位の勉強ノートを残し、本編から詳細へ戻れる構成にした。"
+  ],
+  "verification": [
+    "新規原稿の章見出し・章末3要素・用語集・索引をrgで確認した。",
+    "原稿内に実在ユーザー名を含むWindowsパス、具体的LAN IP、32桁tokenらしき文字列が無いことをrgで確認した。",
+    "引用したresolve、load_startup_data、canonical_command_id、send_text、release_held_keys、renderComponent、fitDeckの実在をrgで確認した。",
+    "cargo test --workspaceは実行プロセス初期化エラーにより開始できず、未再確認として本文に明記した。"
+  ],
+  "nextActions": [
+    "利用者が初稿を読み、章扉・関数カード・図・確認問題のレイアウト方針を選ぶ。",
+    "決定後、優先度の高い章からコード引用と図を増補する。",
+    "テスト実行環境が利用可能になった時点でcargo test --workspaceを再実行し、結果を原稿へ反映する。"
+  ],
+  "deliverables": [
+    "00_勉強フォルダー/02_KeyDeck技術書_初稿.md",
+    "00_勉強フォルダー/03_本のレイアウト検討.md"
+  ],
+  "tags": ["documentation", "keydeck", "technical-book", "learning"],
+  "blockedEncountered": [
+    "cargo test --workspaceは実行前のプロセス初期化エラーで開始できなかった。"
+  ],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": true,
+    "note": "関数カードと章末3要素、根拠索引、伏字規則をセットにした技術書初稿の型は、他のWindowsローカルアプリにも再利用できる。"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

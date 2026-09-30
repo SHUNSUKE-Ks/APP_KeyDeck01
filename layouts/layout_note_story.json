@@ -1,0 +1,76 @@
+{
+  "layoutId": "note_story",
+  "description": "Note Story（カンバンNote V2.1）の会話ログ・下書き用の盤面（iPad 横・12×9）。REQ-20260928-001。\n本文の日本語はPCのキーボードで打ち、この盤面は「誰が話すか」「タグ・柱・記号を入れる」「行を移る」だけを受け持つ。\n\n■ 並び\n上段左 話者（deck note_cast。人物1〜9＋ナレーション。いちばん大きい）\n上段右 行の移動（前／続ける／次）とスクロールのホイール\n下段左 書く道具（[Char] [Scene] [演出] 柱： 備考： 2カラム）\n下段中 定型文の一覧（deck note_palette）\n下段右 ふち（? 戻る Esc キー確認 Note Story起動 既定へ）\n\n■ 人物の名前とアイコン\nNote Story の「KeyDeckへ書き出し」で Deck名を **note_cast** にして書き出し、Deck編集の「取り込み」で読み込むと、この盤面の話者がその作品の人物に置き換わる（前の中身は .bak に残る）。\n\n■ 前提\nNote Story は PC の Chrome アプリ窓（--app）で開く。普通のタブだと Alt+数字 を Chrome がタブ切り替えに取る。\nスクロールは Windows の決まりで**マウスカーソルの下の窓**が動く。",
+  "grid": {
+    "cols": 12,
+    "rows": 9
+  },
+  "sections": [
+    {
+      "id": "SEC-CAST",
+      "row": 1,
+      "col": 1,
+      "colSpan": 8,
+      "rowSpan": 4,
+      "component": {
+        "kind": "deck",
+        "ref": "note_cast"
+      }
+    },
+    {
+      "id": "SEC-MOVE",
+      "row": 1,
+      "col": 9,
+      "colSpan": 2,
+      "rowSpan": 4,
+      "component": {
+        "kind": "keyboard",
+        "ref": "note_move"
+      }
+    },
+    {
+      "id": "SEC-WHEEL",
+      "row": 1,
+      "col": 11,
+      "colSpan": 2,
+      "rowSpan": 4,
+      "component": {
+        "kind": "jog",
+        "ref": "wheel_scroll"
+      }
+    },
+    {
+      "id": "SEC-TOOLS",
+      "row": 5,
+      "col": 1,
+      "colSpan": 6,
+      "rowSpan": 5,
+      "component": {
+        "kind": "keyboard",
+        "ref": "note_tools"
+      }
+    },
+    {
+      "id": "SEC-PALETTE",
+      "row": 5,
+      "col": 7,
+      "colSpan": 4,
+      "rowSpan": 5,
+      "component": {
+        "kind": "deck",
+        "ref": "note_palette"
+      }
+    },
+    {
+      "id": "SEC-EDGE",
+      "row": 5,
+      "col": 11,
+      "colSpan": 2,
+      "rowSpan": 5,
+      "component": {
+        "kind": "keyboard",
+        "ref": "note_edge"
+      }
+    }
+  ]
+}

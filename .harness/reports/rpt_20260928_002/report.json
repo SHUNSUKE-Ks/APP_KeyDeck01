@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260928_002",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "design",
+  "kind": "tech_trial",
+  "date": "2026-09-28",
+  "title": "見た目2案（ダーク／明るい透明）＋触感演出2種の試作モック",
+  "summary": "設定に置く想定のテーマ切替トグルで、ダークと明るい透明(グラスモーフィズム)の2案を切り替えられるモックを作成。球体ボタンの「へこむ」演出はCSSのみで可能と実証し、three.js案の代替としてSVG+JSのバネ物理で丸い器の水が揺れる演出を試作した。Hub本体・凍結領域には未接続・未接触。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-sonnet-5",
+  "startedAt": "2026-09-28T01:00:00+09:00",
+  "completedAt": "2026-09-28T01:45:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "00_勉強フォルダー/35_見た目2案_ダーク明るい透明_触感演出試作.html を新規作成（単一HTML・外部ライブラリ/CDNなし、D2準拠）",
+    "テーマ切替: data-theme属性の付け替えのみで要素を作り直さない設計。ダーク=既存KeyDeck配色+選択コロナ、明るい透明=backdrop-filter blurのすりガラス",
+    "球体ボタンの「へこむ」演出: radial-gradientのハイライト位置反転＋box-shadowのoutset→inset切替＋scaleで実現。3D計算・WebGL不要と実証",
+    "丸い器の水: three.js(WebGL)は使わず、SVGパスをrequestAnimationFrameで書き換えるバネ物理(減衰振動)でドラッグ→傾き→揺れ戻りを再現"
+  ],
+  "verification": [
+    "Browser paneでfile://を直接開き視認確認（Hubは起動していない。開発サーバーは自動起動しない方針のため未使用）",
+    "テーマトグルのクリックでダーク⇄明るい透明が切り替わることを確認",
+    "水オーブをドラッグ→離すと大きく傾いてから減衰しながら水平へ戻ることをスクリーンショットで確認",
+    "javascript_toolで.is-pressedを付与し、球体ボタンにアクセントカラーの光輪と沈み込みが出ることを確認"
+  ],
+  "nextActions": [
+    "ダーク/明るい透明のどちらを既定にするか、既存の/api/theme（blue/red/green）とどう統合するかをユーザーに確認する",
+    "採用が決まれば、実際のsettings.htmlへトグルを移植する（既存のapplyTheme/syncTheme経路に載せられるか要検討）",
+    "水の演出はSVG近似で十分か、three.js(要D2例外裁定)で本物の3D水にするかは、後継機の技術スタック方針が決まってからOpusへ相談する"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/35_見た目2案_ダーク明るい透明_触感演出試作.html"
+  ],
+  "tags": ["keydeck", "ui", "tactile", "prototype", "theme"],
+  "blockedEncountered": [
+    "three.jsでの水表現はCLAUDE.md D2（フレームワーク・CDN依存禁止）に触れるため今回は採用せず、SVG+JSのバネ物理で代替した"
+  ],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": false,
+    "note": "「凸→凹」の押下演出はハイライト位置と影の向きを反転させるだけで作れる、という型は他のKeyDeck画面（キー編集・Deck編集のタイル）にも転用できる。水の揺れも同じ減衰振動バネの型で他の物理っぽい演出（針の跳ね返り等）に流用できる"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

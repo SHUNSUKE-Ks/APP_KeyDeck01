@@ -1,0 +1,23 @@
+{
+  "reportId": "rpt_20260917_001",
+  "schemaVersion": "1.0",
+  "title": "技術書 初版の監修（別AI・指摘のみ）を実施し、17件を裏取り。実装の穴1件と不具合1件を記録",
+  "status": "completed",
+  "taskId": null,
+  "agent": "Claude Code",
+  "model": "Opus 5",
+  "artifacts": [
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\改訂メモ_v2候補.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\改訂素材\\board_ipad_youtube_v2.png",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\改訂素材\\capture_board.mjs",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\DEVBOARD.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\15_引継ぎ_次のチャットへ_20260915.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\納品_読本屋\\book.json",
+    "C:\\00_CreatorHub\\knowledge\\BookStandard\\実録_KeyDeck技術書_本の作り方.md"
+  ],
+  "verification": {
+    "status": "passed",
+    "summary": "監修の指摘17件を全件こちらで裏取りした。重大3件を確認: (1) 第2章のtoken被害上限の記述が誤り（layer_save_handler が token だけで通り、保存後に command_registry を再構築するため、保存→押すの2手で任意のキー・文字列が飛ぶ。ws.rs:804,896,931）。(2) layout.switch / app.launch の入れ子 fire が許可リストに載らない実装の穴（state.rs:109-136 は TgFire のみ再帰、startup.rs:305 は最上位のみ。現物 appswitch A1 の chord:WIN+1 はリポジトリ全体で1件のみ＝許可リストに不在）。(3) 第3章が主ボード(ipad01_vol13、mo なし)と /ipad 面(ipad01_vol12)を取り違え。軽微な指摘も cmp・grep・awk で個別に確認（画像2枚はバイト単位で同一、main.rs:184 の cmd /C start、DeltaWire、note_key_hold は state.rs:347、layout_save_handler は582-754の173行）。図の空箱は実装ではなく単発 --screenshot が iframe を描かないことが原因と切り分け、CDPで撮り直して差し替え用画像を用意。B-001（mo が切断後も残る）は再現・実測済みで DEVBOARD へ記録済み。"
+  },
+  "nextAction": "利用者の判断待ち: (a) B-002（入れ子 fire の許可リスト）を実装修正するか、原稿に未解決として書くか。(b) 筆名の文字列。(c) 読本屋CMSの場所。決まり次第、改訂版（21_書籍_改訂版）を起こして revision 2 とする。"
+}

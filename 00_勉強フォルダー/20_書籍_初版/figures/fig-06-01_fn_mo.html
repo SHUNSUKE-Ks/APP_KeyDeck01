@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>図6-1 Fn を押すとレイヤー1になる（実画面）</title>
+<style>
+  :root{color-scheme:dark;--bg:#101526;--panel:#18213a;--line:#40527b;--text:#eef2ff;--sub:#b9c4e5;--red:#ff6b6b;--blue:#78b7ff;--green:#a8e6a2;--code:#0b1020}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px 16px;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI","Yu Gothic UI",sans-serif;line-height:1.65}
+  main{max-width:1440px;margin:auto}
+  h1{margin:0 0 4px;font-size:24px} h2{margin:0 0 12px;font-size:17px} h3{margin:18px 0 6px;font-size:15px}
+  p{margin:4px 0;color:var(--sub)} code,pre{font-family:ui-monospace,Consolas,monospace}
+  a{color:#cfe0ff}
+  .note{margin:14px 0 22px;padding:10px 14px;border-left:4px solid var(--red);background:#241b2a;color:#ffe3e3}
+  .top{display:grid;grid-template-columns:minmax(0,1fr) 110px minmax(0,1.1fr) 110px minmax(0,1fr);align-items:center;gap:0}
+  .card,.flow,.detail{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px}
+  .label{margin-bottom:8px;color:var(--sub);font-size:13px;font-weight:700}
+  .arrow{text-align:center;color:var(--blue);padding:0 6px}
+  .arrow strong{display:block;font-size:30px}
+  .arrow span{display:block;margin-top:6px;color:var(--sub);font-size:11px;line-height:1.4}
+  /* 元画像は加工しない。注釈は上に重ねる別レイヤー */
+  .shot{position:relative;border-radius:8px;overflow:hidden;border:1px solid #566b99}
+  .shot img{display:block;width:100%;height:auto}
+  .ring{position:absolute;border:3px solid var(--red);border-radius:10px;pointer-events:none;box-shadow:0 0 0 2px rgba(0,0,0,.35)}
+  .ring.blue{border-color:var(--blue)}
+  .tag{position:absolute;padding:1px 6px;border-radius:6px;background:var(--red);color:#1a0b0b;font-size:11px;font-weight:700;white-space:nowrap}
+  .tag.blue{background:var(--blue);color:#0b1324}
+  .cap{margin-top:8px;padding:7px 10px;border-left:3px solid var(--red);background:#2d1b28;color:#ffe3e3;font-size:12px}
+  .link{display:inline-block;margin-top:10px;padding:5px 10px;border:1px solid #6e83b1;border-radius:7px;color:#e2ebff;text-decoration:none;font-size:12px}
+  .code{position:relative;border:1px solid #4a5b86;border-radius:10px;background:var(--code);overflow-x:auto}
+  pre{margin:0;padding:14px 16px;color:#dce7ff;font-size:13px;line-height:1.72}
+  .line{display:block;padding:0 5px;white-space:pre}
+  .under{border-bottom:3px solid var(--red);background:rgba(255,107,107,.12)}
+  .comment{color:#91a1c9}
+  .callout{margin-top:10px;padding:7px 9px;border:1px solid var(--red);border-radius:7px;background:#3a1c29;color:#ffe6e6;font-size:12px}
+  .flow{margin-top:22px}
+  .columns{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr) minmax(0,.8fr);gap:16px;align-items:center}
+  .branches{display:flex;flex-direction:column;gap:12px}
+  .branch{padding:11px;border:1px solid #50638e;border-radius:9px;background:#111a30;font-size:13px}
+  .vertical{display:flex;flex-direction:column}
+  .node{padding:12px 14px;border:1px solid #5870a1;border-radius:10px;background:#111a30;text-align:center;font-size:14px}
+  .node.state,.branch.state{border-color:var(--blue)} .node.input,.branch.input{border-color:var(--green)}
+  .down{height:28px;color:var(--sub);font-size:20px;text-align:center}
+  .chip{display:inline-block;margin-bottom:6px;padding:1px 7px;border-radius:999px;background:var(--blue);color:#0b1324;font-size:11px;font-weight:700}
+  .chip.input{background:var(--green)}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;color:var(--sub);font-size:13px}
+  .dot{display:inline-block;width:10px;height:10px;margin-right:4px;border-radius:50%}
+  .red{background:var(--red)} .blue-d{background:var(--blue)} .green-d{background:var(--green)}
+  .detail{margin-top:22px}
+  .detail section{padding:12px 0;border-top:1px solid var(--line)}
+  .detail section:first-of-type{border-top:0}
+  .log{overflow-x:auto;background:var(--code);border:1px solid #4a5b86;border-radius:8px}
+  .log pre{font-size:12px;white-space:pre}
+  table{border-collapse:collapse;font-size:13px;width:100%}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#1f2a47}
+  .tablewrap{overflow-x:auto}
+  @media (max-width:1080px){
+    .top,.columns{grid-template-columns:1fr}
+    .arrow{padding:10px}
+    .arrow strong{transform:rotate(90deg)}
+    .branches{flex-direction:row;flex-wrap:wrap}
+    .branch{flex:1 1 180px}
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>図6-1　Fn を押すとレイヤー1になる</h1>
+  <p>型: <code>bookmaker-diagram/v1.1</code>（<code>fig-06-01_fn_mo.json</code>）／ 画面はすべて実際の <code>/ipad</code> 画面の撮影（2026-09-15、PC 上のヘッドレス Chrome）</p>
+  <div class="note">横の矢印は「何が渡るか」、下の縦フローは「どの順に処理されるか」、左右の枝は「どこへ影響するか」。赤い枠と札は画像の上に重ねた注釈で、元の画像は加工していない。</div>
+
+  <section class="top">
+    <article class="card">
+      <div class="label">1. 押す前（実画面）</div>
+      <div class="shot">
+        <img src="../images/fn_01_before.png" alt="Fn を押す前の /ipad 画面。数字の段は 1〜0、バッジは英数">
+        <div class="ring" style="left:0.8%;top:49%;width:7.2%;height:8.6%"></div>
+        <div class="tag" style="left:0.8%;top:44.5%">押す: K101</div>
+        <div class="ring blue" style="left:8.3%;top:49%;width:75.8%;height:8.6%"></div>
+      </div>
+      <div class="cap">赤: 押す位置（Fn）。青: このあと変わる段。</div>
+      <a class="link" href="#before">押す前の詳細 →</a>
+    </article>
+
+    <div class="arrow"><strong>→</strong><span>① <code>key.press</code><br>K101 / down<br>（位置だけ）</span></div>
+
+    <article class="card">
+      <div class="label">2. 注釈つきコード</div>
+      <div class="code"><pre><code><span class="line">Action::Mo { layer } =&gt; {</span><span class="line">    let layer = *layer;</span><span class="line">    match edge {</span><span class="line">        Edge::Down =&gt; {</span><span class="line under">            state.momentary.insert(layer);</span><span class="line comment">            // 状態が変わるのはこの1行</span><span class="line">            Resolved::LayerChanged</span><span class="line comment">            // Fireではない＝入力なし</span><span class="line">        }</span><span class="line">        // …Up の枝は省略…</span><span class="line">    }</span><span class="line">}</span></code></pre></div>
+      <div class="callout">出典: <code>crates/proto-keymap/src/lib.rs</code> の <code>resolve</code>。Up の枝を省略し、日本語コメント2行を足した（説明用に簡略化）。</div>
+      <a class="link" href="#code">コードの詳細 →</a>
+    </article>
+
+    <div class="arrow"><strong>→</strong><span>② <code>LayerChanged</code><br><code>layer.state</code> を配信<br>momentary: [1]</span></div>
+
+    <article class="card">
+      <div class="label">3. 押している間（実画面）</div>
+      <div class="shot">
+        <img src="../images/fn_02_after_down.png" alt="Fn を押している間の /ipad 画面。数字の段が F1〜F10、Bksp が F11、Enter が F12、バッジは Layer 1">
+        <div class="ring blue" style="left:8.3%;top:49%;width:75.8%;height:8.6%"></div>
+        <div class="tag blue" style="left:8.3%;top:44.5%">F1〜F10</div>
+        <div class="ring blue" style="left:92%;top:49%;width:7%;height:8.6%"></div>
+        <div class="ring blue" style="left:92%;top:58.4%;width:7%;height:17.6%"></div>
+        <div class="ring" style="left:44.2%;top:2.2%;width:8.4%;height:4.2%"></div>
+        <div class="tag" style="left:44.2%;top:7%">Layer 1</div>
+      </div>
+      <div class="cap">変化: 数字の段・Bksp・Enter の文字とバッジ。<strong>Windows 入力は出ない。</strong></div>
+      <a class="link" href="#after">押している間の詳細 →</a>
+    </article>
+  </section>
+
+  <section class="flow">
+    <h2>上から下へ読む主フロー</h2>
+    <div class="columns">
+      <aside class="branches">
+        <div class="branch state"><span class="chip">状態</span><br><strong>momentary に 1 を追加</strong><br>有効レイヤーが {0} → {0,1}。<br><a class="link" href="#state">詳細 →</a></div>
+        <div class="branch state"><span class="chip">画面</span><br><strong>同じ種類の画面すべてへ配信</strong><br>押した接続と別の画面も変わる。<br><a class="link" href="#broadcast">詳細 →</a></div>
+      </aside>
+      <div class="vertical">
+        <div class="node"><strong>端末</strong><br><code>key.press</code><br>位置 K101 と down を送る<br><a class="link" href="#before">詳細 →</a></div>
+        <div class="down">↓</div>
+        <div class="node"><strong>handle_client_text → handle_key_press</strong><br>種類を読み、resolve へ渡す<br><a class="link" href="#handle">詳細 →</a></div>
+        <div class="down">↓</div>
+        <div class="node state"><span class="chip">状態</span><br><strong>resolve</strong><br>レイヤー0で mo を見つけ、LayerChanged を返す<br><a class="link" href="#resolve">詳細 →</a></div>
+        <div class="down">↓</div>
+        <div class="node state"><span class="chip">画面</span><br><strong>broadcast_layer_state</strong><br>確定した状態を画面へ送る<br><a class="link" href="#broadcast">詳細 →</a></div>
+      </div>
+      <aside class="branches">
+        <div class="branch input"><span class="chip input">入力</span><br><strong>この例では Fire なし</strong><br>fire_action も SendInput も呼ばれない。<br><a class="link" href="#no-input">詳細 →</a></div>
+        <div class="branch input"><span class="chip input">比較</span><br><strong>普通の key なら Fire</strong><br>この枝で Windows 入力へ進む（第7章）。<br><a class="link" href="#key">詳細 →</a></div>
+      </aside>
+    </div>
+    <div class="legend"><span><i class="dot red"></i>注釈レイヤー</span><span><i class="dot blue-d"></i>Hub の状態・画面への影響</span><span><i class="dot green-d"></i>Windows 入力への影響</span></div>
+  </section>
+
+  <section class="detail">
+    <h2>詳細</h2>
+
+    <section id="before">
+      <h3>押す前 — 何が表示されているか</h3>
+      <p>同じ <code>/ipad</code> 画面を1つ開いたまま撮影した。1段目は <code>1</code>〜<code>0</code>、右上のバッジは <code>英数</code>。</p>
+      <p>端末が送ったのは次の1通だけ。キーの意味（「レイヤー1にせよ」）は含まれていない。</p>
+      <div class="log"><pre>{ "type": "key.press", "keyId": "K101", "edge": "down" }</pre></div>
+      <p>このメッセージは撮影中の画面からではなく、<strong>別の WebSocket 接続</strong>から送った。</p>
+    </section>
+
+    <section id="handle">
+      <h3>handle_key_press — 受け取って、必ず1行残す</h3>
+      <p><code>crates/proto-hub/src/ws.rs</code>。<code>resolve</code> を呼ぶ前の有効レイヤーを記録し、解決の結果と一緒にログへ1行書く。</p>
+      <div class="log"><pre>key press chk="T3-3" surface=Ipad keymap_id="-" key_id="K101" edge=Down layers=0 outcome=layer-change</pre></div>
+      <p><code>outcome=layer-change</code> が「状態が変わった」。Windows へ送るときは <code>outcome=key:A</code> のように照合札が出る。</p>
+    </section>
+
+    <section id="resolve">
+      <h3>resolve — どのレイヤーの意味を使うか</h3>
+      <p><code>crates/proto-keymap/src/lib.rs</code>。有効レイヤー {0} を大きい順に見て、レイヤー0に <code>{"t":"mo","layer":1}</code> を見つける。Down なので <code>momentary</code> に 1 を入れ、<code>LayerChanged</code> を返す。</p>
+    </section>
+
+    <section id="code">
+      <h3>コード — 赤線の1行</h3>
+      <p><code>state.momentary.insert(layer);</code> が、この操作で Hub の状態を変える唯一の行。この枝は <code>Fire</code> を返さない。</p>
+    </section>
+
+    <section id="state">
+      <h3>状態 — momentary</h3>
+      <p>有効レイヤー ＝ {0} ∪ momentary ∪ toggled。Down で momentary が [] → [1]、Up で [1] → [] に戻る。</p>
+    </section>
+
+    <section id="broadcast">
+      <h3>配信 — 画面は Hub の状態を描くだけ</h3>
+      <div class="log"><pre>layer state changed; broadcasting chk="T3-3" surface=Ipad wire=LayerStateWire { keymap_id: None, momentary: [1], toggled: [] }</pre></div>
+      <p>押した接続と撮影した画面は別の接続。それでも画面が変わったのは、Hub が同じ種類（Ipad）の画面すべてに状態を配ったから。</p>
+    </section>
+
+    <section id="after">
+      <h3>押している間 — 変わったもの・変わらなかったもの</h3>
+      <div class="tablewrap"><table>
+        <tr><th>位置</th><th>押す前</th><th>押している間</th><th>理由</th></tr>
+        <tr><td>1段目 K102〜K111</td><td>1〜0</td><td>F1〜F10</td><td>レイヤー1に書かれている</td></tr>
+        <tr><td>K113</td><td>Bksp</td><td>F11</td><td>レイヤー1に書かれている</td></tr>
+        <tr><td>K213</td><td>Enter</td><td>F12</td><td>レイヤー1に書かれている</td></tr>
+        <tr><td>K101（Fn）・文字キー・Shift・Ctrl</td><td>そのまま</td><td>そのまま</td><td>レイヤー1に無いので、レイヤー0の意味を使う</td></tr>
+        <tr><td>バッジ</td><td>英数</td><td>Layer 1</td><td>配信された状態を描いた</td></tr>
+      </table></div>
+      <p>離したあと（Up）は押す前と同じ表示に戻った。ログは <code>edge=Up layers=0,1 outcome=layer-change</code> と <code>momentary: []</code>。</p>
+    </section>
+
+    <section id="no-input">
+      <h3>Windows 入力 — この例では出ない</h3>
+      <p><code>LayerChanged</code> を受けた <code>handle_key_press</code> は <code>broadcast_layer_state</code> だけを呼び、<code>fire_action</code> を呼ばない。したがって adapter も SendInput も動かない。</p>
+    </section>
+
+    <section id="key">
+      <h3>比較 — 普通のキー</h3>
+      <div class="tablewrap"><table>
+        <tr><th>操作</th><th>Down の答え</th><th>Hub の状態</th><th>画面</th><th>Windows 入力</th></tr>
+        <tr><td>mo</td><td>LayerChanged</td><td>変わる</td><td>変わる</td><td>出ない</td></tr>
+        <tr><td>key</td><td>Fire</td><td>変わらない</td><td>変わらない</td><td>出る</td></tr>
+        <tr><td>tg.fire</td><td>FireAndLayerChanged</td><td>変わる</td><td>変わる</td><td>出る</td></tr>
+        <tr><td>key.hold</td><td>Fire（Up でも Fire）</td><td>変わらない</td><td>変わらない</td><td>押す／離すが出る</td></tr>
+      </table></div>
+    </section>
+  </section>
+</main>
+</body>
+</html>

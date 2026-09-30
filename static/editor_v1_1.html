@@ -1,0 +1,2063 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  ■■ View_Ver1.1 凍結（2026-09-23）。このファイルは変更しない ■■
+  V2.1（アイコンタイル化・Deck編集の追加）へ作り替える前のeditor.html（レイアウト編集）をそのまま残したもの。
+  URL: /editor_v1_1?token=…
+  描画は /components_v1_1.js（同じ日の写し）を使う。生の components.js を変えてもこの画面は変わらない。
+============================================================ -->
+<!-- ============================================================
+  editor.html — トップ画面。レイアウト（区画の並べ方）を編集する。
+  URL: /?token=…  素のHTML+JSのみ（D2）。
+
+  ■ なぜここがトップなのか
+    PCで日常的に開くのは「レイアウトを直す」ほうで、QRを読むのは端末を繋ぎ直す
+    ときだけ。2026-09-07 のユーザー判断で、トップをこの画面に、QRは /connect の
+    ギャラリーへ分けた。
+
+  ■ データの出どころ
+    WS `/ws?surface=layout&token=…` の `surface.config`。
+    keymaps / decks / layouts が丸ごと届くので、追加のAPIは要らない。
+    `/layout` 面（実機で使う面）とまったく同じ入口を使っている＝
+    エディタが見ている構成と実機の構成が食い違わない。
+
+  ■ 最小サイズは実データから計算する
+    キーボードは board の列数・行数と**一番細いキーのcolSpan**から必要pxを出す。
+    Deckは減らしてページ送りへ回せるので下限が小さい。トラックボールは中身から
+    寸法が出ないので既定値を持つ。規則は brief/ref_component_visual_rules_v1.md。
+
+  ■ 保存はまだできない
+    layouts/ への書き込みは CLAUDE.md 不変条件6の拡張が要る（未裁定）。
+    保存ボタンは常に無効で、理由を画面に出す。**黙って無効にしない。**
+
+  ■ 由来
+    brief/mockup/mock_layout_editor_vol1.1.html（凍結）で設計を確かめ、
+    Vol1.2 を経てこの実装に移した。
+  ============================================================ -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck — レイアウト編集</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#101526; --panel:#1c2338; --panel2:#161c2e; --ink:#f4f7ff;
+    --ink-muted:#b7bfd6; --ink-dim:#6b7590;
+    --accent:#2d67d9; --ok:#35c47a; --err:#e2555a; --warn:#e8b44a; --line:#2d3550;
+    /* 色は「その部品がHubへ送るメッセージ種別」で決める。
+       規則は brief/ref_component_visual_rules_v1.md。見た目の好みで変えないこと。 */
+    --kind-key:#2b4a7a;    /* 青  key.press     キーを押す・離す   */
+    --kind-cmd:#4a2f66;    /* 紫  deck.press    コマンドを1回発火   */
+    --kind-state:#1c4d47;  /* 緑  surface.state 連続した値を出す   */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 13px; line-height: 1.6;
+    padding: 14px 18px 40px;
+  }
+  h1 { font-size: 15px; margin: 0; }
+  h2 {
+    font-size: 11px; margin: 0 0 8px; color: var(--ink-dim);
+    letter-spacing: .08em; text-transform: uppercase;
+  }
+  .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 999px;
+    background: #4a3410; color: var(--warn); border: 1px solid #6b4c17;
+  }
+  button, select {
+    min-height: 30px; border: 1px solid var(--line); border-radius: 7px;
+    background: var(--panel); color: var(--ink); font: inherit; font-size: 12px;
+    padding: 0 12px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  .cols { display: grid; grid-template-columns: 190px minmax(360px, 1fr) 260px; gap: 14px; margin-top: 12px; }
+  /* 右の「選択中の区画」パネルを既定で隠しているときは、格子側にその分を渡す */
+  .cols.inspector-collapsed { grid-template-columns: 190px minmax(360px, 1fr); }
+  /* 3列に必要なのは 190+360+260+gap ≒ 840px。それより狭い画面では縦に積む
+     （格子が潰れるくらいなら、パレットとプロパティを下へ回したほうが操作できる） */
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .pane { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+
+  /* ================================================================
+     ここが要点: JSONの row/col/colSpan/rowSpan が
+     CSS Grid の grid-row / grid-column へ **そのまま** 乗る。
+     変換の算数がゼロなので、ズレようがない。
+     ================================================================ */
+  .stage { position: relative; }
+  .grid {
+    display: grid;
+    /* 列数・行数・縦横比は board と端末で変わるので fitGrid() が決める。
+       縦横比は格子数ではなく**端末の画面**に合わせる（実機と同じ形で見せるため）。
+       大きさは「横に入り、かつ縦も画面に収まる」最大にする。横幅任せにすると
+       右パネルを畳んだときに縦が画面を大きくはみ出した（実際に起きた）。 */
+    gap: 3px;
+    width: 100%;
+    margin: 0 auto;
+    background: #0c111f;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 3px;
+    touch-action: none;      /* ドラッグ中にページがスクロールしないように */
+    user-select: none;
+  }
+  /* 空きセルの目印。区画の下に敷く */
+  .cell { background: #131a2c; border-radius: 3px; }
+
+  .sec {
+    border-radius: 7px; padding: 6px 8px; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: space-between;
+    border: 1px solid rgba(255,255,255,.16);
+    cursor: grab; position: relative;
+  }
+  .sec.dragging { cursor: grabbing; opacity: .85; outline: 2px solid var(--accent); z-index: 3; }
+  .sec.selected { outline: 2px solid var(--accent); }
+  .sec.bad { outline: 2px solid var(--err); background-image: repeating-linear-gradient(45deg, rgba(226,85,90,.22) 0 8px, transparent 8px 16px); }
+  .sec .sid { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+  .sec .sref { font-size: 10px; color: rgba(255,255,255,.72); word-break: break-all; }
+  .sec.kind-keyboard { background: var(--kind-key); }
+  .sec.kind-deck { background: var(--kind-cmd); }
+  .sec.kind-trackball { background: var(--kind-state); }
+
+  /* 右下のつまみでリサイズ */
+  .handle {
+    position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
+    border-right: 2px solid rgba(255,255,255,.6); border-bottom: 2px solid rgba(255,255,255,.6);
+    border-radius: 0 0 4px 0; cursor: nwse-resize;
+  }
+
+  /* カードは縦二段:「header（アイコン＋名前）」+「サムネ（種別の抽象イメージ）」。
+     1行にkind/size/idまで詰めていた旧版は190px幅では文字が潰れて読めなかった
+     （実際に「最小 6×3」が折り返して行が崩れた）。サムネの隅にだけ添え字を置く。 */
+  .palette-item {
+    display: flex; flex-direction: column; gap: 6px; padding: 7px; margin-bottom: 7px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    cursor: pointer; font-size: 12px;
+  }
+  .palette-item:hover { border-color: var(--accent); }
+  .pitem-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .pname {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 600; color: var(--ink);
+  }
+  /* サムネ＝種別の抽象イメージ。実物の縮小コピーではなく、
+     アイコンを大きくして色面に載せただけ（抽象化でよいと裁定済み）。 */
+  .pitem-thumb {
+    position: relative; height: 52px; border-radius: 7px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel2); border: 1px solid var(--line);
+  }
+  .pitem-thumb.kind-keyboard { background: linear-gradient(160deg, rgba(43,74,122,.6), var(--panel2) 75%); }
+  .pitem-thumb.kind-deck     { background: linear-gradient(160deg, rgba(74,47,102,.6), var(--panel2) 75%); }
+  .pitem-thumb.kind-trackball,
+  .pitem-thumb.kind-jog      { background: linear-gradient(160deg, rgba(28,77,71,.6), var(--panel2) 75%); }
+  .pitem-thumb .kicon.big { width: 26px; height: 26px; opacity: .58; }
+  /* kind/size/配置済みは、サムネの隅に小さく添えるだけにする。
+     kind・sizeは絵の上に重なると読みにくいとのことで上側の隅へ（実際に指摘を受けた）、
+     配置済みは頻度が低いので下側へ回す。 */
+  .pitem-thumb .pkind { position: absolute; left: 5px; top: 5px; }
+  .pitem-thumb .psize {
+    position: absolute; right: 5px; top: 5px;
+    background: rgba(8,11,20,.72); border-radius: 4px; padding: 1px 5px;
+  }
+  .pitem-thumb .placedchip { position: absolute; right: 5px; bottom: 5px; }
+  .psize { font-size: 10px; color: var(--ink-dim); white-space: nowrap; }
+  /* アイコンは currentColor で描く。色はここ（CSS）から与え、SVG側に焼き込まない。
+     こうしておくと同じ形を別の文脈（区画の中など）でそのまま使い回せる。 */
+  .kicon { width: 15px; height: 15px; flex-shrink: 0; display: block; }
+  .kicon.keyboard { color: #7ea6e0; }
+  .kicon.deck { color: #c197e8; }
+  .kicon.trackball { color: #6fd3c0; }
+  /* 区画の中に置く小さい版。塗りの上に載るので白で抜く */
+  .sec .kicon { width: 13px; height: 13px; color: rgba(255,255,255,.82); }
+  .sec .sid { display: flex; align-items: center; gap: 5px; }
+
+  /* 中身のプレビュー。区画いっぱいに敷き、見出しはその上へ重ねる。
+     pointer-events は components.js 側の .kd-preview で殺してあるので、
+     プレビューの上をドラッグしても区画を掴める。 */
+  .preview {
+    position: absolute; inset: 0; padding: 4px;
+    display: flex; flex-direction: column; justify-content: center;
+    opacity: .95; overflow: hidden;
+  }
+  .preview .tbball {
+    margin: auto; width: 62%; aspect-ratio: 1; border-radius: 50%;
+    background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.28);
+  }
+  /* 見出しとrefは読めないと困る。プレビューの上に重なるので、
+     影だけでは足りず（実際にキーに埋もれた）、不透明の座布団を敷く。 */
+  .sec .sid, .sec .sref {
+    background: rgba(8,11,20,.82); border-radius: 5px; padding: 1px 6px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sec .sref { position: relative; z-index: 2; align-self: flex-start; }
+  /* 見出し行。**部品名は左上、「編集」は右上**。同じ行に置くことで、
+     どの部品を編集するのかが目で結びつく。 */
+  .sec .sechead {
+    position: relative; z-index: 2; display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 6px; width: 100%;
+  }
+  .sec .sechead .sid { flex: 0 1 auto; }
+  .sec .sref { font-size: 9px; display: flex; align-items: center; gap: 6px; }
+  /* 区画idは添え物。部品名より小さく、目立たせない */
+  .secid { font-size: 9px; font-weight: 400; color: rgba(255,255,255,.55); margin-left: 2px; }
+  /* 部品名の右の「編集」。プレビューは pointer-events を殺してあるので、
+     ここだけ戻して押せるようにする。 */
+  .seclink {
+    pointer-events: auto; flex: 0 0 auto;
+    color: #9fd0ff; text-decoration: none; white-space: nowrap;
+    font-size: 10px; line-height: 1.6; padding: 0 7px;
+    background: rgba(8,11,20,.82); border: 1px solid rgba(159,208,255,.45);
+    border-radius: 5px;
+  }
+  .seclink:hover { color: #cfe6ff; border-color: rgba(159,208,255,.85); }
+
+  .field { margin-bottom: 8px; }
+  .field label { display: block; font-size: 10px; color: var(--ink-dim); letter-spacing: .05em; }
+  .field .val { font-size: 12px; }
+
+  #verdict { margin-top: 10px; font-size: 12px; min-height: 20px; }
+  #verdict.ok { color: var(--ok); }
+  #verdict.err { color: var(--err); }
+
+  pre {
+    background: #0c111f; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; font-size: 11px; line-height: 1.5; overflow: auto; max-height: 300px;
+    margin: 0; color: var(--ink-muted);
+  }
+  .note { font-size: 11px; color: var(--ink-dim); margin: 8px 0 0; }
+  .targetinfo { font-size: 11px; color: var(--ink-dim); }
+  .cap { font-size: 10px; color: var(--ink-dim); letter-spacing: .06em; text-transform: uppercase; }
+
+  /* QRモーダル。画面中央に1枚だけ大きく出す（設定画面と同じ作法）。 */
+  #qrmodal {
+    position: fixed; inset: 0; z-index: 100; background: rgba(8,11,20,.86);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  /* display:flex が [hidden] に勝つので明示的に打ち消す。
+     この罠は settings.html と gallery.html でも踏んでいる。 */
+  #qrmodal[hidden] { display: none !important; }
+  /* ---- 新しいboardのダイアログ。QRモーダルと同じ覆い方 ---- */
+  .modal {
+    position: fixed; inset: 0; z-index: 100; background: rgba(8,11,20,.86);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal[hidden] { display: none !important; }
+  .nb-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px 24px; width: min(460px, 100%);
+  }
+  .nb-card h3 { margin: 0 0 16px; font-size: 15px; }
+  .nb-label { display: block; font-size: 11px; color: var(--ink-muted); margin: 14px 0 6px; padding: 0; }
+  .nb-sub { color: var(--ink-dim); margin-left: 6px; }
+  .nb-input, .nb-num, .gridctl input {
+    background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; font: inherit; font-size: 13px;
+  }
+  .nb-input { width: 100%; min-height: 36px; padding: 0 10px; }
+  .nb-input:focus, .nb-num:focus, .gridctl input:focus { outline: none; border-color: var(--accent); }
+  .nb-devices { border: 0; margin: 0; padding: 0; }
+  #nbDevices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .nb-dev {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; font-size: 12px;
+  }
+  .nb-dev:has(input:checked) { border-color: var(--accent); background: #1d2a4a; }
+  .nb-dev input { accent-color: var(--accent); margin: 0; }
+  .nb-dev small { display: block; font-size: 10px; color: var(--ink-dim); }
+  .nb-grid { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-muted); }
+  .nb-num { width: 72px; min-height: 34px; text-align: center; margin-left: 4px; }
+  .nb-x { color: var(--ink-dim); }
+  .nb-hint { font-size: 11px; color: var(--ink-dim); margin: 8px 0 0; min-height: 16px; }
+  .nb-hint.warn { color: var(--warn); }
+  .nb-err { font-size: 12px; color: var(--err); margin: 8px 0 0; min-height: 18px; }
+  .nb-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .nb-actions button { min-height: 34px; padding: 0 18px; }
+
+  /* 格子の見出し行。右に列・行の入力を置く */
+  .stagehead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  /* h2 は大文字化されるが、端末名（iPad / iPhone）まで IPAD にしてしまうので外す */
+  .stagehead h2 { margin: 0; text-transform: none; }
+  .gridctl { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-dim); }
+  .gridctl input { width: 54px; min-height: 26px; text-align: center; margin-left: 3px; }
+
+  .qr-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 24px; text-align: center; max-width: 420px;
+  }
+  .qr-card h3 { margin: 0 0 14px; font-size: 15px; }
+  .qr-card img { background: #fff; border-radius: 10px; padding: 16px; display: block; margin: 0 auto; }
+  .qr-url { font-size: 11px; color: var(--ink-muted); word-break: break-all; margin: 14px 0 0; }
+  .qr-hint { font-size: 11px; color: var(--ink-dim); margin: 10px 0 0; }
+  #conn.bad { color: var(--err); }
+  #conn.ok { color: var(--ok); }
+  .buildstamp {
+    font-size: 10px; color: var(--ink-dim); border: 1px solid var(--line);
+    border-radius: 999px; padding: 1px 8px;
+  }
+
+  /* パレット＝まだ置いていない部品の置き場。置いたものは印を付ける */
+  .palette-item.placed { opacity: .62; }
+  /* 素のid・種類・最小サイズはカードの見た目からは省き、hoverのtitleへ回した
+     （名前と見た目だけで選べれば十分。探すときはpaletteSearchがid/種類も見る）。 */
+  /* 部品の種類。アイコンだけでは「これは何の仲間か」が伝わらない */
+  .pkind {
+    font-size: 9px; padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+    background: var(--panel2); color: var(--ink-dim); border: 1px solid var(--line);
+  }
+  .pkind.keyboard { color: #9fd0ff; border-color: #2f4a72; }
+  .pkind.deck     { color: #d9b3ff; border-color: #4a3a6b; }
+  .pkind.trackball{ color: #9ef0c9; border-color: #2c5c46; }
+  .pkind.jog      { color: #ffd9a0; border-color: #6b4c17; }
+  #paletteSearch {
+    width: 100%; margin-bottom: 8px; padding: 5px 8px;
+    background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px;
+  }
+  #paletteSearch:focus { outline: none; border-color: var(--accent); }
+  #paletteEmpty { color: var(--ink-dim); font-size: 11px; padding: 6px 2px; }
+  .palette-pane { position: relative; }
+  .dropveil {
+    position: absolute; inset: 0; z-index: 5; border-radius: 12px;
+    background: rgba(226,85,90,.20);
+    border: 2px dashed rgba(226,85,90,.72);
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-size: 13px; font-weight: 700; color: #ffdfe0; line-height: 1.5;
+    pointer-events: none;   /* 当たり判定は座標で行う。膜はイベントを吸わない */
+  }
+  .dropveil[hidden] { display: none; }
+  /* 画面が狭いとパレットは格子の上へ回るため、格子を見ている間は画面外にある。
+     そのときは画面上端に貼り付けて、どこからでも届くようにする。
+     当たり判定はこの要素の実位置を見ているので、貼り替えるだけで追従する。 */
+  .dropveil.pinned {
+    position: fixed; left: 0; right: 0; top: 0; bottom: auto;
+    height: 72px; border-radius: 0 0 12px 12px; z-index: 50;
+    background: rgba(226,85,90,.28);
+  }
+  .dropveil.pinned.over { background: rgba(226,85,90,.52); }
+  /* 実際に上に来ているときは濃くする。放せば効く、が見て分かるように */
+  .dropveil.over {
+    background: rgba(226,85,90,.46);
+    border-style: solid;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.25);
+  }
+  .placedchip {
+    font-size: 9px; padding: 1px 6px; border-radius: 999px;
+    background: #223b58; color: #9fd0ff; white-space: nowrap;
+  }
+
+  /* 数値入力。1マス単位で狙いにくいドラッグを補う */
+  .numedit { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; }
+  .numedit label { display: block; font-size: 9px; color: var(--ink-dim); margin-bottom: 2px; }
+  .numedit input {
+    width: 100%; min-height: 28px; text-align: center;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; font: inherit; font-size: 12px;
+  }
+  .numedit input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .numedit input:disabled { opacity: .4; }
+
+  .minbox {
+    margin-top: 12px; padding: 9px 10px; border-radius: 8px;
+    background: #131a2c; border: 1px solid var(--line); font-size: 11px;
+  }
+  .minbox .lead { color: var(--ink-muted); }
+  .minbox b { color: var(--ink); }
+  .minbox .why { color: var(--ink-dim); margin-top: 4px; }
+  .kindtag {
+    display: inline-block; font-size: 9px; padding: 1px 7px; border-radius: 999px;
+    letter-spacing: .04em; margin-left: 6px;
+  }
+  .kindtag.floor { background: #143d38; color: #86e5d3; }
+  .kindtag.reduce { background: #3a2b4d; color: #d9b3ff; }
+
+  /* 共有されている部品の注意書き。編集の前に目に入る位置へ置く */
+  .shared {
+    margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 11px;
+    background: #3a2f14; color: var(--warn); border: 1px solid #6b4c17;
+  }
+  .shared b { color: #ffd9a0; }
+  .fitline { margin-top: 8px; font-size: 11px; color: var(--ink-muted); }
+  .fitline.cut { color: var(--warn); }
+
+  /* 下限に達したことを掴んでいる最中に知らせる */
+  .sec.atmin { box-shadow: inset 0 0 0 2px rgba(232,180,74,.85); }
+
+</style>
+</head>
+<body>
+
+<div class="head">
+  <span id="navHost"></span>
+
+  <label class="cap" for="layoutSel">board</label>
+  <select id="layoutSel" aria-label="表示するboard"></select>
+  <!-- **いま編集しているレイアウトの**QR。ここに置くのが要点で、
+       ギャラリーから別のレイアウトのQRを読んでしまう取り違えを防ぐ
+       （実際に ipad_v13 を編集して ipad_main のQRを読む事故が起きた）。 -->
+  <button id="qrBtn" type="button">QR</button>
+  <button id="resetBtn" type="button">元に戻す</button>
+  <button id="saveBtn" type="button" class="primary">保存</button>
+  <!-- 既定では隠す（右サイドバーが常時邪魔という判断）。中身自体は消さず、
+       ここで出し入れするだけにしてある。状態はlocalStorageへ持ち回る。 -->
+  <button id="inspectorToggle" type="button" aria-expanded="false">区画の詳細を表示</button>
+  <span id="conn" class="targetinfo"></span>
+</div>
+<!-- 2段目。左に現在地、右にこの画面固有の操作。知らせはこの帯の上に浮かぶ。
+     行き先のリンクが画面ごとに違う場所にあると毎回探すので、ここへ集約した。 -->
+<div id="subhead"></div>
+<p class="note">区画はドラッグで移動、右下のつまみでリサイズできます。重なり・はみ出しはその場で赤くなり、指を離すと元へ戻ります（Hubの <code>layout.rs</code> が実際に弾く条件と同じ）。<strong>掴んだまま「置ける部品」へ放り込むと、その区画を外して部品へ戻します。</strong></p>
+
+<div id="qrmodal" hidden>
+  <div class="qr-card">
+    <h3 id="qrTitle"></h3>
+    <img id="qrImage" width="300" height="300" alt="">
+    <p class="qr-url" id="qrUrl"></p>
+    <p class="qr-hint">端末のカメラで読み取ってください。画面の外を押すと閉じます。</p>
+  </div>
+</div>
+
+<!-- 新しいboard。名前・端末・格子数を1枚で決める。
+     端末を選ぶとその端末のおすすめ格子数が入り、1マスの実寸をその場で見せる。 -->
+<div id="newmodal" class="modal" hidden>
+  <form class="nb-card" id="newForm" novalidate>
+    <h3>新しいboardを作る</h3>
+    <label class="nb-label" for="nbName">名前 <span class="nb-sub">英小文字・数字・_ のみ</span></label>
+    <input id="nbName" class="nb-input" type="text" autocomplete="off" spellcheck="false"
+           maxlength="64" placeholder="例: iphone17_youtube">
+    <fieldset class="nb-devices">
+      <legend class="nb-label">端末</legend>
+      <div id="nbDevices"></div>
+    </fieldset>
+    <div class="nb-label">格子の数</div>
+    <div class="nb-grid">
+      <label>列 <input id="nbCols" class="nb-num" type="number" min="1" max="24" step="1"></label>
+      <span class="nb-x">×</span>
+      <label>行 <input id="nbRows" class="nb-num" type="number" min="1" max="24" step="1"></label>
+    </div>
+    <p id="nbCell" class="nb-hint"></p>
+    <p id="nbErr" class="nb-err" role="alert"></p>
+    <div class="nb-actions">
+      <button type="button" id="nbCancel">キャンセル</button>
+      <button type="submit" class="primary" id="nbSubmit">作る</button>
+    </div>
+  </form>
+</div>
+
+<div class="cols">
+
+  <div class="pane palette-pane">
+    <!-- 区画を掴んでいる間だけ現れる。掴んでいないときは出さないので誤爆しにくい。
+         pointer-events:none にしてあるのが要点で、当たり判定は座標で行う
+         （ポインタは掴んだ区画にキャプチャされており、この膜はイベントを受けない）。 -->
+    <div class="dropveil" id="dropveil" hidden>
+      <span>ここに放すと<br>置ける部品へ戻す</span>
+    </div>
+    <h2>置ける部品</h2>
+    <input id="paletteSearch" type="search" autocomplete="off"
+           placeholder="名前・id・種類でしぼる（例: ダイヤル / youtube / deck）">
+    <div id="palette"></div>
+    <p class="note">クリックすると空いている場所へ追加します。大きさはその部品の最小サイズ（右端の数字）から決まります。</p>
+  </div>
+
+  <div class="pane stage">
+    <div class="stagehead">
+      <h2 id="gridTitle">格子</h2>
+      <!-- いま開いているboardの格子数。変えたら「保存」で書き戻す -->
+      <span class="gridctl">
+        <label>列 <input id="gridCols" type="number" min="1" max="24" step="1"></label>
+        <span>×</span>
+        <label>行 <input id="gridRows" type="number" min="1" max="24" step="1"></label>
+      </span>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div id="verdict"></div>
+  </div>
+
+  <div class="pane" id="inspectorPane" hidden>
+    <h2>選択中の区画</h2>
+    <div id="props"><p class="note">区画をクリックすると出ます。</p></div>
+    <h2 style="margin-top:18px">出来上がるJSON</h2>
+    <pre id="json"></pre>
+    <p class="note">保存すると <code>layouts/layout_&lt;id&gt;.json</code> に書き戻します。書く前に <code>.bak</code> を取り、書いた後に全体を読み直して検証し、通らなければ巻き戻します。<strong>トークンは変わりません</strong>（起動時に1回だけ作られるため）。繋がっている端末には自動で反映されます。</p>
+  </div>
+
+</div>
+
+<script src="/components_v1_1.js"></script>
+<script>
+// ================================================================
+// Hubから届いた構成。すべてここに入る（決め打ちの表は持たない）。
+// ================================================================
+let CONFIG = null;    // 直近の surface.config そのもの（プレビューが実体を要る）
+let SOURCE = {};      // layoutId -> {grid, sections}
+let PALETTE = [];     // 置ける部品 [{kind, ref}]
+let COMPONENT = {};   // ref -> 最小サイズの計算に使う寸法
+
+const params = new URLSearchParams(location.search);
+const token = params.get("token") || "";
+KDComponents.renderNav(document.getElementById("navHost"), "/", token);
+KDComponents.syncTheme(token);
+
+const TAP = 44;   // タップ目標の下限。既存実装は layout.html=40 / panel.html=44 と
+                  // 食い違っているので、標準的な 44 に寄せる
+const PAGEBAR = 26;  // Deckのページ送り帯の高さ
+
+/// boardを載せる端末。**格子の縦横比と、部品の最小サイズはここから決まる。**
+///   w / h     … 実機のブラウザが layout.html に渡す画面の大きさ（CSS px）
+///   header    … その上に出るKeyDeckの帯の高さ。格子に使えるのは h - header
+///   grid      … 新しくboardを作るときの格子数
+///   trackball / jog … 中身から寸法が出ない部品の下限（人が決めた値）
+/// スマホの h はブラウザ横向き（アドレスバーあり）の実効値の**見積もり**。実機で測ったら直すこと。
+///   iPhone 7   … 画面 667×375。Safari 横でおよそ 331、縦（下にツールバー）でおよそ 375×553
+///   iPhone 17  … 画面 874×402。Safari 横でおよそ 370
+///   Pixel 6a   … 画面 915×412。Chrome 横（ステータスバーとツールバー）でおよそ 356
+/// スマホの header 40 は layout.html の「横向きスマホで帯を詰める」指定に合わせた実測値。
+/// grid は1マスが 44px（指で押せる下限）を割らず、正方形に近くなる数にしてある。
+/// 画面が小さいぶん、トラックボールとダイヤルの下限は iPad より詰めてある。
+/// wheel（縦長のホイール）は細い区画に入れるための下限。幅は指1本ぶん（44px）、
+/// 高さは上下にこすれる長さ。どの端末でも 1列×2行 に収まるように決めてある。
+const PHONE_MINS = {
+  trackball: { w: 130, h: 140 }, jog: { w: 130, h: 140 }, wheel: { w: 44, h: 100 },
+};
+const DEVICES = {
+  ipad_pro_129_land: {
+    name: "iPad Pro 12.9 横", w: 1366, h: 1024, header: 44,
+    grid: { cols: 12, rows: 9 },
+    trackball: { w: 220, h: 220 }, jog: { w: 200, h: 240 }, wheel: { w: 60, h: 130 },
+  },
+  iphone7_land: {
+    name: "iPhone 7 横", w: 667, h: 331, header: 40,
+    grid: { cols: 10, rows: 4 }, ...PHONE_MINS,
+  },
+  // 縦向き。横幅が狭いので列を減らし、行を増やす。帯は詰めない（高さは足りる）ので header は iPad と同じ作り
+  iphone7_port: {
+    name: "iPhone 7 縦", w: 375, h: 553, header: 56,
+    grid: { cols: 4, rows: 8 }, ...PHONE_MINS,
+  },
+  iphone17_land: {
+    name: "iPhone 17 横", w: 874, h: 370, header: 40,
+    grid: { cols: 12, rows: 5 }, ...PHONE_MINS,
+  },
+  pixel6a_land: {
+    name: "Pixel 6a 横", w: 915, h: 356, header: 40,
+    grid: { cols: 12, rows: 5 }, ...PHONE_MINS,
+  },
+};
+/// 格子数の上限。Hub は u8 まで受け取るが、これより細かいと1マスが指で押せない
+const GRID_MAX = 24;
+/// device を書いていないboardは、すべてこの前提で作られている
+const DEFAULT_DEVICE = "ipad_pro_129_land";
+
+function deviceOf(m) {
+  return DEVICES[m && m.device] || DEVICES[DEFAULT_DEVICE];
+}
+
+function cellSize(grid, dev = deviceOf(model)) {
+  return {
+    w: dev.w / grid.cols,
+    h: (dev.h - dev.header) / grid.rows,
+  };
+}
+
+// ================================================================
+// 部品ごとの寸法。実物では /api/formats が返す（keymapsのboard、decksのgrid）。
+//   type "floor"  … 実体があり、要素を減らせない。下限を割る大きさにさせない
+//                   （キーボードはキーを間引いたら打てない。トラックボールは面積が要る）
+//   type "reduce" … 入りきらないぶんはページ送りへ回す。だから小さくできる
+// ================================================================
+// ================================================================
+// 部品の寸法を**実データから**求める。
+//   type "floor"  … 実体があり、要素を減らせない。下限を割る大きさにさせない
+//                   （キーボードはキーを間引いたら打てない。トラックボールは面積が要る）
+//   type "reduce" … 入りきらないぶんはページ送りへ回す。だから小さくできる
+// ================================================================
+
+/// トラックボールとダイヤルは中身から寸法が出ないので、**人が決めた下限**を端末ごとに持つ
+/// （DEVICES の trackball / jog）。ここでは「どちらの値を引くか」だけを覚えておく。
+
+function buildComponentTable(config) {
+  const table = {};
+
+  for (const [id, keymap] of Object.entries(config.keymaps || {})) {
+    // 分割キーボードは board を持たず halves で持つ。区画に置けないので飛ばす。
+    if (!keymap.board || !keymap.board.keys.length) continue;
+    // ダイヤルは盤面を持つが並べるものではない。丸が潰れない下限だけ持たせる。
+    if (keymap.jog) {
+      table[id] = keymap.jog.shape === "wheel"
+        ? { type: "floor", label: "ホイール", pxOf: "wheel" }
+        : { type: "floor", label: "ダイヤル", pxOf: "jog" };
+      continue;
+    }
+    // ラジアルボタンは盤面（方向のキー）を並べて描かない。ボタン1つぶん＝指1本で押せる大きさでよい。
+    // 選択肢は押した瞬間に区画の外へ広がるので、必要な大きさは項目の数と関係しない。
+    if (keymap.radial) {
+      const sectors = keymap.radial.sectors || 4;
+      const label = keymap.radial.rings === 2
+        ? "ラジアル二層 " + sectors + "×2"
+        : "ラジアル " + sectors + "方向";
+      table[id] = { type: "floor", label, fixedPx: { w: TAP, h: TAP } };
+      continue;
+    }
+    const keys = keymap.board.keys;
+    table[id] = {
+      type: "floor",
+      label: "キーボード",
+      cols: keymap.board.cols,
+      rows: Math.max(...keys.map((k) => k.row + (k.rowSpan || 1) - 1)),
+      // 一番細いキーが基準。vol1.3 は 1キー=2列の半キーずらしなので minColSpan=2 になり、
+      // 必要幅は 22*(44/2)=484px。22*44=968px ではない。
+      minColSpan: Math.min(...keys.map((k) => k.colSpan || 1)),
+      minRowSpan: Math.min(...keys.map((k) => k.rowSpan || 1)),
+    };
+  }
+
+  for (const [id, deck] of Object.entries(config.decks || {})) {
+    table[id] = {
+      type: "reduce",
+      label: "Deck",
+      render: deck.render || "grid",
+      cols: deck.grid.cols,
+      rows: deck.grid.rows,
+      slots: (deck.pages || []).reduce((sum, page) => sum + page.slots.length, 0),
+      pages: (deck.pages || []).length,
+    };
+  }
+
+  // surface.config は surfaces を配らないため、トラックボールのidは
+  // **既存レイアウトが参照しているもの**から拾う。参照されていないものは出せない。
+  for (const layout of Object.values(config.layouts || {})) {
+    for (const sec of layout.sections) {
+      if (sec.component.kind === "trackball" && !table[sec.component.ref]) {
+        table[sec.component.ref] = { type: "floor", label: "トラックボール", pxOf: "trackball" };
+      }
+    }
+  }
+  return table;
+}
+
+function buildPalette(config, table) {
+  const items = [];
+  for (const [id, keymap] of Object.entries(config.keymaps || {})) {
+    if (!table[id] || !keymap.board) continue;
+    items.push({ kind: keymap.jog ? "jog" : "keyboard", ref: id });
+  }
+  for (const id of Object.keys(config.decks || {})) items.push({ kind: "deck", ref: id });
+  for (const [id, meta] of Object.entries(table)) {
+    if (meta.label === "トラックボール") items.push({ kind: "trackball", ref: id });
+  }
+  return items;
+}
+
+function buildSource(config) {
+  const out = {};
+  for (const [id, layout] of Object.entries(config.layouts || {})) {
+    out[id] = {
+      // エディタは配置しか編集しないが、**説明文は持ち回る**。
+      // 送らずに保存すると、Hub側で空として書かれて消える（実際に一度消した）。
+      description: layout.description || "",
+      device: layout.device || null,
+      grid: layout.grid,
+      sections: layout.sections.map((sec) => ({
+        id: sec.id, row: sec.row, col: sec.col,
+        colSpan: sec.colSpan || 1, rowSpan: sec.rowSpan || 1,
+        component: { kind: sec.component.kind, ref: sec.component.ref },
+      })),
+    };
+  }
+  return out;
+}
+
+// 部品が機能するのに要る実ピクセル
+function requiredPx(ref, dev = deviceOf(model)) {
+  const c = COMPONENT[ref];
+  if (!c) return { w: TAP, h: TAP };
+  if (c.pxOf) return { w: dev[c.pxOf].w, h: dev[c.pxOf].h };
+  if (c.fixedPx) return { w: c.fixedPx.w, h: c.fixedPx.h };
+  if (c.type === "floor") {
+    return { w: c.cols * (TAP / c.minColSpan), h: c.rows * (TAP / c.minRowSpan) };
+  }
+  // reduce型の下限は「1個ぶん（＋2ページ以上あればページ送りの帯）」。これ以上小さいと何も押せない
+  // ページ送りの帯は、Deck が2ページ以上を持つときだけ出る。1ページだけの Deck に
+  // 帯の高さを足すと、1行に収まる Deck（アプリ切り替えの4ボタン等）まで「最小サイズ割れ」と出た
+  const bar = c.pages > 1 ? PAGEBAR : 0;
+  if (c.render === "list") return { w: 200, h: TAP + bar };
+  return { w: TAP, h: TAP + bar };
+}
+
+// 実ピクセル → マス数（切り上げ）。ここが「マスでは決まらない」の実装
+function minCells(ref, grid, dev = deviceOf(model)) {
+  const need = requiredPx(ref, dev);
+  const cell = cellSize(grid, dev);
+  return {
+    cols: Math.max(1, Math.ceil(need.w / cell.w)),
+    rows: Math.max(1, Math.ceil(need.h / cell.h)),
+    px: need,
+  };
+}
+
+// 手動で上げた下限を混ぜた、実際に効く下限。
+// floor型は計算値より**下げられない**（下げたら中身が機能しなくなるため）。
+// reduce型は減らして収まるので、手動値をそのまま使う。
+function effectiveMin(sec, grid) {
+  const auto = minCells(sec.component.ref, grid);
+  const c = COMPONENT[sec.component.ref];
+  const manual = sec.minOverride;
+  if (!manual) return { cols: auto.cols, rows: auto.rows, auto, manual: null };
+  if (c && c.type === "floor") {
+    return { cols: Math.max(auto.cols, manual.cols), rows: Math.max(auto.rows, manual.rows), auto, manual };
+  }
+  return { cols: Math.max(1, manual.cols), rows: Math.max(1, manual.rows), auto, manual };
+}
+
+// reduce型が今の大きさで何個出せるか＝ページ数がいくつになるか
+function fitReport(sec, grid) {
+  const c = COMPONENT[sec.component.ref];
+  if (!c || c.type !== "reduce") return null;
+  const cell = cellSize(grid);
+  const availW = sec.colSpan * cell.w;
+  const availH = sec.rowSpan * cell.h - PAGEBAR;
+  // **Deckが宣言している格子（例 8x2）で頭打ちにする。**
+  // これを忘れると「4マスの区画に9行入る＝72個」のような、Deckが持っていない
+  // 容量を出してしまう。1ページの容量は宣言した cols×rows を超えない。
+  const perRow = c.render === "list" ? 1 : Math.max(1, Math.min(c.cols, Math.floor(availW / TAP)));
+  const rowsFit = Math.max(1, Math.min(c.rows, Math.floor(availH / TAP)));
+  const capacity = perRow * rowsFit;
+  const pages = Math.max(1, Math.ceil(c.slots / capacity));
+  return { perRow, rowsFit, capacity, pages, slots: c.slots };
+}
+
+let layoutId = params.get("id") || "";
+// 構成はWSで届く。届くまで model は空（決め打ちのデータを持たないため、
+// ここで clone(SOURCE[layoutId]) を呼ぶと undefined を JSON.parse して落ちる）。
+let model = { grid: { cols: 12, rows: 9 }, sections: [] };
+let selectedId = null;
+
+// ================================================================
+// 部品のアイコン（brief/ref_component_visual_rules_v1.md §3）
+//   青 key.press     … キーボードの輪郭＋3段のキー
+//   紫 deck.press    … 3×2の四角（Stream Deckの格子）
+//   緑 surface.state … 円＋中心の点（転がる球）
+// 色は付けない。currentColor のままにして、CSSから与える。
+// 絵文字は使わない（端末ごとに字形が変わり、iPadとPCで揃わない）。
+// ================================================================
+const ICON = {
+  keyboard:
+    '<rect x="1" y="3.4" width="14" height="9.2" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
+    '<path d="M3.6 6.4h1.6M7.2 6.4h1.6M10.8 6.4h1.6M4.6 9.6h6.8" ' +
+    'stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+  deck:
+    '<g fill="currentColor">' +
+    '<rect x="1.4" y="3" width="3.7" height="3.7" rx=".9"/>' +
+    '<rect x="6.15" y="3" width="3.7" height="3.7" rx=".9"/>' +
+    '<rect x="10.9" y="3" width="3.7" height="3.7" rx=".9"/>' +
+    '<rect x="1.4" y="9.3" width="3.7" height="3.7" rx=".9"/>' +
+    '<rect x="6.15" y="9.3" width="3.7" height="3.7" rx=".9"/>' +
+    '<rect x="10.9" y="9.3" width="3.7" height="3.7" rx=".9"/>' +
+    '</g>',
+  trackball:
+    '<circle cx="8" cy="8" r="5.7" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
+    '<circle cx="8" cy="8" r="2.1" fill="currentColor"/>',
+  jog:
+    '<circle cx="8" cy="8" r="5.7" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
+    '<circle cx="8" cy="4.6" r="1.3" fill="currentColor"/>' +
+    '<path d="M8 1.1v1.3M14.9 8h-1.3M8 14.9v-1.3M1.1 8h1.3" ' +
+    'stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+};
+
+/// 区画の中身を実物で描く。押せない（interactive: false）。
+///
+/// 小さい区画では文字が潰れて読めないので、その場合はラベルを消して形だけ見せる。
+/// 「正しく置けているか」を確かめるのに要るのは形と比率であって、文字ではない。
+function renderPreview(host, sec) {
+  if (!CONFIG) return;
+  const ref = sec.component.ref;
+  const kind = sec.component.kind;
+  try {
+    if (kind === "keyboard") {
+      const keymap = (CONFIG.keymaps || {})[ref];
+      KDComponents.renderKeyboard(host, keymap, { momentary: [], toggled: [] },
+        { interactive: false });
+    } else if (kind === "deck") {
+      const deck = (CONFIG.decks || {})[ref];
+      const grid = KDComponents.renderDeck(host, deck, { interactive: false });
+      if (grid && deck && deck.render !== "list") {
+        // プレビューは小さいので下限を切らない（実機の44pxを当てると溢れる）
+        requestAnimationFrame(() =>
+          KDComponents.fitDeck(host, grid, deck.grid.cols, deck.grid.rows, 0));
+      }
+    } else if (kind === "jog") {
+      KDComponents.renderJog(host, (CONFIG.keymaps || {})[ref],
+        { momentary: [], toggled: [] }, { interactive: false });
+    } else if (kind === "trackball") {
+      // トラックボールは実機ではiframeを埋めている。プレビューで2本目のWSを
+      // 張るのは重いので、ここは形だけ（ギャラリーと同じ丸）。
+      host.classList.add("kd-surface", "kd-preview");
+      const ball = document.createElement("div");
+      ball.className = "tbball";
+      host.appendChild(ball);
+    }
+  } catch (error) {
+    log("ERR", "PREVIEW", "プレビューの描画に失敗: " + error, { ref, kind });
+  }
+
+  // 文字が読めない大きさなら、いっそ消して形に集中させる
+  const cell = cellSize(model.grid);
+  const tooSmall = sec.colSpan * cell.w < 260 || sec.rowSpan * cell.h < 130;
+  host.classList.toggle("tiny-labels", tooSmall);
+}
+
+/// 部品種別のアイコンを作る。中身は自分で書いた定数のみなので innerHTML でよい
+/// （JSONの文字列は一切通さない）。
+function iconFor(kind) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("kicon", kind);
+  svg.innerHTML = ICON[kind] || "";
+  return svg;
+}
+
+/// D9のログ規約。エラーは必ず code+cause 付きの1行で出す。
+function log(kind, code, message, context) {
+  const line = "[KD][" + kind + "][" + code + "] " + message;
+  if (kind === "ERR") console.error(line, context ?? "");
+  else console.info(line, context ?? "");
+}
+
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+
+const gridEl = document.getElementById("grid");
+const verdictEl = document.getElementById("verdict");
+
+// ---- 検証: layout.rs と同じ条件を、保存前にこちらでも見る --------------
+function validate(m) {
+  const errors = [];
+  const seen = new Set();
+  // 占有マップ。重なりは「同じマスに2枚」で検出する
+  const owner = new Map();
+  for (const sec of m.sections) {
+    if (seen.has(sec.id)) errors.push("区画idが重複: " + sec.id);
+    seen.add(sec.id);
+    if (sec.col + sec.colSpan - 1 > m.grid.cols || sec.row + sec.rowSpan - 1 > m.grid.rows) {
+      errors.push(sec.id + " が格子からはみ出しています");
+      sec._bad = true; continue;
+    }
+    sec._bad = false;
+    // 下限割れ。ドラッグでは起きないよう止めているが、数値入力からは起こりうる
+    const lim = effectiveMin(sec, m.grid);
+    if (sec.colSpan < lim.cols || sec.rowSpan < lim.rows) {
+      errors.push(sec.id + " が最小サイズ " + lim.cols + "×" + lim.rows + " を下回っています");
+      sec._bad = true;
+    }
+    for (let r = sec.row; r < sec.row + sec.rowSpan; r += 1) {
+      for (let c = sec.col; c < sec.col + sec.colSpan; c += 1) {
+        const key = r + ":" + c;
+        if (owner.has(key)) {
+          errors.push(sec.id + " と " + owner.get(key) + " が重なっています");
+          sec._bad = true;
+          const other = m.sections.find((s) => s.id === owner.get(key));
+          if (other) other._bad = true;
+        } else {
+          owner.set(key, sec.id);
+        }
+      }
+    }
+  }
+  if (m.sections.length === 0) errors.push("区画が1つもありません");
+  // 同じ原因のメッセージが何度も出るので畳む
+  return [...new Set(errors)];
+}
+
+// ---- 描画 -------------------------------------------------------------
+// 区画id -> 要素。**ドラッグ中はこの要素を使い回す**。
+const secEls = new Map();
+
+/// 骨組みを作り直す。区画の増減・レイアウト切替など「顔ぶれが変わる」ときだけ呼ぶ。
+/// ドラッグ中に呼んではいけない（掴んでいる要素が消える）。
+/// 格子の形と大きさを決める。
+/// 縦横比は端末の画面（格子に使える部分）そのもの。大きさは「区画の枠の横幅に入り、
+/// かつ縦も画面の下端に収まる」最大。狭い画面で縦積みになっているときは
+/// パレットが上にあって縦が足りないので、横幅だけで決める。
+const stagePane = gridEl.closest(".stage");
+const stacked = window.matchMedia("(max-width: 900px)");
+function fitGrid() {
+  const dev = deviceOf(model);
+  const { cols, rows } = model.grid;
+  gridEl.style.gridTemplateColumns = "repeat(" + cols + ", 1fr)";
+  gridEl.style.gridTemplateRows = "repeat(" + rows + ", 1fr)";
+  const aspect = dev.w / (dev.h - dev.header);
+  gridEl.style.aspectRatio = String(aspect);
+  document.getElementById("gridTitle").textContent =
+    cols + " × " + rows + " 格子（" + dev.name + "）";
+  syncGridInputs(false);
+
+  const pane = stagePane.getBoundingClientRect();
+  const styles = getComputedStyle(stagePane);
+  const availW = pane.width - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+  let width = availW;
+  if (!stacked.matches) {
+    // 格子の下に判定の1行（#verdict）と、ページ下の余白が要る
+    const top = gridEl.getBoundingClientRect().top;
+    const availH = window.innerHeight - top - 64;
+    width = Math.min(availW, Math.max(240, availH) * aspect);
+  }
+  gridEl.style.width = Math.floor(width) + "px";
+}
+window.addEventListener("resize", fitGrid);
+
+/// 列・行の欄を今の格子数に合わせる。force=false のときは入力中の欄を書き換えない
+/// （打っている途中の数字が戻されてしまう）。取り消すときは force=true で戻す。
+function syncGridInputs(force) {
+  for (const [elId, value] of [["gridCols", model.grid.cols], ["gridRows", model.grid.rows]]) {
+    const input = document.getElementById(elId);
+    if (force || document.activeElement !== input) input.value = value;
+  }
+}
+
+/// いま開いているboardの格子数を変える。保存するまではHubに書かない。
+/// **縮めて区画がはみ出すなら変えない。** はみ出したまま描くと CSS Grid が勝手に
+/// 行と列を足して形が崩れ、どこがはみ出したのか読めなくなるため。先に区画を動かしてもらう。
+function changeGrid(cols, rows) {
+  const out = model.sections.filter((s) =>
+    s.col + s.colSpan - 1 > cols || s.row + s.rowSpan - 1 > rows);
+  if (out.length) {
+    notifyReverted(cols + "×" + rows + " にすると はみ出す区画があります（"
+      + out.map((s) => s.id).join(", ") + "）。先に動かすか小さくしてください");
+    syncGridInputs(true);
+    return;
+  }
+  model.grid = { cols, rows };
+  render();
+}
+for (const elId of ["gridCols", "gridRows"]) {
+  document.getElementById(elId).addEventListener("change", () => {
+    const cols = Number(document.getElementById("gridCols").value);
+    const rows = Number(document.getElementById("gridRows").value);
+    if (![cols, rows].every((n) => Number.isInteger(n) && n >= 1 && n <= GRID_MAX)) {
+      notifyReverted("格子の数は 1〜" + GRID_MAX + " の整数で入れてください");
+      syncGridInputs(true);
+      return;
+    }
+    changeGrid(cols, rows);
+  });
+}
+// 右パネルの開閉でも枠の幅が変わる。resize イベントは来ないので枠そのものを見張る
+new ResizeObserver(fitGrid).observe(stagePane);
+
+function render() {
+  fitGrid();
+  gridEl.textContent = "";
+  secEls.clear();
+  // 空きセルを敷く（どこが空いているか見えないと置けない）
+  for (let i = 0; i < model.grid.cols * model.grid.rows; i += 1) {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    gridEl.appendChild(cell);
+  }
+
+  for (const sec of model.sections) {
+    const box = document.createElement("div");
+    box.className = "sec kind-" + sec.component.kind;
+
+    // **中身の実物を描く。** 実機と同じ components.js を使うので、
+    // ここに出ている絵は実機に出る絵と同じ（プレビューが嘘をつかない）。
+    const preview = document.createElement("div");
+    preview.className = "preview";
+    box.appendChild(preview);
+    renderPreview(preview, sec);
+
+    // 見出しは**部品名**。区画id（SEC-LEFT等）は中身を表さないので、
+    // 主役から外して小さく添えるだけにする。
+    // idを消さないのは、同じ部品を2区画に置いたときの区別と、
+    // 実機側が data-section-id で描き直す先を引くのに使われているため。
+    const sid = document.createElement("div");
+    sid.className = "sid";
+    sid.appendChild(iconFor(sec.component.kind));
+    sid.appendChild(document.createTextNode(sec.component.ref));
+    const tag = document.createElement("span");
+    tag.className = "secid";
+    tag.textContent = sec.id;
+    sid.appendChild(tag);
+    const sref = document.createElement("div");
+    sref.className = "sref";
+    sref.appendChild(document.createTextNode(sec.component.kind));
+
+    // 部品名と同じ行の**右上**に、編集画面への入口を出す。
+    // **編集画面があるのはキーボードだけ**。Deckとトラックボールは
+    // まだ画面が無く、JSONを手で書くしかない。無いものにリンクを出すと
+    // 「押しても何も起きない」ことになるので、有るものにだけ出す。
+    const head = document.createElement("div");
+    head.className = "sechead";
+    head.appendChild(sid);
+    if (sec.component.kind === "keyboard") {
+      const edit = document.createElement("a");
+      edit.className = "seclink";
+      edit.textContent = "編集";
+      // fromに「いま開いているboard」を持たせる。keys.html側の「Layout編集」
+      // パンくずがこれを読んで、Homeへ戻る動線が常にipad_mainへ固定される
+      // （＝作業中のboardを見失う）事故を避ける。
+      edit.href = "/keys?keymap=" + encodeURIComponent(sec.component.ref)
+        + "&layer=0&from=" + encodeURIComponent(layoutId)
+        + "&token=" + encodeURIComponent(token);
+      // 区画のドラッグに巻き込まれないよう、押下はここで止める
+      edit.addEventListener("pointerdown", (event) => event.stopPropagation());
+      head.appendChild(edit);
+    }
+    box.appendChild(head); box.appendChild(sref);
+
+    const handle = document.createElement("div");
+    handle.className = "handle";
+    box.appendChild(handle);
+
+    bindDrag(box, sec, handle);
+    box.addEventListener("pointerdown", () => { selectedId = sec.id; refresh(); });
+    gridEl.appendChild(box);
+    secEls.set(sec.id, box);
+  }
+  renderPalette();   // 「配置済み」の印は区画の増減で変わる
+  refresh();
+}
+
+/// 区画を消して、その部品をパレットへ戻す。ボタンからも放り込みからもここを通す
+/// （2つの入口で挙動が食い違わないように）。
+function returnToPalette(sec) {
+  const ref = sec.component.ref;
+  model.sections = model.sections.filter((x) => x.id !== sec.id);
+  selectedId = null;
+  render();
+  notifyReverted(ref + " を置ける部品へ戻しました（" + sec.id + " を削除）");
+}
+
+/// 2段目の帯。左が現在地、右がこの画面固有の操作。
+/// setDefaultBoard は関数宣言なので、ここから先に参照できる。
+const SUB = KDComponents.renderSubHeader(document.getElementById("subhead"), {
+  token,
+  crumbs: [
+    { label: "ホーム", path: "/connect" },
+    { label: "PC部門" },
+    { label: "Layout編集" },
+  ],
+  actions: [
+    { label: "default にする", id: "setDefaultBtn",
+      title: "いま選んでいるboardを、次に開いたとき最初に出すものにします",
+      onClick: () => setDefaultBoard(layoutId) },
+    { label: "QRギャラリー", onClick: () => go("/connect") },
+    { label: "設定", onClick: () => go("/settings") },
+  ],
+});
+/// tokenを引き継いで移る。引き継がないと移った先で繋がらない。
+function go(path) { location.href = path + "?token=" + encodeURIComponent(token); }
+
+const dropVeil = document.getElementById("dropveil");
+/// 直前の状態へ戻したことを伝える。2段目の上に浮かび、2秒で消える。
+function notifyReverted(message) { SUB.toast("↩ " + message); }
+/// 次に何か操作したら消す。
+function clearFlash() { SUB.hideToast(); }
+
+/// その区画がいま不正か（重なり・下限割れ・はみ出し）を判定する。
+/// validate() が全区画の `_bad` を付け直すので、対象の1件だけを見ればよい。
+function isConflicting(sec) {
+  validate(model);
+  return !!sec._bad;
+}
+
+/// 変更を試し、不正なら元へ戻す。**不正な形はコミットさせない**という方針の実体。
+/// ドラッグ中は赤く見せて理由を伝えるが、確定（指を離す・数値を確定）はさせない。
+function commitOrRevert(sec, before, what) {
+  if (!isConflicting(sec)) { refresh(); return true; }
+  Object.assign(sec, before);
+  refresh();
+  notifyReverted(sec.id + " は" + what + "ため、元へ戻しました");
+  return false;
+}
+
+/// 位置・大きさ・赤表示・判定・JSONだけを更新する。**要素は作り直さない**。
+/// ドラッグ中に呼ばれるのはこちら。
+function refresh() {
+  const errors = validate(model);
+
+  for (const sec of model.sections) {
+    const box = secEls.get(sec.id);
+    if (!box) continue;
+    // ★ ここが「変換の算数ゼロ」の実物
+    box.style.gridColumn = sec.col + " / span " + sec.colSpan;
+    box.style.gridRow = sec.row + " / span " + sec.rowSpan;
+    box.classList.toggle("selected", sec.id === selectedId);
+    box.classList.toggle("bad", !!sec._bad);
+  }
+
+  verdictEl.className = errors.length ? "err" : "ok";
+  verdictEl.textContent = errors.length
+    ? "✕ " + errors.join(" / ")
+    : "✓ 重なり・はみ出しなし。この形なら保存できます。";
+  // 形が正しいときだけ押せる。Hub側でも同じ条件で弾くが、
+  // 押してから断られるより、押せないほうが分かりやすい。
+  document.getElementById("saveBtn").disabled = errors.length > 0;
+
+  document.getElementById("json").textContent = JSON.stringify({
+    layoutId,
+    grid: model.grid,
+    sections: model.sections.map((s) => ({
+      id: s.id, row: s.row, col: s.col,
+      colSpan: s.colSpan, rowSpan: s.rowSpan, component: s.component,
+    })),
+  }, null, 2);
+
+  renderProps();
+}
+
+function renderProps() {
+  const host = document.getElementById("props");
+  const sec = model.sections.find((s) => s.id === selectedId);
+  host.textContent = "";
+  if (!sec) {
+    const p = document.createElement("p");
+    p.className = "note"; p.textContent = "区画をクリックすると出ます。";
+    host.appendChild(p);
+    return;
+  }
+  const meta = COMPONENT[sec.component.ref];
+  const lim = effectiveMin(sec, model.grid);
+
+  // ---- 区画id / 部品 / 参照先 ----
+  const rows = [["区画id", sec.id], ["部品", sec.component.kind], ["参照先", sec.component.ref]];
+  for (const [label, value] of rows) {
+    const f = document.createElement("div"); f.className = "field";
+    const l = document.createElement("label"); l.textContent = label;
+    const v = document.createElement("div"); v.className = "val"; v.textContent = value;
+    if (label === "部品") {
+      v.textContent = "";
+      v.style.cssText = "display:flex;align-items:center;gap:6px";
+      const ic = iconFor(sec.component.kind);
+      ic.style.cssText = "width:14px;height:14px";
+      v.appendChild(ic);
+      v.appendChild(document.createTextNode(value));
+    }
+    if (label === "部品" && meta) {
+      const tag = document.createElement("span");
+      tag.className = "kindtag " + (meta.type === "floor" ? "floor" : "reduce");
+      tag.textContent = meta.type === "floor" ? "下限を持つ" : "減らせる";
+      v.appendChild(tag);
+    }
+    f.appendChild(l); f.appendChild(v); host.appendChild(f);
+  }
+
+  // ---- 部品の差し替え ----
+  // 区画の位置と大きさを保ったまま中身だけ替える。
+  // 外して置き直すと区画idが変わり（SEC-NEW1 等）、履歴も名前も失われる。
+  // 同じ種別のものだけを候補にする（キーボードの枠にDeckは入らない）。
+  const swapWrap = document.createElement("div");
+  swapWrap.className = "field";
+  const swapLabel = document.createElement("label");
+  swapLabel.textContent = "この区画の中身を差し替える";
+  swapWrap.appendChild(swapLabel);
+  const swapSel = document.createElement("select");
+  swapSel.style.cssText = "width:100%;min-height:30px";
+  for (const item of PALETTE) {
+    if (item.kind !== sec.component.kind) continue;
+    const option = document.createElement("option");
+    option.value = item.ref;
+    option.textContent = item.ref;
+    if (item.ref === sec.component.ref) option.selected = true;
+    swapSel.appendChild(option);
+  }
+  swapSel.disabled = swapSel.options.length <= 1;
+  swapSel.addEventListener("change", (event) => {
+    const before = { row: sec.row, col: sec.col, colSpan: sec.colSpan, rowSpan: sec.rowSpan };
+    const prev = sec.component.ref;
+    sec.component = { kind: sec.component.kind, ref: event.target.value };
+    // 差し替え先の最小サイズが今より大きいことがある。足りなければ押し広げ、
+    // それで他とぶつかるなら差し替えごと取り消す（中途半端な形を残さない）。
+    const lim = effectiveMin(sec, model.grid);
+    sec.colSpan = Math.max(sec.colSpan, lim.cols);
+    sec.rowSpan = Math.max(sec.rowSpan, lim.rows);
+    if (isConflicting(sec)) {
+      Object.assign(sec, before);
+      sec.component = { kind: sec.component.kind, ref: prev };
+      refresh();
+      notifyReverted(event.target.value + " は最小 " + lim.cols + "×" + lim.rows
+        + " が要るため、この場所では入れ替えられません");
+      render();
+      return;
+    }
+    // **描き直す。** refresh() は位置と大きさしか直さないので、
+    // 中身を替えたのに古い部品の絵・名前・「編集」の行き先が残ってしまう。
+    // 名前が古いままだと、差し替えたつもりで別のキーボードを編集する事故になる。
+    render();
+  });
+  swapWrap.appendChild(swapSel);
+  host.appendChild(swapWrap);
+
+  // ---- 位置と大きさを数値で直接打つ（つまみのドラッグは1マス単位で狙いにくい） ----
+  const edit = document.createElement("div"); edit.className = "numedit";
+  const fields = [
+    { key:"row",     label:"行", min:1, max:() => model.grid.rows - sec.rowSpan + 1 },
+    { key:"col",     label:"列", min:1, max:() => model.grid.cols - sec.colSpan + 1 },
+    { key:"colSpan", label:"幅", min:lim.cols, max:() => model.grid.cols - sec.col + 1 },
+    { key:"rowSpan", label:"高", min:lim.rows, max:() => model.grid.rows - sec.row + 1 },
+  ];
+  for (const f of fields) {
+    const wrap = document.createElement("div");
+    const l = document.createElement("label"); l.textContent = f.label;
+    const input = document.createElement("input");
+    input.type = "number"; input.value = sec[f.key];
+    input.min = f.min; input.max = f.max();
+    input.addEventListener("change", () => {
+      const raw = parseInt(input.value, 10);
+      // 空欄や文字が入ったら元に戻す（黙って0や NaN を入れない）
+      if (!Number.isFinite(raw)) { renderProps(); return; }
+      const before = { row: sec.row, col: sec.col, colSpan: sec.colSpan, rowSpan: sec.rowSpan };
+      sec[f.key] = Math.min(Math.max(raw, f.min), f.max());
+      commitOrRevert(sec, before, "他の区画と重なる");
+    });
+    wrap.appendChild(l); wrap.appendChild(input);
+    edit.appendChild(wrap);
+  }
+  host.appendChild(edit);
+
+  // ---- 最小サイズ ----
+  const box = document.createElement("div"); box.className = "minbox";
+  const lead = document.createElement("div"); lead.className = "lead";
+  lead.appendChild(document.createTextNode("最小サイズ "));
+  const b = document.createElement("b");
+  b.textContent = lim.cols + " × " + lim.rows + " マス";
+  lead.appendChild(b);
+  lead.appendChild(document.createTextNode(
+    "（" + Math.round(lim.auto.px.w) + " × " + Math.round(lim.auto.px.h) + " px）"
+  ));
+  box.appendChild(lead);
+
+  // 基準値はヘッダから外した（2026-09-07 ユーザー指示）。
+  // ただし「なぜこの大きさで止まるのか」の根拠はここでしか要らないので、
+  // 最小サイズの脇に小さく残す。数字そのものは DEVICES / TAP が保持している。
+  const basis = document.createElement("div");
+  basis.className = "why";
+  const cell = cellSize(model.grid);
+  basis.textContent = "基準 " + deviceOf(model).name + "・1マス≒" + Math.round(cell.w) + "×"
+    + Math.round(cell.h) + "px・タップ下限" + TAP + "px";
+  box.appendChild(basis);
+
+  const why = document.createElement("div"); why.className = "why";
+  if (meta && meta.type === "floor") {
+    why.textContent = meta.pxOf
+      ? "実体がある部品。中身が機能する面積として手で決めた値。"
+      : meta.cols + "列×" + meta.rows + "行、一番細いキーが " + (TAP / meta.minColSpan).toFixed(0)
+        + "px を割らない大きさ。キーは間引けないので、これ以上小さくできない。";
+  } else if (meta) {
+    why.textContent = "入りきらないぶんはページ送りへ回すので、ここまで小さくできる。";
+  }
+  box.appendChild(why);
+
+  // 手動で下限を引き上げる
+  const manualWrap = document.createElement("div");
+  manualWrap.style.marginTop = "8px";
+  const ml = document.createElement("label");
+  ml.style.cssText = "display:block;font-size:9px;color:var(--ink-dim)";
+  ml.textContent = meta && meta.type === "floor" ? "手動の下限（計算値より下げられません）" : "手動の下限";
+  manualWrap.appendChild(ml);
+  const mrow = document.createElement("div"); mrow.className = "numedit";
+  mrow.style.gridTemplateColumns = "1fr 1fr auto";
+  for (const key of ["cols", "rows"]) {
+    const wrap = document.createElement("div");
+    const l = document.createElement("label"); l.textContent = key === "cols" ? "幅" : "高";
+    const input = document.createElement("input");
+    input.type = "number"; input.min = 1;
+    input.value = sec.minOverride ? sec.minOverride[key] : lim[key];
+    input.addEventListener("change", () => {
+      const raw = parseInt(input.value, 10);
+      if (!Number.isFinite(raw)) { renderProps(); return; }
+      const base = sec.minOverride ? { cols: sec.minOverride.cols, rows: sec.minOverride.rows } : null;
+      const seed = base || { cols: lim.cols, rows: lim.rows };
+      sec.minOverride = { cols: seed.cols, rows: seed.rows };
+      sec.minOverride[key] = Math.max(1, raw);
+      // 下限を上げた結果いまの大きさが下回るなら、その場で押し広げる。
+      // 押し広げた先が他の区画と重なるなら、下限の変更ごと取り消す
+      // （下限だけ上がって形が不正、という中途半端な状態を残さない）
+      const beforeGeom = { row: sec.row, col: sec.col, colSpan: sec.colSpan, rowSpan: sec.rowSpan };
+      const beforeMin = base;
+      const now = effectiveMin(sec, model.grid);
+      sec.colSpan = Math.max(sec.colSpan, now.cols);
+      sec.rowSpan = Math.max(sec.rowSpan, now.rows);
+      if (isConflicting(sec)) {
+        Object.assign(sec, beforeGeom);
+        if (beforeMin) { sec.minOverride = beforeMin; } else { delete sec.minOverride; }
+        refresh();
+        notifyReverted(sec.id + " は下限を上げると他の区画と重なるため、元へ戻しました");
+      } else {
+        refresh();
+      }
+    });
+    wrap.appendChild(l); wrap.appendChild(input);
+    mrow.appendChild(wrap);
+  }
+  const clear = document.createElement("button");
+  clear.type = "button"; clear.textContent = "自動";
+  clear.style.cssText = "padding:0 8px;min-height:28px;align-self:end";
+  clear.disabled = !sec.minOverride;
+  clear.addEventListener("click", () => { delete sec.minOverride; render(); });
+  mrow.appendChild(clear);
+  manualWrap.appendChild(mrow);
+  box.appendChild(manualWrap);
+  host.appendChild(box);
+
+  // ================================================================
+  // その部品を**他のレイアウトも使っているか**。
+  // 部品は参照で共有されるので、中身を直すと参照している全レイアウトに効く。
+  // 気づかずに直すのが一番危ないため、編集する前に見える場所へ出す。
+  // （過去に「キーボードを直したらレイアウトが崩れた」事故があった）
+  // ================================================================
+  const alsoUsedBy = Object.keys(SOURCE).filter((id) =>
+    id !== layoutId && SOURCE[id].sections.some((x) => x.component.ref === sec.component.ref)
+  );
+  if (alsoUsedBy.length > 0) {
+    const shared = document.createElement("div");
+    shared.className = "shared";
+    shared.appendChild(document.createTextNode(
+      sec.component.ref + " は他の " + alsoUsedBy.length + " 件でも使われています: "
+    ));
+    const names = document.createElement("b");
+    names.textContent = alsoUsedBy.join(" / ");
+    shared.appendChild(names);
+    const tail = document.createElement("div");
+    tail.style.cssText = "color:var(--ink-dim);margin-top:3px";
+    tail.textContent = "中身を直すとそちらにも効きます。片方だけ変えたいなら複製して別idにしてください。";
+    shared.appendChild(tail);
+    host.appendChild(shared);
+  }
+
+  // ---- 収まり具合（reduce型のみ） ----
+  const fit = fitReport(sec, model.grid);
+  if (fit) {
+    const line = document.createElement("div");
+    line.className = "fitline" + (fit.pages > 1 ? " cut" : "");
+    line.textContent = fit.pages > 1
+      ? fit.slots + "件 → この大きさでは " + fit.capacity + "個/ページ × " + fit.pages + "ページ"
+      : fit.slots + "件 → 1ページに全部収まります（この大きさで " + fit.capacity + "個ぶん表示）";
+    host.appendChild(line);
+    const hint = document.createElement("div");
+    hint.className = "note";
+    hint.textContent = "スクロールバーは出しません。入るぶんだけ出して、残りはページ送りへ回します。";
+    host.appendChild(hint);
+  }
+
+  const del = document.createElement("button");
+  del.type = "button"; del.textContent = "← 置ける部品へ戻す";
+  del.style.marginTop = "10px";
+  del.addEventListener("click", () => returnToPalette(sec));
+  host.appendChild(del);
+}
+
+// ---- ドラッグとリサイズ ------------------------------------------------
+// セル1個ぶんの実寸から、指の移動量を「マス数」に直す。
+// 格子の実寸はウィンドウ幅で変わるので、掴んだ瞬間に測る。
+function bindDrag(box, sec, handle) {
+  let mode = null, startX = 0, startY = 0, cellW = 1, cellH = 1, orig = null, atMin = false;
+  let overDrop = false;   // いまポインタが「放り込み口」の上にあるか
+
+  function begin(event, kind) {
+    event.preventDefault();
+    event.stopPropagation();
+    mode = kind;
+    const rect = gridEl.getBoundingClientRect();
+    cellW = rect.width / model.grid.cols;
+    cellH = rect.height / model.grid.rows;
+    startX = event.clientX; startY = event.clientY;
+    orig = { row: sec.row, col: sec.col, colSpan: sec.colSpan, rowSpan: sec.rowSpan };
+    atMin = false;
+    clearFlash();
+    overDrop = false;
+    // 放り込み口は**移動のときだけ**出す。つまみでのリサイズ中に出すと、
+    // 大きさを変えただけのつもりで部品が消える事故になる。
+    if (kind === "move") {
+      dropVeil.hidden = false;
+      dropVeil.classList.remove("over");
+      // パレットがいま画面にどれだけ見えているか。狭い画面で格子を見ていると
+      // パレットは上へスクロールアウトしていて、放り込み口に届かない。
+      // そのときだけ画面上端へ貼り付ける（掴んだ後はスクロールできないので begin で決める）。
+      const pane = dropVeil.parentElement.getBoundingClientRect();
+      const visible = Math.min(pane.bottom, window.innerHeight) - Math.max(pane.top, 0);
+      dropVeil.classList.toggle("pinned", visible < 90);
+    }
+    box.classList.add("dragging");
+    // 掴んだ要素へポインタを固定する。これで指が要素の外へ出ても追従する。
+    try { box.setPointerCapture(event.pointerId); } catch (error) { /* 未対応環境では素通り */ }
+  }
+
+  function move(event) {
+    if (!mode) return;
+
+    // ポインタが放り込み口の上か。ポインタは掴んだ区画にキャプチャされているので、
+    // 膜側のイベントは飛んでこない。座標で判定するのが確実。
+    if (mode === "move") {
+      const zone = dropVeil.getBoundingClientRect();
+      overDrop = event.clientX >= zone.left && event.clientX <= zone.right
+              && event.clientY >= zone.top && event.clientY <= zone.bottom;
+      dropVeil.classList.toggle("over", overDrop);
+    }
+
+    const dc = Math.round((event.clientX - startX) / cellW);
+    const dr = Math.round((event.clientY - startY) / cellH);
+    if (mode === "move") {
+      // 格子の外へは出さない（はみ出しは掴んでいる間に起きないほうが操作しやすい）
+      sec.col = Math.min(Math.max(1, orig.col + dc), model.grid.cols - sec.colSpan + 1);
+      sec.row = Math.min(Math.max(1, orig.row + dr), model.grid.rows - sec.rowSpan + 1);
+    } else {
+      // **下限より小さくはできない。** つまみが効かなくなるので、
+      // 止まっていることが分かるよう枠を光らせる（黙って効かないのが一番困る）
+      const lim = effectiveMin(sec, model.grid);
+      sec.colSpan = Math.min(Math.max(lim.cols, orig.colSpan + dc), model.grid.cols - sec.col + 1);
+      sec.rowSpan = Math.min(Math.max(lim.rows, orig.rowSpan + dr), model.grid.rows - sec.row + 1);
+      atMin = sec.colSpan === lim.cols || sec.rowSpan === lim.rows;
+    }
+    // **render() ではなく refresh()。** ここで作り直すと掴んでいる要素が消え、
+    // ポインタキャプチャが外れてドラッグが1回で死ぬ（実際にそうなっていた）。
+    refresh();
+    box.classList.toggle("atmin", atMin);
+  }
+
+  function end() {
+    if (!mode) return;
+    const wasMove = mode === "move";
+    mode = null;
+    box.classList.remove("dragging");
+    box.classList.remove("atmin");
+    dropVeil.hidden = true;
+    dropVeil.classList.remove("over");
+    dropVeil.classList.remove("pinned");
+
+    // 放り込み口の上で離した = 部品へ戻す。位置は元へ戻してから消す
+    // （消える直前に格子上で暴れて見えないように）。
+    if (wasMove && overDrop) {
+      Object.assign(sec, orig);
+      overDrop = false;
+      returnToPalette(sec);
+      return;
+    }
+    overDrop = false;
+
+    // 重なったまま指を離せてしまうと、下に潜った区画が見えなくなる（実際そうなっていた）。
+    // ドラッグ中の赤は「今このままだと駄目」を伝えるためのもので、確定はさせない。
+    commitOrRevert(sec, orig, "他の区画と重なる");
+  }
+
+  box.addEventListener("pointerdown", (event) => {
+    if (event.target === handle) return;   // つまみはリサイズ側で拾う
+    begin(event, "move");
+  });
+  handle.addEventListener("pointerdown", (event) => begin(event, "resize"));
+  box.addEventListener("pointermove", move);
+  box.addEventListener("pointerup", end);
+  box.addEventListener("pointercancel", end);
+}
+
+// ---- パレット ---------------------------------------------------------
+/// 人が読む名前。**説明文の1行目**から作る。
+///
+/// 部品には元々 description があり、その1行目が「これは何か」を
+/// 一言で言っている。名前用の項目を新たに足すと、同じことを2箇所に
+/// 書くことになり、片方だけ直されてずれる。
+/// 末尾の記号や（P-005 段階A）のような開発の符丁は、人が探すときには
+/// 邪魔なので落とす。
+function componentName(item) {
+  // 配信がまだ届いていない間も呼ばれうる。落とさずidで我慢する
+  if (!CONFIG) return item.ref;
+  const src = item.kind === "deck"
+    ? (CONFIG.decks || {})[item.ref]
+    : (CONFIG.keymaps || {})[item.ref];
+  const desc = src && src.description ? String(src.description) : "";
+  let head = desc.split("\n")[0].split("。")[0].trim();
+  head = head.replace(/（[^）]*）\s*$/, "").replace(/\([^)]*\)\s*$/, "").trim();
+  if (!head && item.kind === "trackball") head = "トラックボール";
+  if (!head) return item.ref;
+  return head.length > 22 ? head.slice(0, 21) + "…" : head;
+}
+
+const KIND_LABEL = {
+  keyboard: "キーボード", deck: "リスト", trackball: "トラックボール", jog: "ダイヤル",
+};
+
+function renderPalette() {
+  const host = document.getElementById("palette");
+  host.textContent = "";
+  const query = (document.getElementById("paletteSearch").value || "")
+    .trim().toLowerCase();
+  // いま何個置かれているか。パレットを「まだ置いていない部品の置き場」として読めるようにする。
+  // 同じ部品を2区画に置くこと自体は禁じない（同じキーボードなら状態も共有される仕様）。
+  const placed = new Map();
+  for (const sec of model.sections) {
+    placed.set(sec.component.ref, (placed.get(sec.component.ref) || 0) + 1);
+  }
+
+  let shown = 0;
+  for (const item of PALETTE) {
+    const label = componentName(item);
+    const kindLabel = KIND_LABEL[item.kind] || item.kind;
+    // 名前・id・種類のどれで探しても当たるようにする。
+    // 「ダイヤル」で探す人と「jog」で探す人の両方が居る。
+    if (query) {
+      const hay = (label + " " + item.ref + " " + item.kind + " " + kindLabel).toLowerCase();
+      if (!hay.includes(query)) continue;
+    }
+    shown += 1;
+    const count = placed.get(item.ref) || 0;
+    const lim = minCells(item.ref, model.grid);
+    const row = document.createElement("div");
+    row.className = "palette-item" + (count ? " placed" : "");
+    // 素のid・種類・最小サイズは見た目からは省き、hoverで出す
+    // （カードは「header=アイコン＋名前」「サムネ=種別の抽象イメージ」の縦二段のみ）。
+    row.title = label + "（" + item.ref + " / " + kindLabel
+      + " / 最小 " + lim.cols + "×" + lim.rows + "）";
+
+    const head = document.createElement("div");
+    head.className = "pitem-head";
+    head.appendChild(iconFor(item.kind));
+    const name = document.createElement("span");
+    name.className = "pname";
+    name.textContent = label;
+    head.appendChild(name);
+
+    const thumb = document.createElement("div");
+    thumb.className = "pitem-thumb kind-" + item.kind;
+    const bigIcon = iconFor(item.kind);
+    bigIcon.classList.add("big");
+    thumb.appendChild(bigIcon);
+    if (count) {
+      const chip = document.createElement("span");
+      chip.className = "placedchip";
+      chip.textContent = count > 1 ? "配置済み ×" + count : "配置済み";
+      thumb.appendChild(chip);
+    }
+    const kindChip = document.createElement("span");
+    kindChip.className = "pkind " + item.kind;
+    kindChip.textContent = kindLabel;
+    thumb.appendChild(kindChip);
+    const size = document.createElement("span");
+    size.className = "psize";
+    size.textContent = lim.cols + "×" + lim.rows;
+    thumb.appendChild(size);
+
+    row.appendChild(head); row.appendChild(thumb);
+    row.addEventListener("click", () => { clearFlash(); addSection(item); });
+    host.appendChild(row);
+  }
+
+  if (shown === 0) {
+    const empty = document.createElement("p");
+    empty.id = "paletteEmpty";
+    empty.textContent = "「" + query + "」に当たる部品はありません。";
+    host.appendChild(empty);
+  }
+}
+
+document.getElementById("paletteSearch").addEventListener("input", renderPalette);
+
+function addSection(item) {
+  // 置く大きさは**その部品の下限**から決める。3×3固定だと、
+  // キーボードのように下限の大きい部品が置いた瞬間に不正になる。
+  const lim = minCells(item.ref, model.grid);
+  const sizeC = Math.max(3, lim.cols);
+  const sizeR = Math.max(3, lim.rows);
+  const taken = new Set();
+  for (const sec of model.sections) {
+    for (let r = sec.row; r < sec.row + sec.rowSpan; r += 1) {
+      for (let c = sec.col; c < sec.col + sec.colSpan; c += 1) taken.add(r + ":" + c);
+    }
+  }
+  let spot = null;
+  outer:
+  for (let r = 1; r <= model.grid.rows - sizeR + 1; r += 1) {
+    for (let c = 1; c <= model.grid.cols - sizeC + 1; c += 1) {
+      let free = true;
+      for (let rr = r; rr < r + sizeR && free; rr += 1) {
+        for (let cc = c; cc < c + sizeC; cc += 1) {
+          if (taken.has(rr + ":" + cc)) { free = false; break; }
+        }
+      }
+      if (free) { spot = { row: r, col: c }; break outer; }
+    }
+  }
+  // 置き場所が無いのに (1,1) へ重ねて置くと、既存の区画の下に潜って見えなくなる。
+  // 置けないことを伝えて何もしないほうがよい。
+  if (!spot) {
+    notifyReverted(item.ref + " を置ける空きが " + sizeC + "×" + sizeR + " ぶん無いため、追加しませんでした");
+    return;
+  }
+
+  // idは重複しない番号を振る（layout.rsが重複idを弾くため）
+  let n = 1;
+  while (model.sections.some((s) => s.id === "SEC-NEW" + n)) n += 1;
+  model.sections.push({
+    id: "SEC-NEW" + n, row: spot.row, col: spot.col,
+    colSpan: sizeC, rowSpan: sizeR, component: { kind: item.kind, ref: item.ref },
+  });
+  selectedId = "SEC-NEW" + n;
+  render();
+}
+
+// ---- 操作の配線 -------------------------------------------------------
+/// board一覧の中に置く「新規」の印。実在のidと衝突しない形にしてある。
+const NEW_BOARD = "__new__";
+
+/// Hubが持っている「最初に出すboard」。緑の印を付けるために覚えておく。
+let DEFAULT_LAYOUT = null;
+
+/// 最初に出すboardを決める。**順番がそのまま優先順位**。
+///   1. URLの ?id=  … 人が名指しで開いた。何よりも優先する
+///   2. Hubの既定   … 「defaultにする」で決めたもの。全端末で揃う
+///   3. 一覧の先頭  … 既定が未設定のときだけの保険
+/// 以前は 1 が無ければ即 3 に落ちていたため、既定を変えても常に
+/// ipad_main（名前順の先頭）が開く、という食い違いになっていた。
+function initialLayoutId(ids) {
+  if (layoutId && ids.includes(layoutId)) return layoutId;
+  if (DEFAULT_LAYOUT && ids.includes(DEFAULT_LAYOUT)) return DEFAULT_LAYOUT;
+  return ids[0];
+}
+
+async function loadDefaults() {
+  try {
+    const res = await fetch("/api/defaults?token=" + encodeURIComponent(token));
+    if (!res.ok) return;
+    const data = await res.json();
+    DEFAULT_LAYOUT = data.layout;
+    KDComponents.markDefaultOption(document.getElementById("layoutSel"), DEFAULT_LAYOUT);
+  } catch (error) { /* 取れなくても編集はできる */ }
+}
+
+/// いま選んでいる board を「最初に出すもの」にする。
+/// **長押しではなくボタンにしてある。** 長押しは押した本人にしか分からず、
+/// 「いま設定されたのか」も分からない。押せば結果が出るボタンの方が確かめられる。
+async function setDefaultBoard(id) {
+    try {
+      const res = await fetch("/api/defaults?token=" + encodeURIComponent(token), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ layout: id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { notifyReverted("既定にできません: " + (body.cause || res.status)); return; }
+      DEFAULT_LAYOUT = body.layout;
+      KDComponents.markDefaultOption(document.getElementById("layoutSel"), DEFAULT_LAYOUT);
+      notifyReverted(id + " を『最初に出すboard』にしました");
+    } catch (error) {
+      notifyReverted("通信エラー: " + error);
+    }
+}
+
+
+function fillLayoutSelect() {
+  const sel = document.getElementById("layoutSel");
+  sel.textContent = "";
+  for (const id of Object.keys(SOURCE)) {
+    const option = document.createElement("option");
+    option.value = id; option.textContent = id;
+    if (id === layoutId) option.selected = true;
+    sel.appendChild(option);
+  }
+  // **新規はこの一覧の中に置く。**別のボタンにしておくと、
+  // boardを選ぶ操作と作る操作が別々の場所に散る。
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+  const add = document.createElement("option");
+  add.value = NEW_BOARD;
+  add.textContent = "＋ 新しいboardを作る…";
+  sel.appendChild(add);
+  // 1つしか無くても「新規」を選べる必要があるので、もう無効にしない
+  sel.disabled = false;
+  KDComponents.markDefaultOption(sel, DEFAULT_LAYOUT);
+}
+
+document.getElementById("layoutSel").addEventListener("change", (event) => {
+  if (event.target.value === NEW_BOARD) {
+    // 選んだ見た目のまま残さない。作る前に今のboardへ戻しておく
+    event.target.value = layoutId;
+    createBoard();
+    return;
+  }
+  const picked = event.target.value;
+  // まだ配信が届いていない等で中身が無いidは選ばせない。
+  // ここで止めないと clone(undefined) で編集画面ごと落ちる。
+  if (!SOURCE[picked]) {
+    event.target.value = layoutId;
+    notifyReverted(picked + " はまだ読み込まれていません");
+    return;
+  }
+  layoutId = picked;
+  model = clone(SOURCE[layoutId]);
+  selectedId = null;
+  // どのレイアウトを見ていたかをURLに残す。再読込やリンク共有で同じ画面に戻れる
+  const url = new URL(location.href);
+  url.searchParams.set("id", layoutId);
+  history.replaceState(null, "", url);
+  render();
+});
+// ================================================================
+// QR。**いま選んでいるレイアウトのもの**を出す。
+// レイアウトを切り替えたら中身も切り替わるので、編集中のものと必ず一致する。
+// ================================================================
+const qrModal = document.getElementById("qrmodal");
+
+function openQr() {
+  if (!layoutId) return;
+  const target = "layout:" + layoutId;
+  document.getElementById("qrTitle").textContent = "レイアウト: " + layoutId;
+  const img = document.getElementById("qrImage");
+  img.alt = "QR: " + layoutId;
+  // `layout:xxx` はコロンを含むので必ずエンコードする。
+  // 毎回付け直すのは、レイアウトを切り替えたときに古い画像が残らないようにするため。
+  img.src = "/api/qr?target=" + encodeURIComponent(target) + "&t=" + Date.now();
+  // URLはHub側にしか無いので /api/formats から引く（tokenをこのJSに埋めない）
+  fetch("/api/formats?token=" + encodeURIComponent(token))
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      const hit = data && data.targets.find((x) => x.target === target);
+      document.getElementById("qrUrl").textContent = hit ? hit.url : "";
+    })
+    .catch(() => { document.getElementById("qrUrl").textContent = ""; });
+  qrModal.hidden = false;
+}
+
+function closeQr() { qrModal.hidden = true; }
+
+// ================================================================
+// boardの新規作成。
+// ダイアログで「名前・端末・格子の数」を決め、空のboardを作る。部品はあとから置く。
+// 端末を選ぶと、その端末のおすすめ格子数（DEVICES の grid）が入る。変えてもよい。
+// 保存まで一度に行うのは、作っただけで保存し忘れると
+// 「作ったのに次に開いたら無い」ことになるため。
+// ================================================================
+const newModal = document.getElementById("newmodal");
+const nb = {
+  form: document.getElementById("newForm"),
+  name: document.getElementById("nbName"),
+  devices: document.getElementById("nbDevices"),
+  cols: document.getElementById("nbCols"),
+  rows: document.getElementById("nbRows"),
+  cell: document.getElementById("nbCell"),
+  err: document.getElementById("nbErr"),
+  submit: document.getElementById("nbSubmit"),
+};
+
+// 端末のラジオボタン。DEVICES から作るので、端末を足すときは DEVICES だけ直せばよい
+for (const [devId, dev] of Object.entries(DEVICES)) {
+  const label = document.createElement("label");
+  label.className = "nb-dev";
+  const radio = document.createElement("input");
+  radio.type = "radio"; radio.name = "nbDevice"; radio.value = devId;
+  radio.addEventListener("change", () => {
+    nb.cols.value = dev.grid.cols;
+    nb.rows.value = dev.grid.rows;
+    updateCellHint();
+  });
+  const text = document.createElement("span");
+  text.textContent = dev.name;
+  const sub = document.createElement("small");
+  sub.textContent = dev.w + "×" + dev.h + "px・おすすめ " + dev.grid.cols + "×" + dev.grid.rows;
+  text.appendChild(sub);
+  label.appendChild(radio); label.appendChild(text);
+  nb.devices.appendChild(label);
+}
+
+function pickedDeviceId() {
+  const checked = nb.devices.querySelector("input:checked");
+  return checked ? checked.value : DEFAULT_DEVICE;
+}
+
+/// 1マスが実機で何pxになるかをその場で出す。44px（指で押せる下限）を割ったら黄色で知らせる。
+/// **止めはしない。** 小さいマスを束ねて1区画にする使い方もあるため。
+function updateCellHint() {
+  const cols = Number(nb.cols.value), rows = Number(nb.rows.value);
+  if (!(cols >= 1 && rows >= 1)) { nb.cell.textContent = ""; return; }
+  const cell = cellSize({ cols, rows }, DEVICES[pickedDeviceId()]);
+  const w = Math.round(cell.w), h = Math.round(cell.h);
+  const small = w < TAP || h < TAP;
+  nb.cell.textContent = "1マス ≒ " + w + "×" + h + "px"
+    + (small ? "（" + TAP + "px を下回るので、1マスだけの区画は指で押しにくい）" : "");
+  nb.cell.classList.toggle("warn", small);
+}
+nb.cols.addEventListener("input", updateCellHint);
+nb.rows.addEventListener("input", updateCellHint);
+
+/// 一覧から「＋ 新しいboardを作る…」を選んだときの入口。
+/// 端末は、いま開いているboardと同じものを初期選択にする（続けて同じ端末のboardを作ることが多い）。
+function createBoard() {
+  const current = model.device && DEVICES[model.device] ? model.device : DEFAULT_DEVICE;
+  nb.name.value = "";
+  nb.err.textContent = "";
+  nb.devices.querySelector('input[value="' + current + '"]').checked = true;
+  nb.cols.value = DEVICES[current].grid.cols;
+  nb.rows.value = DEVICES[current].grid.rows;
+  updateCellHint();
+  newModal.hidden = false;
+  nb.name.focus();
+}
+
+function closeNewModal() { newModal.hidden = true; }
+document.getElementById("nbCancel").addEventListener("click", closeNewModal);
+newModal.addEventListener("click", (event) => { if (event.target === newModal) closeNewModal(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !newModal.hidden) closeNewModal();
+});
+
+nb.form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  nb.err.textContent = "";
+  const id = nb.name.value.trim();
+  if (!/^[a-z0-9_]{1,64}$/.test(id)) {
+    nb.err.textContent = "名前に使えるのは英小文字・数字・_ だけです（1〜64文字）";
+    nb.name.focus(); return;
+  }
+  if (SOURCE[id]) { nb.err.textContent = id + " は既にあります"; nb.name.focus(); return; }
+  const cols = Number(nb.cols.value), rows = Number(nb.rows.value);
+  if (![cols, rows].every((n) => Number.isInteger(n) && n >= 1 && n <= GRID_MAX)) {
+    nb.err.textContent = "格子の数は 1〜" + GRID_MAX + " の整数で入れてください";
+    return;
+  }
+  const devId = pickedDeviceId();
+  const dev = DEVICES[devId];
+  const grid = { cols, rows };
+
+  // 空のboardはHub側の検証に落ちる（区画が0件）ので、置ける部品を1つ仮に置いて成立させる。
+  // **その格子に収まるもの**を選ぶ（先頭の部品が大きいと、小さい格子では置けない）。
+  const seed = PALETTE.find((item) => {
+    const lim = minCells(item.ref, grid, dev);
+    return lim.cols <= cols && lim.rows <= rows;
+  });
+  if (!seed) { nb.err.textContent = "この格子に収まる部品がありません。格子を増やしてください"; return; }
+  const lim = minCells(seed.ref, grid, dev);
+  const payload = {
+    layoutId: id,
+    description: "",
+    // 既定の端末は書かない（これまでのboardと同じ形にして、差分を出さない）
+    device: devId === DEFAULT_DEVICE ? undefined : devId,
+    grid,
+    sections: [{
+      id: "SEC-1", row: 1, col: 1,
+      colSpan: lim.cols, rowSpan: lim.rows,
+      component: { kind: seed.kind, ref: seed.ref },
+    }],
+  };
+  nb.submit.disabled = true;
+  try {
+    const res = await fetch("/api/layout/save?token=" + encodeURIComponent(token), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // ダイアログは閉じない。直して押し直せるように、理由をその場に出す
+      nb.err.textContent = "作れません: " + (body.code || res.status) + " — " + (body.cause || "");
+      return;
+    }
+    closeNewModal();
+    // 保存の再配信で SOURCE が更新される。そこへ切り替える
+    layoutId = id;
+    notifyReverted(id + " を作りました（" + dev.name + "・" + cols + "×" + rows
+      + "。" + seed.ref + " を1つ置いてあります）");
+  } catch (error) {
+    nb.err.textContent = "通信エラー: " + error;
+  } finally {
+    nb.submit.disabled = false;
+  }
+});
+
+// ================================================================
+// 右の「選択中の区画」パネルの出し入れ。
+// 中身（差し替え・JSONプレビュー）は消さず、既定で畳んでおくだけ。
+// 開閉はlocalStorageへ持ち回るので、一度開けばその端末では開いたままになる。
+// ================================================================
+const INSPECTOR_OPEN_KEY = "kd_editor_inspector_open";
+const colsEl = document.querySelector(".cols");
+const inspectorPane = document.getElementById("inspectorPane");
+const inspectorToggle = document.getElementById("inspectorToggle");
+
+function setInspectorOpen(open) {
+  inspectorPane.hidden = !open;
+  colsEl.classList.toggle("inspector-collapsed", !open);
+  inspectorToggle.textContent = open ? "区画の詳細を隠す" : "区画の詳細を表示";
+  inspectorToggle.setAttribute("aria-expanded", String(open));
+  try { localStorage.setItem(INSPECTOR_OPEN_KEY, open ? "1" : "0"); }
+  catch (error) { /* プライベートモード等で保存できなくても表示自体は動く */ }
+}
+
+let inspectorOpen = false;
+try { inspectorOpen = localStorage.getItem(INSPECTOR_OPEN_KEY) === "1"; }
+catch (error) { /* 既定どおり畳んでおく */ }
+setInspectorOpen(inspectorOpen);
+inspectorToggle.addEventListener("click", () => setInspectorOpen(inspectorPane.hidden));
+
+document.getElementById("qrBtn").addEventListener("click", openQr);
+// 画面外（覆いそのもの）を押したら閉じる。カードの中を押しても閉じない
+qrModal.addEventListener("click", (event) => { if (event.target === qrModal) closeQr(); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeQr(); });
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  // Hubが読み込んでいるJSONの内容へ戻す（保存できない以上、これが唯一の正）
+  model = clone(SOURCE[layoutId]);
+  selectedId = null;
+  clearFlash();
+  render();
+});
+document.getElementById("saveBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("saveBtn");
+  btn.disabled = true;
+  clearFlash();
+  try {
+    const payload = {
+      layoutId,
+      description: model.description || "",
+      // 端末を落として保存すると、iPhone用のboardが次に開いたとき iPad扱いに化ける
+      device: model.device || undefined,
+      grid: model.grid,
+      sections: model.sections.map((s) => ({
+        id: s.id, row: s.row, col: s.col,
+        colSpan: s.colSpan, rowSpan: s.rowSpan, component: s.component,
+      })),
+    };
+    const response = await fetch("/api/layout/save?token=" + encodeURIComponent(token), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (response.ok) {
+      log("P005-D", "OK", "layout saved", result);
+      // Hubは保存後に全クライアントへ再配信する。**このページも同じ配信を受けて
+      // 描き直す**ので、ここで画面を触る必要はない（実機も繋がったまま更新される）。
+      notifyReverted(
+        layoutId + " を保存しました（" + result.path + "）。"
+        + "繋がっている端末には自動で反映されます。トークンは変わりません。"
+      );
+    } else {
+      log("ERR", result.code || String(response.status), result.cause || "save failed", result);
+      notifyReverted(
+        "保存できませんでした: " + (result.code || response.status) + " — "
+        + (result.cause || "詳細不明")
+        + (result.rolledBack ? "（ディスクは元の状態へ戻しました）" : "")
+      );
+    }
+  } catch (error) {
+    log("ERR", "INTERNAL", "save request failed: " + error);
+    notifyReverted("通信エラー: " + error);
+  } finally {
+    refresh();   // 判定に応じてボタンの有効／無効を戻す
+  }
+});
+
+// ================================================================
+// Hubとの接続。`/layout` 面（実機で使う面）とまったく同じ入口を使う。
+// 同じ `surface.config` を見ているので、エディタが見ている構成と
+// 実機の構成が食い違わない。
+// ================================================================
+const connEl = document.getElementById("conn");
+let socket = null;
+let reconnectTimer = null;
+
+function setConn(text, cls) {
+  connEl.textContent = text;
+  connEl.className = "targetinfo" + (cls ? " " + cls : "");
+}
+
+/// 切れた理由を切り分ける。tokenが古いのか、単に落ちているのか。
+/// これが無いと「繋がらない」としか分からず、Hubの再起動に気づけない（T28と同じ）。
+async function diagnose() {
+  try {
+    const response = await fetch("/api/ping?token=" + encodeURIComponent(token));
+    if (response.status === 401) {
+      setConn("トークンが古いです。Hubのコンソールに出ている新しいURLを開いてください", "bad");
+      return false;
+    }
+  } catch (error) {
+    setConn("Hubに届きません（停止中かもしれません）", "bad");
+    return false;
+  }
+  return true;
+}
+
+function connect() {
+  if (!token) {
+    setConn("トークンがありません", "bad");
+    KDComponents.showTokenNotice();   // 小さな行だと気づかれないので画面いっぱいに出す
+    return;
+  }
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  socket = new WebSocket(scheme + "://" + location.host + "/ws?surface=layout&token=" + encodeURIComponent(token));
+
+  socket.addEventListener("open", () => {
+    setConn("接続中", "ok");
+    log("T35", "OK", "ws open");
+  });
+
+  socket.addEventListener("message", (event) => {
+    let message;
+    try { message = JSON.parse(event.data); }
+    catch (error) { log("ERR", "WS_PARSE", "不正なJSONを受信: " + error); return; }
+    // タグのフィールド名は `type`（protocol.rs の #[serde(tag = "type")]）。
+    if (message.type === "error") {
+      log("ERR", message.code || "SERVER", message.cause || "server error", message.context);
+      setConn("Hubがエラーを返しました: " + (message.code || "?"), "bad");
+      return;
+    }
+    if (message.type !== "surface.config") return;   // layer.state はエディタでは使わない
+
+    CONFIG = message;
+    COMPONENT = buildComponentTable(message);
+    PALETTE = buildPalette(message, COMPONENT);
+    SOURCE = buildSource(message);
+
+    const ids = Object.keys(SOURCE);
+    if (ids.length === 0) {
+      setConn("レイアウトが1件もありません（layouts/ にJSONを置いてください）", "bad");
+      return;
+    }
+    layoutId = initialLayoutId(ids);
+    model = clone(SOURCE[layoutId]);
+    selectedId = null;
+    fillLayoutSelect();
+    renderPalette();
+    render();
+    log("T35", "OK", "surface.config received", {
+      layouts: ids.length, keymaps: Object.keys(message.keymaps || {}).length,
+      decks: Object.keys(message.decks || {}).length, palette: PALETTE.length,
+    });
+  });
+
+  socket.addEventListener("close", async () => {
+    log("ERR", "WS_CLOSE", "disconnected; retrying");
+    const alive = await diagnose();
+    if (alive) setConn("切断。再接続します…", "bad");
+    // tokenが古い場合も繋ぎ直す価値は無いが、Hubを直したら勝手に戻るほうが楽なので続ける
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 2000);
+  });
+
+  socket.addEventListener("error", () => log("ERR", "WS_ERROR", "websocket error event"));
+}
+
+// 基準端末と1マスの実寸を常に出しておく。最小サイズの根拠がこれなので、
+// 見えないところに隠すと「なぜこの大きさで止まるのか」が分からなくなる。
+// このモックの版。画面に出しておくと「古いページを見ている」かどうかを
+// 推測ではなく事実で切り分けられる（iPadのキャッシュ事故と同じ構図。T29）。
+// 描画は構成が届いてから。決め打ちのデータを持っていないので、
+// 届く前に描くものは何も無い。
+window.addEventListener("error", (event) => {
+  log("ERR", "INTERNAL", "uncaught exception: " + event.message, event.error);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  log("ERR", "INTERNAL", "unhandled promise rejection: " + event.reason, event.reason);
+});
+
+setConn("接続中…");
+// **既定を取り終えてから繋ぐ。** 後回しにすると、最初の surface.config が
+// 届く時点で既定が分からず、一覧の先頭へ落ちてしまう。
+// 取れなかったとき（Hubが古い等）も繋ぎには行く。
+loadDefaults().finally(connect);
+</script>
+</body>
+</html>

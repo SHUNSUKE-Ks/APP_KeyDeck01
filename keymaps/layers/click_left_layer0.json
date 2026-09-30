@@ -1,0 +1,7 @@
+{
+  "layer": 0,
+  "description": "左クリック1つ。mouse.click は押した瞬間に1回だけ発火する。",
+  "keys": {
+    "CL": { "label": "左\nクリック", "action": {"t": "mouse.click", "button": "left"} }
+  }
+}

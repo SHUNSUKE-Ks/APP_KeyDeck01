@@ -1,0 +1,22 @@
+{
+  "layer": 0,
+  "description": "二層ラジアル（編集）の16項目。外側の輪がよく使う操作、内側の輪が同じ方向の細かい操作。内側のキーidは方向のうしろに 2 が付く。",
+  "keys": {
+    "N":   { "label": "コピー",     "action": {"t": "chord", "keys": ["CTRL", "C"]} },
+    "N2":  { "label": "切り取り",   "action": {"t": "chord", "keys": ["CTRL", "X"]} },
+    "NE":  { "label": "貼り付け",   "action": {"t": "chord", "keys": ["CTRL", "V"]} },
+    "NE2": { "label": "書式なし",   "action": {"t": "chord", "keys": ["CTRL", "SHIFT", "V"]} },
+    "E":   { "label": "元に戻す",   "action": {"t": "chord", "keys": ["CTRL", "Z"]} },
+    "E2":  { "label": "やり直し",   "action": {"t": "chord", "keys": ["CTRL", "Y"]} },
+    "SE":  { "label": "保存",       "action": {"t": "chord", "keys": ["CTRL", "S"]} },
+    "SE2": { "label": "別名保存",   "action": {"t": "chord", "keys": ["CTRL", "SHIFT", "S"]} },
+    "S":   { "label": "検索",       "action": {"t": "chord", "keys": ["CTRL", "F"]} },
+    "S2":  { "label": "置換",       "action": {"t": "chord", "keys": ["CTRL", "H"]} },
+    "SW":  { "label": "全選択",     "action": {"t": "chord", "keys": ["CTRL", "A"]} },
+    "SW2": { "label": "削除",       "action": {"t": "key",   "vk": "DEL"} },
+    "W":   { "label": "閉じる",     "action": {"t": "chord", "keys": ["CTRL", "W"]} },
+    "W2":  { "label": "タブ復活",   "action": {"t": "chord", "keys": ["CTRL", "SHIFT", "T"]} },
+    "NW":  { "label": "新規",       "action": {"t": "chord", "keys": ["CTRL", "N"]} },
+    "NW2": { "label": "開く",       "action": {"t": "chord", "keys": ["CTRL", "O"]} }
+  }
+}

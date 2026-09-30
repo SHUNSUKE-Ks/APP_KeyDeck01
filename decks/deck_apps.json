@@ -1,0 +1,16 @@
+{
+  "deckId": "apps",
+  "description": "よく使うアプリを前に出す4ボタン（アイコン付き）。youtube01 の Win+5 / Win+6 / Win+8 の進化版。\n\n■ 仕組み\nWin+数字 は「タスクバーの左から数えて何番目のアプリ」を前に出す（起動していなければ起動する）Windows の機能。KeyDeck が送っているのはキーだけなので、**タスクバーの並びを変えると別のアプリが出る**。並びを変えたら、ここの action を合わせて直す。\n\n■ 2026-09-22 時点のタスクバー\n1番目 = エクスプローラー（フォルダー）、5番目 = Google Chrome、6番目 = Codex、8番目 = Claude（Claude Code）\n\n■ アイコン\nstatic/icons/app_*.png。この PC に入っているアプリ本体から取り出した画像（Chrome は VisualElements\\Logo.png を余白を詰めて、Codex は白い絵柄を黒い角丸（薄い縁取りつき）に載せて、エクスプローラーは explorer.exe のアイコンを256pxで、Claude は Square150x150Logo.png）。Hub の /icons で配る。",
+  "grid": { "cols": 4, "rows": 1 },
+  "pages": [
+    {
+      "id": 1,
+      "slots": [
+        { "slotId": "F1", "label": "フォルダー", "icon": "/icons/app_explorer.png", "action": { "t": "chord", "keys": ["WIN", "1"] } },
+        { "slotId": "A1", "label": "Chrome",      "icon": "/icons/app_chrome.png", "action": { "t": "chord", "keys": ["WIN", "5"] } },
+        { "slotId": "A2", "label": "Codex",       "icon": "/icons/app_codex.png",  "action": { "t": "chord", "keys": ["WIN", "6"] } },
+        { "slotId": "A3", "label": "Claude",      "icon": "/icons/app_claude.png", "action": { "t": "chord", "keys": ["WIN", "8"] } }
+      ]
+    }
+  ]
+}

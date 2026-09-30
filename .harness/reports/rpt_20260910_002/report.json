@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260910_002",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "documentation",
+  "kind": "phase_report",
+  "date": "2026-09-10",
+  "title": "技術書の状態変化図レイアウト見本",
+  "summary": "スクリーンショット前後、注釈付きコード、関数関係図を横一列で読めるHTML見本を追加した。",
+  "agentId": "codex",
+  "modelProfileId": "codex-gpt-5",
+  "startedAt": "2026-09-10T00:00:00+09:00",
+  "completedAt": "2026-09-10T00:00:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "Fnの押下を例に、現状、コード、変化後、関数影響図を1枚へ配置した。",
+    "スクリーンショットを加工せず、赤丸、赤下線、吹き出しをHTMLの注釈レイヤーで重ねる見本を示した。"
+  ],
+  "verification": [
+    "HTMLはローカルの単独ファイルであり、外部通信・Hub起動・開発サーバー起動を行わない。",
+    "HTMLファイルをCodex右ペインへ開く操作を要求し、アプリからqueued応答を受け取った。",
+    "実スクリーンショットはまだ挿入しておらず、仮画面でレイアウトだけを確認する段階である。"
+  ],
+  "nextActions": [
+    "利用者が赤丸・下線・吹き出しの見本を提示する、または現状の見本を採用する。",
+    "採用後、同じ操作の前後スクリーンショットを実データで置き換え、各章へ適用する。"
+  ],
+  "deliverables": [
+    "00_勉強フォルダー/07_状態変化図_レイアウト見本.html"
+  ],
+  "tags": ["documentation", "keydeck", "diagram", "state-driven"],
+  "blockedEncountered": [],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": true,
+    "note": "状態前後のスクリーンショットと、コード上の注釈レイヤー、関数影響図を同じ横方向の読み順で置く型は、非エンジニア向け技術書に再利用できる。"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

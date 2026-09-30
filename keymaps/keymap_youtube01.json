@@ -5,9 +5,12 @@
   "board": {
     "cols": 3,
     "keys": [
-      { "id": "Y101", "row": 1, "col": 1 },
-      { "id": "Y102", "row": 1, "col": 2 },
-      { "id": "Y103", "row": 1, "col": 3 }
+      { "col": 1, "id": "Y101", "row": 1 },
+      { "col": 2, "id": "Y102", "row": 1 },
+      { "col": 3, "id": "Y103", "row": 1 },
+      { "col": 1, "id": "K201", "row": 2 },
+      { "col": 2, "id": "K202", "row": 2 },
+      { "col": 3, "id": "K203", "row": 2 }
     ]
   },
   "layerFiles": [

@@ -1,0 +1,43 @@
+{
+  "keymapId": "note_tools",
+  "kind": "single",
+  "description": "Note Story の執筆デスク（下書き）で使う書く道具（3列×2行）。\n上段 [Char]=F13 ／ [Scene]=F14 ／ [演出]=F15（Note Story 側の既定キー。タグを入れて \"\" の中にカーソルを置く）\n下段 柱： ／ 備考：（text＝日本語入力の状態に関係なくそのまま入る）／ 2カラム=F16",
+  "board": {
+    "cols": 3,
+    "keys": [
+      {
+        "id": "T1",
+        "row": 1,
+        "col": 1
+      },
+      {
+        "id": "T2",
+        "row": 1,
+        "col": 2
+      },
+      {
+        "id": "T3",
+        "row": 1,
+        "col": 3
+      },
+      {
+        "id": "T4",
+        "row": 2,
+        "col": 1
+      },
+      {
+        "id": "T5",
+        "row": 2,
+        "col": 2
+      },
+      {
+        "id": "T6",
+        "row": 2,
+        "col": 3
+      }
+    ]
+  },
+  "layerFiles": [
+    "layers/note_tools_layer0.json"
+  ]
+}

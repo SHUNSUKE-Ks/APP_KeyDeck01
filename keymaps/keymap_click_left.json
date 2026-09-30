@@ -1,0 +1,14 @@
+{
+  "keymapId": "click_left",
+  "kind": "single",
+  "description": "左クリックを1回送る部品。mouse_right と対になる。\n\n■ mouse_left と別に作った理由\nmouse_left は本来この役だったが、キー編集で Win+1〜Win+3 の3キーへ書き換えられ、左クリックを送らなくなっている（2026-09-22 時点）。そちらを戻すと、それを置いているboard（ipad_youtube / iphone7_youtube）の見た目と挙動が変わるため、触らずに新しく作った。\n\n■ 送るもの\nmouse.click は押した瞬間（down）に1回だけ発火する。押しっぱなしのドラッグはトラックボール面の hold1 が受け持つ。",
+  "board": {
+    "cols": 1,
+    "keys": [
+      { "id": "CL", "row": 1, "col": 1 }
+    ]
+  },
+  "layerFiles": [
+    "layers/click_left_layer0.json"
+  ]
+}

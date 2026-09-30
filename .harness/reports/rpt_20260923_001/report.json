@@ -1,0 +1,22 @@
+{
+  "reportId": "rpt_20260923_001",
+  "schemaVersion": "1.0",
+  "title": "レイアウト編集の新View（/editor_v2）を追加し、部品ブラウザを作り替え。十字キー dpad01 を WASD→矢印キーへ変更",
+  "status": "completed",
+  "taskId": null,
+  "agent": "Claude Code（十字キー変更は Sonnet サブエージェント）",
+  "model": "Opus 5.5 / Sonnet 5",
+  "artifacts": [
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\static\\editor_v2.html",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\static\\components.js",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\crates\\proto-hub\\src\\ws.rs",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\keymaps\\layers\\dpad01_layer0.json",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\keymaps\\keymap_dpad01.json",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\DEVBOARD.md"
+  ],
+  "verification": {
+    "status": "partial",
+    "summary": "cargo test --workspace = 152 passed（hub-core 7 / adapter 8 / proto-hub 91 / keymap 46）。editor_v2 は実データから組んだ模擬 surface.config で表示・検索・種類絞り・未配置のみ・重なり拒否・ドラッグ配置を確認。稼働中Hubは旧ビルドのため /editor_v2 ルートと十字キー変更の実機確認は Hub 再起動後に未実施。"
+  },
+  "nextAction": "Hub を再起動（start_hub.cmd）して /editor_v2 を実機で開き、保存まで通す。十字キーは実機で矢印キーが出ることを確認。問題なければ V2 を標準の「レイアウト編集」に昇格するか判断。"
+}

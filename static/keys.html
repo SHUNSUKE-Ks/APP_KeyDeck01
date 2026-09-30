@@ -191,6 +191,9 @@
   <script>
     const params = new URLSearchParams(location.search);
     const token = params.get("token") || "";
+    // editor.htmlの「編集」リンクが、いま開いていたboardのidを持たせてくる。
+    // 無ければ（直接このURLを開いた等）これまでどおり既定のboardへ戻る。
+    const fromLayout = params.get("from") || "";
     KDComponents.renderNav(document.getElementById("navHost"), "/keys", token);
     /// 2段目の帯。左が現在地、右がこの画面固有の操作。
     /// 中で呼ぶ setDefaultKeymap / addKey は関数宣言なので、ここから参照できる。
@@ -199,7 +202,7 @@
       crumbs: [
         { label: "ホーム", path: "/connect" },
         { label: "PC部門" },
-        { label: "Layout編集", path: "/" },
+        { label: "Layout編集", path: fromLayout ? "/?id=" + encodeURIComponent(fromLayout) : "/" },
         { label: "編集" },
       ],
       actions: [
@@ -372,116 +375,13 @@
     }
 
     // ================================================================
-    // 部品。**押した瞬間にHubへ送るものではなく、キーに入れる中身の見本**。
-    // 実行できるかどうかは、保存後にHubが全JSONから作り直す許可リストが決める。
+    // 部品（キーに入れる中身の見本）は components.js が唯一の実装。
+    // Deck編集（/deckedit）と同じ一覧を出すため、ここには写しを置かない。
     // ================================================================
-    const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-    const DIGITS = "0123456789".split("");
-    const NAMED = [
-      ["ENTER", "Enter"], ["SPACE", "Space"], ["BKSP", "Bksp"], ["TAB", "Tab"],
-      ["ESC", "Esc"], ["SHIFT", "Shift"], ["CTRL", "Ctrl"], ["ALT", "Alt"],
-      ["WIN", "Win"], ["UP", "↑"], ["DOWN", "↓"], ["LEFT", "←"], ["RIGHT", "→"],
-      ["HOME", "Home"], ["END", "End"], ["PGUP", "PgUp"], ["PGDN", "PgDn"],
-      ["DELETE", "Del"], ["F1", "F1"], ["F2", "F2"], ["F3", "F3"], ["F4", "F4"],
-      ["F5", "F5"], ["F6", "F6"], ["F7", "F7"], ["F8", "F8"], ["F9", "F9"],
-      ["F10", "F10"], ["F11", "F11"], ["F12", "F12"],
-    ];
-    const SYMBOLS = "、。・ー！？＃＠／＊＋－＝（）「」『』【】％＆＄＾～｜＜＞：；".split("");
+    const buildParts = () => KDComponents.buildActionParts(CONFIG, keymapId);
+    const layerName = (layer) => KDComponents.layerName(layer);
 
-    /// 部品1つ = { label, action, tab }
-    function buildParts() {
-      // 文字と数字（36個）
-      const basic = [];
-      for (const c of LETTERS) basic.push({ label: c, action: { t: "key", vk: c } });
-      for (const d of DIGITS) basic.push({ label: d, action: { t: "key", vk: d } });
-      // Ctrl / Shift / Enter / 矢印 / F1〜F12 など（30個）。
-      // 文字と混ぜると2行に収まらず、下端のものが見切れて掴めなくなる。
-      const special = NAMED.map(([vk, label]) => ({ label, action: { t: "key", vk } }));
-
-      const symbols = SYMBOLS.map((c) => ({ label: c, action: { t: "text", string: c } }));
-
-      // マクロ = すでにDeckに登録されている操作。許可リストに入っているので確実に動く。
-      // 「Vol+ などのキーをそのまま使えるように」というご要望に対応。
-      const macros = [];
-      const seen = new Set();
-      for (const deck of Object.values((CONFIG && CONFIG.decks) || {})) {
-        for (const page of deck.pages || []) {
-          for (const slot of page.slots) {
-            if (!slot.action || slot.action.t === "none") continue;
-            const key = JSON.stringify(slot.action);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            macros.push({ label: slot.label || "?", action: slot.action, note: deck.deckId });
-          }
-        }
-      }
-
-      // レイヤー切替キー。**切替ボタンと盤の紐づけはここで行う。**
-      // いま読み込まれているレイヤーの数だけ自動で並ぶ。
-      const layers = [];
-      const keymap = CONFIG && CONFIG.keymaps[keymapId];
-      for (const layer of (keymap ? keymap.layers : [])) {
-        if (layer.id === 0) continue;   // 0は基盤なので切替先にしない
-        const name = layerName(layer);
-        layers.push({ label: name + "\n押す間", action: { t: "mo", layer: layer.id }, note: "mo" });
-        layers.push({ label: name + "\n固定", action: { t: "tg", layer: layer.id }, note: "tg" });
-      }
-
-      // ---- 同時押し（chord） ----
-      // 1キーでは表せない操作。ここに無いものは /schema の辞書を見て
-      // レイヤーのJSONへ直接書ける（t: "chord", keys: [...]）。
-      //
-      // Win+数字は**タスクバーの左から何番目を開くか**。並び順を変えると
-      // 行き先も変わるので、タスクバー側を固定してから割り当てること。
-      const shortcut = [];
-      for (let n = 1; n <= 9; n += 1) {
-        shortcut.push({
-          label: "Win+" + n + "\nタスクバー",
-          action: { t: "chord", keys: ["WIN", String(n)] },
-        });
-      }
-      const COMBOS = [
-        ["コピー", ["CTRL", "C"]],
-        ["貼り付け", ["CTRL", "V"]],
-        ["切り取り", ["CTRL", "X"]],
-        ["元に戻す", ["CTRL", "Z"]],
-        ["やり直し", ["CTRL", "Y"]],
-        ["全選択", ["CTRL", "A"]],
-        ["保存", ["CTRL", "S"]],
-        ["検索", ["CTRL", "F"]],
-        ["閉じる", ["CTRL", "W"]],
-        ["新規", ["CTRL", "N"]],
-        ["窓の切替", ["ALT", "TAB"]],
-        ["戻る", ["ALT", "LEFT"]],
-        ["進む", ["ALT", "RIGHT"]],
-        ["デスクトップ", ["WIN", "D"]],
-        ["エクスプローラ", ["WIN", "E"]],
-        ["切り取り&スケッチ", ["WIN", "SHIFT", "S"]],
-      ];
-      for (const [label, keys] of COMBOS) {
-        shortcut.push({ label: label + "\n" + keys.join("+"), action: { t: "chord", keys } });
-      }
-
-      return { basic, special, shortcut, symbols, macros, layers };
-    }
-
-    /// レイヤーの表示名。説明の1行目から「Vol1.3 」などの接頭辞を落として短くする。
-    function layerName(layer) {
-      const first = (layer.description || "").split("\n")[0].trim();
-      if (!first) return "レイヤー" + layer.id;
-      const m = first.match(/^\S+\s+(.+?)[。.]/);
-      return (m ? m[1] : first).slice(0, 12);
-    }
-
-    const TABS = [
-      { id: "recent", label: "最近" },
-      { id: "basic", label: "文字" },
-      { id: "special", label: "特殊キー" },
-      { id: "shortcut", label: "ショートカット" },
-      { id: "symbols", label: "記号" },
-      { id: "layers", label: "レイヤー切替" },
-      { id: "macros", label: "マクロ" },
-    ];
+    const TABS = KDComponents.actionTabs;
     let activeTab = "basic";
 
     const RECENT_KEY = "keydeck.recentParts";

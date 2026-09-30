@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  35_見た目2案_ダーク明るい透明_触感演出試作.html
+
+  ■ これは何か
+    KeyDeck HUB画面のUI向上のための「見た目2案＋触感演出」試作モック。
+    実装はしていない・Hubには繋がっていない。33_/34_の続き（探索用チャット内の議題）。
+    条件: HTMLファイル1つ・外部ライブラリ/CDNなし（D2を守る。素のHTML+JSのみ）。
+
+  ■ 見た目2案（右上のトグルで切替）
+    ダーク … 現行KeyDeckの暗い配色を土台に、選択の光輪（コロナ）を追加
+      （参考: UI_Kit/dark の「Themes」画面のアクセントカラー選択）
+    明るい透明 … すりガラス（backdrop-filter: blur）＋光の縁取り
+      （参考: UI_Kit/透明 の「すりガラス越しダッシュボード」）
+    どちらも data-theme 属性の付け替えだけで、要素は作り直さない。
+
+  ■ 触感演出デモその1: 球体ボタンの「へこむ」演出
+    質問「処理的に可能か」への回答＝**可能。CSSだけでできる**。
+    やっていること:
+      1. 通常時はradial-gradientで左上にハイライトを置き、box-shadowで浮かせる
+      2. 押下(:active / .is-pressed)で box-shadow を外側→内側（inset）に切り替え、
+         ハイライトの位置を右下へずらし、scaleをわずかに縮める
+    「凸→凹」の錯視は、光の当たり方（ハイライト位置）と影の向きを反転させるだけで作れる。
+    3D演算もWebGLも不要。
+
+  ■ 触感演出デモその2: 丸い器の中の水（three.js不使用の代替案）
+    ユーザー案は three.js（WebGL）での実装だったが、CLAUDE.md D2
+    「フレームワーク・CDN依存の導入禁止（素のHTML+JS）」に触れるため、
+    ここでは **SVG + JS のバネ物理**で同じ「触ると水が揺れる」感触を再現する試作。
+    - ドラッグ（＝器を傾ける）で水面に角度(tilt)を与える
+    - 離すと減衰振動（バネ）で元の水平に戻りながら、何度か揺れ返す
+    - 揺れの量(energy)が波の振幅も駆動するので、大きく傾けるほど水面が波立つ
+    本物の屈折・反射・3D水しぶきが要るなら three.js が要る（＝D2の例外裁定が要る）。
+    「しばらくは素のブラウザタブに留める」方針の間は、この代替案で様子を見られる。
+  ============================================================ -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck — 見た目2案・触感演出試作</title>
+<style>
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: radial-gradient(circle at 20% -10%, #1a2036 0%, #0b0e13 55%);
+    --panel: #161c2e; --panel-line: #2a3352;
+    --ink: #f2f5ff; --ink-dim: #8a93ac;
+    --accent: #4a8fff; --accent-glow: rgba(74,143,255,.55);
+    --ok: #35c47a;
+    --water: rgba(74,143,255,.65); --water-hi: rgba(160,200,255,.9);
+    --orb-a: #3a4460; --orb-b: #12151f; --orb-hi: rgba(255,255,255,.35);
+    --card-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: linear-gradient(160deg, #eef1f8 0%, #dfe4ee 60%, #e7ebf3 100%);
+    --panel: rgba(255,255,255,.55); --panel-line: rgba(255,255,255,.75);
+    --ink: #20242c; --ink-dim: #626b7c;
+    --accent: #ff6b57; --accent-glow: rgba(255,107,87,.45);
+    --ok: #1f9c5c;
+    --water: rgba(74,150,255,.55); --water-hi: rgba(255,255,255,.85);
+    --orb-a: #ffffff; --orb-b: #c9d0dd; --orb-hi: rgba(255,255,255,.9);
+    --card-shadow: 0 10px 24px rgba(90,100,130,.18);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px; line-height: 1.7; padding: 22px 26px 60px;
+    transition: color .25s;
+  }
+  h1 { font-size: 16px; margin: 0; }
+  h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 10px; }
+  .note { color: var(--ink-dim); font-size: 12px; margin: 4px 0 0; }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-radius: 14px;
+    background: var(--panel); border: 1px solid var(--panel-line);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    box-shadow: var(--card-shadow);
+  }
+
+  /* ---- トグルスイッチ（設定に置く想定） ---- */
+  .theme-toggle { display: flex; align-items: center; gap: 10px; }
+  .switch {
+    position: relative; width: 56px; height: 30px; border-radius: 999px;
+    background: var(--panel-line); border: 1px solid var(--panel-line);
+    cursor: pointer; flex: 0 0 auto;
+  }
+  .switch .thumb {
+    position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 6px var(--accent-glow);
+    transition: left .22s cubic-bezier(.22,1,.36,1), background .22s;
+  }
+  [data-theme="light"] .switch .thumb { left: 31px; }
+  .switch-label { font-size: 12px; color: var(--ink-dim); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin-top: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-line); border-radius: 16px;
+    padding: 18px; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    box-shadow: var(--card-shadow);
+  }
+
+  /* ================= 球体ボタン：へこむ演出 ================= */
+  .orb-row { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .orb-btn {
+    --size: 72px; width: var(--size); height: var(--size); border-radius: 50%;
+    border: none; cursor: pointer; position: relative;
+    background:
+      radial-gradient(circle at 32% 28%, var(--orb-hi), transparent 42%),
+      radial-gradient(circle at 55% 60%, var(--orb-a), var(--orb-b) 85%);
+    box-shadow:
+      0 10px 16px rgba(0,0,0,.35),
+      inset 0 2px 3px rgba(255,255,255,.25),
+      0 0 0 0 var(--accent-glow);
+    transition: transform .09s cubic-bezier(.34,1.2,.64,1), box-shadow .09s, background-position .09s;
+  }
+  .orb-btn.small { --size: 48px; }
+  .orb-btn.large { --size: 96px; }
+  .orb-btn:active, .orb-btn.is-pressed {
+    transform: scale(.93) translateY(2px);
+    background-position: 46% 40%, center;
+    box-shadow:
+      inset 0 6px 10px rgba(0,0,0,.5),
+      inset 0 -3px 6px rgba(255,255,255,.06),
+      0 0 0 8px var(--accent-glow);
+  }
+  .orb-caption { font-size: 11px; color: var(--ink-dim); margin-top: 10px; }
+
+  /* ================= 水の球 ================= */
+  .water-wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .water-orb {
+    width: 150px; height: 150px; border-radius: 50%; position: relative; overflow: hidden;
+    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,.18), transparent 55%), var(--panel);
+    border: 1px solid var(--panel-line); box-shadow: var(--card-shadow), inset 0 0 24px rgba(0,0,0,.15);
+    touch-action: none; cursor: grab;
+  }
+  .water-orb:active { cursor: grabbing; }
+  .water-orb svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .water-hint { font-size: 11px; color: var(--ink-dim); }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <h1>KeyDeck — 設定（見た目・試作）</h1>
+      <p class="note">このトグルが「設定 → 見た目のテーマ」に置く想定のもの。</p>
+    </div>
+    <div class="theme-toggle">
+      <span class="switch-label">ダーク / 明るい透明</span>
+      <div class="switch" id="themeSwitch" role="switch" aria-checked="false" tabindex="0">
+        <div class="thumb"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>触感デモ①: 球体ボタンの「へこむ」演出</h2>
+      <div class="orb-row">
+        <button class="orb-btn small" type="button"></button>
+        <button class="orb-btn" type="button"></button>
+        <button class="orb-btn large" type="button"></button>
+      </div>
+      <p class="orb-caption">押してみてください（マウス/タッチどちらも可）。ハイライトと影の向きを反転させているだけで、3D計算は使っていません。</p>
+    </div>
+
+    <div class="card">
+      <h2>触感デモ②: 丸い器の中の水（three.js不使用）</h2>
+      <div class="water-wrap">
+        <div class="water-orb" id="waterOrb">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+              <clipPath id="circleClip"><circle cx="50" cy="50" r="50"/></clipPath>
+            </defs>
+            <g clip-path="url(#circleClip)">
+              <path id="waterPath" fill="var(--water)"></path>
+              <path id="waterHiPath" fill="var(--water-hi)" opacity=".35"></path>
+            </g>
+          </svg>
+        </div>
+        <p class="water-hint">つかんで左右にドラッグしてから離すと、器を傾けたように水面が揺れて、バネのように何度か揺れ返しながら収まります。</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- テーマ切替（トグル1つ。設定に置くならこの関数だけ移植すればよい） ----
+  var root = document.documentElement;
+  var sw = document.getElementById("themeSwitch");
+  function setTheme(name) {
+    root.dataset.theme = name;
+    sw.setAttribute("aria-checked", String(name === "light"));
+  }
+  setTheme("dark");
+  sw.addEventListener("click", function () {
+    setTheme(root.dataset.theme === "light" ? "dark" : "light");
+  });
+  sw.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sw.click(); }
+  });
+
+  // ---- 押した感（キーボード操作でも.is-pressedが見えるように） ----
+  document.querySelectorAll(".orb-btn").forEach(function (btn) {
+    btn.addEventListener("pointerdown", function () { btn.classList.add("is-pressed"); });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(function (ev) {
+      btn.addEventListener(ev, function () { btn.classList.remove("is-pressed"); });
+    });
+  });
+
+  // ================================================================
+  // 丸い器の中の水（減衰振動バネで tilt を動かし、波の振幅も energy で駆動）
+  // three.js を使わず、SVGパスをフレームごとに書き換えるだけの2D近似。
+  // ================================================================
+  var orb = document.getElementById("waterOrb");
+  var waterPath = document.getElementById("waterPath");
+  var waterHiPath = document.getElementById("waterHiPath");
+
+  var LEVEL = 58;      // 水面の基準高さ（0=上端, 100=下端）
+  var tilt = 0;         // 今の傾き（-1〜1くらいの想定、実際は角度寄与）
+  var tiltVel = 0;      // 傾きの速度
+  var energy = 0;       // 波立ちの元気さ（0で静止）
+  var phase = 0;
+
+  var dragging = false;
+  var dragStartX = 0;
+  var lastX = 0;
+  var lastT = 0;
+
+  function buildWavePath(el, amp, yOffset, freq, phaseShift) {
+    var pts = [];
+    var N = 24;
+    for (var i = 0; i <= N; i++) {
+      var x = (i / N) * 100;
+      var y = LEVEL + yOffset
+        + tilt * (x - 50) * 0.9
+        + amp * Math.sin((x / 100) * Math.PI * freq + phase + phaseShift);
+      pts.push(x.toFixed(1) + "," + y.toFixed(1));
+    }
+    var d = "M0,100 L0," + pts[0].split(",")[1] + " L" + pts.join(" L") + " L100,100 Z";
+    el.setAttribute("d", d);
+  }
+
+  function step(dt) {
+    // バネ: tiltを0へ戻そうとする力 - 減衰
+    var k = 42, damping = 5.2;
+    var force = -k * tilt - damping * tiltVel;
+    tiltVel += force * dt;
+    tilt += tiltVel * dt;
+
+    // energyはtiltVelの大きさに応じて補充され、時間で減衰する（波が収まっていく）
+    energy = Math.max(energy * (1 - dt * 1.4), Math.min(1.4, Math.abs(tiltVel) * 0.35));
+    phase += dt * (2.2 + energy * 2.0);
+
+    buildWavePath(waterPath, 2.2 + energy * 5, 0, 2, 0);
+    buildWavePath(waterHiPath, 1.4 + energy * 3, -1.6, 2, 0.9);
+  }
+
+  var last = performance.now();
+  function loop(now) {
+    var dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+    step(dt);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  orb.addEventListener("pointerdown", function (e) {
+    dragging = true;
+    orb.setPointerCapture(e.pointerId);
+    dragStartX = lastX = e.clientX;
+    lastT = performance.now();
+  });
+  orb.addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    var now = performance.now();
+    var dt = Math.max(1, now - lastT);
+    var dx = e.clientX - lastX;
+    // ドラッグ量を速度としてtiltVelへ足し込む（＝はじく・傾ける操作感）
+    tiltVel += (dx / dt) * 40;
+    tilt += dx * 0.06;
+    tilt = Math.max(-14, Math.min(14, tilt));
+    lastX = e.clientX; lastT = now;
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function (ev) {
+    orb.addEventListener(ev, function () { dragging = false; });
+  });
+
+  // 初期表示のためのウォームアップ（つまんでいなくても水面が見えるように軽い初速を与える）
+  tiltVel = 3;
+})();
+</script>
+</body>
+</html>

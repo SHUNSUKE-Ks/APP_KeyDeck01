@@ -1,0 +1,10 @@
+{
+  "layer": 0,
+  "description": "ラジアル（編集）の4方向。上=コピー、右=貼り付け、下=元に戻す、左=切り取り。",
+  "keys": {
+    "N": { "label": "コピー",   "action": {"t": "chord", "keys": ["CTRL", "C"]} },
+    "E": { "label": "貼り付け", "action": {"t": "chord", "keys": ["CTRL", "V"]} },
+    "S": { "label": "元に戻す", "action": {"t": "chord", "keys": ["CTRL", "Z"]} },
+    "W": { "label": "切り取り", "action": {"t": "chord", "keys": ["CTRL", "X"]} }
+  }
+}

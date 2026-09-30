@@ -89,6 +89,10 @@ pub fn vk_code(vk: &str) -> Option<u16> {
         "DOWN" => 0x28,
         "LEFT" => 0x25,
         "RIGHT" => 0x27,
+        "HOME" => 0x24,
+        "END" => 0x23,
+        "PGUP" => 0x21,  // VK_PRIOR
+        "PGDN" => 0x22,  // VK_NEXT
         "CTRL" => 0x11,
         "SHIFT" => 0x10,
         "ALT" => 0x12,
@@ -136,6 +140,11 @@ pub fn send(action: &Action) -> Result<(), AdapterError> {
         Action::MouseDoubleClick { button } => send_mouse_double_click(*button),
         Action::MouseButton { button, down } => send_mouse_button(*button, *down),
         Action::MouseScroll { dy } => send_mouse_scroll(*dy),
+        // ホイール1段 = WHEEL_DELTA(120)。正で奥（上へ）、負で手前（下へ）。Windows の標準の1ノッチ
+        Action::MouseWheel { dir } => mouse_scroll(match dir {
+            proto_keymap::WheelDir::Up => WHEEL_NOTCH,
+            proto_keymap::WheelDir::Down => -WHEEL_NOTCH,
+        }),
         other => Err(AdapterError::Unsupported {
             cause: format!("action cannot be sent to the OS: {other:?}"),
         }),
@@ -235,6 +244,9 @@ fn send_mouse_button(button: MouseButtonKind, down: bool) -> Result<(), AdapterE
 /// T16: continuousスクロールの出口。MOUSEEVENTF_WHEEL。`dy`は「指が下に動いた量」なので
 /// 符号反転する（§5）。SCROLL_UNITは実機テストで体感を見てから調整する仮置き値。
 const SCROLL_UNIT: i32 = 8;
+
+/// マウスホイールの1ノッチ（Windows の WHEEL_DELTA）。`mouse.wheel` はこれを1回だけ送る。
+const WHEEL_NOTCH: i32 = 120;
 
 fn send_mouse_scroll(dy: i32) -> Result<(), AdapterError> {
     mouse_scroll(-(dy * SCROLL_UNIT))

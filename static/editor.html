@@ -71,6 +71,8 @@
   button:disabled { opacity: .45; cursor: default; }
 
   .cols { display: grid; grid-template-columns: 190px minmax(360px, 1fr) 260px; gap: 14px; margin-top: 12px; }
+  /* 右の「選択中の区画」パネルを既定で隠しているときは、格子側にその分を渡す */
+  .cols.inspector-collapsed { grid-template-columns: 190px minmax(360px, 1fr); }
   /* 3列に必要なのは 190+360+260+gap ≒ 840px。それより狭い画面では縦に積む
      （格子が潰れるくらいなら、パレットとプロパティを下へ回したほうが操作できる） */
   @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
@@ -84,10 +86,13 @@
   .stage { position: relative; }
   .grid {
     display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    grid-template-rows: repeat(9, 1fr);
+    /* 列数・行数・縦横比は board と端末で変わるので fitGrid() が決める。
+       縦横比は格子数ではなく**端末の画面**に合わせる（実機と同じ形で見せるため）。
+       大きさは「横に入り、かつ縦も画面に収まる」最大にする。横幅任せにすると
+       右パネルを畳んだときに縦が画面を大きくはみ出した（実際に起きた）。 */
     gap: 3px;
-    aspect-ratio: 12 / 9;
+    width: 100%;
+    margin: 0 auto;
     background: #0c111f;
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -120,16 +125,41 @@
     border-radius: 0 0 4px 0; cursor: nwse-resize;
   }
 
+  /* カードは縦二段:「header（アイコン＋名前）」+「サムネ（種別の抽象イメージ）」。
+     1行にkind/size/idまで詰めていた旧版は190px幅では文字が潰れて読めなかった
+     （実際に「最小 6×3」が折り返して行が崩れた）。サムネの隅にだけ添え字を置く。 */
   .palette-item {
-    display: flex; align-items: center; gap: 7px; padding: 6px 8px; margin-bottom: 5px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+    display: flex; flex-direction: column; gap: 6px; padding: 7px; margin-bottom: 7px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
     cursor: pointer; font-size: 12px;
   }
   .palette-item:hover { border-color: var(--accent); }
-  /* 幅が足りないと「最小 6×3」が2行に割れて行が崩れる（実際に崩れた）。
-     縮むのは名前だけにして、右側の数字は折り返させない。 */
-  .pname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pmeta { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .pitem-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .pname {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 600; color: var(--ink);
+  }
+  /* サムネ＝種別の抽象イメージ。実物の縮小コピーではなく、
+     アイコンを大きくして色面に載せただけ（抽象化でよいと裁定済み）。 */
+  .pitem-thumb {
+    position: relative; height: 52px; border-radius: 7px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel2); border: 1px solid var(--line);
+  }
+  .pitem-thumb.kind-keyboard { background: linear-gradient(160deg, rgba(43,74,122,.6), var(--panel2) 75%); }
+  .pitem-thumb.kind-deck     { background: linear-gradient(160deg, rgba(74,47,102,.6), var(--panel2) 75%); }
+  .pitem-thumb.kind-trackball,
+  .pitem-thumb.kind-jog      { background: linear-gradient(160deg, rgba(28,77,71,.6), var(--panel2) 75%); }
+  .pitem-thumb .kicon.big { width: 26px; height: 26px; opacity: .58; }
+  /* kind/size/配置済みは、サムネの隅に小さく添えるだけにする。
+     kind・sizeは絵の上に重なると読みにくいとのことで上側の隅へ（実際に指摘を受けた）、
+     配置済みは頻度が低いので下側へ回す。 */
+  .pitem-thumb .pkind { position: absolute; left: 5px; top: 5px; }
+  .pitem-thumb .psize {
+    position: absolute; right: 5px; top: 5px;
+    background: rgba(8,11,20,.72); border-radius: 4px; padding: 1px 5px;
+  }
+  .pitem-thumb .placedchip { position: absolute; right: 5px; bottom: 5px; }
   .psize { font-size: 10px; color: var(--ink-dim); white-space: nowrap; }
   /* アイコンは currentColor で描く。色はここ（CSS）から与え、SVG側に焼き込まない。
      こうしておくと同じ形を別の文脈（区画の中など）でそのまま使い回せる。 */
@@ -206,6 +236,50 @@
   /* display:flex が [hidden] に勝つので明示的に打ち消す。
      この罠は settings.html と gallery.html でも踏んでいる。 */
   #qrmodal[hidden] { display: none !important; }
+  /* ---- 新しいboardのダイアログ。QRモーダルと同じ覆い方 ---- */
+  .modal {
+    position: fixed; inset: 0; z-index: 100; background: rgba(8,11,20,.86);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal[hidden] { display: none !important; }
+  .nb-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px 24px; width: min(460px, 100%);
+  }
+  .nb-card h3 { margin: 0 0 16px; font-size: 15px; }
+  .nb-label { display: block; font-size: 11px; color: var(--ink-muted); margin: 14px 0 6px; padding: 0; }
+  .nb-sub { color: var(--ink-dim); margin-left: 6px; }
+  .nb-input, .nb-num, .gridctl input {
+    background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; font: inherit; font-size: 13px;
+  }
+  .nb-input { width: 100%; min-height: 36px; padding: 0 10px; }
+  .nb-input:focus, .nb-num:focus, .gridctl input:focus { outline: none; border-color: var(--accent); }
+  .nb-devices { border: 0; margin: 0; padding: 0; }
+  #nbDevices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .nb-dev {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; font-size: 12px;
+  }
+  .nb-dev:has(input:checked) { border-color: var(--accent); background: #1d2a4a; }
+  .nb-dev input { accent-color: var(--accent); margin: 0; }
+  .nb-dev small { display: block; font-size: 10px; color: var(--ink-dim); }
+  .nb-grid { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-muted); }
+  .nb-num { width: 72px; min-height: 34px; text-align: center; margin-left: 4px; }
+  .nb-x { color: var(--ink-dim); }
+  .nb-hint { font-size: 11px; color: var(--ink-dim); margin: 8px 0 0; min-height: 16px; }
+  .nb-hint.warn { color: var(--warn); }
+  .nb-err { font-size: 12px; color: var(--err); margin: 8px 0 0; min-height: 18px; }
+  .nb-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .nb-actions button { min-height: 34px; padding: 0 18px; }
+
+  /* 格子の見出し行。右に列・行の入力を置く */
+  .stagehead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  /* h2 は大文字化されるが、端末名（iPad / iPhone）まで IPAD にしてしまうので外す */
+  .stagehead h2 { margin: 0; text-transform: none; }
+  .gridctl { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-dim); }
+  .gridctl input { width: 54px; min-height: 26px; text-align: center; margin-left: 3px; }
+
   .qr-card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
     padding: 24px; text-align: center; max-width: 420px;
@@ -223,8 +297,8 @@
 
   /* パレット＝まだ置いていない部品の置き場。置いたものは印を付ける */
   .palette-item.placed { opacity: .62; }
-  /* 名前の下に出す素のid。人が読む名前と、JSONに書くidは別物なので両方見せる */
-  .pid { font-size: 9px; color: var(--ink-dim); margin-left: 2px; }
+  /* 素のid・種類・最小サイズはカードの見た目からは省き、hoverのtitleへ回した
+     （名前と見た目だけで選べれば十分。探すときはpaletteSearchがid/種類も見る）。 */
   /* 部品の種類。アイコンだけでは「これは何の仲間か」が伝わらない */
   .pkind {
     font-size: 9px; padding: 1px 5px; border-radius: 4px; white-space: nowrap;
@@ -323,6 +397,9 @@
   <button id="qrBtn" type="button">QR</button>
   <button id="resetBtn" type="button">元に戻す</button>
   <button id="saveBtn" type="button" class="primary">保存</button>
+  <!-- 既定では隠す（右サイドバーが常時邪魔という判断）。中身自体は消さず、
+       ここで出し入れするだけにしてある。状態はlocalStorageへ持ち回る。 -->
+  <button id="inspectorToggle" type="button" aria-expanded="false">区画の詳細を表示</button>
   <span id="conn" class="targetinfo"></span>
 </div>
 <!-- 2段目。左に現在地、右にこの画面固有の操作。知らせはこの帯の上に浮かぶ。
@@ -337,6 +414,33 @@
     <p class="qr-url" id="qrUrl"></p>
     <p class="qr-hint">端末のカメラで読み取ってください。画面の外を押すと閉じます。</p>
   </div>
+</div>
+
+<!-- 新しいboard。名前・端末・格子数を1枚で決める。
+     端末を選ぶとその端末のおすすめ格子数が入り、1マスの実寸をその場で見せる。 -->
+<div id="newmodal" class="modal" hidden>
+  <form class="nb-card" id="newForm" novalidate>
+    <h3>新しいboardを作る</h3>
+    <label class="nb-label" for="nbName">名前 <span class="nb-sub">英小文字・数字・_ のみ</span></label>
+    <input id="nbName" class="nb-input" type="text" autocomplete="off" spellcheck="false"
+           maxlength="64" placeholder="例: iphone17_youtube">
+    <fieldset class="nb-devices">
+      <legend class="nb-label">端末</legend>
+      <div id="nbDevices"></div>
+    </fieldset>
+    <div class="nb-label">格子の数</div>
+    <div class="nb-grid">
+      <label>列 <input id="nbCols" class="nb-num" type="number" min="1" max="24" step="1"></label>
+      <span class="nb-x">×</span>
+      <label>行 <input id="nbRows" class="nb-num" type="number" min="1" max="24" step="1"></label>
+    </div>
+    <p id="nbCell" class="nb-hint"></p>
+    <p id="nbErr" class="nb-err" role="alert"></p>
+    <div class="nb-actions">
+      <button type="button" id="nbCancel">キャンセル</button>
+      <button type="submit" class="primary" id="nbSubmit">作る</button>
+    </div>
+  </form>
 </div>
 
 <div class="cols">
@@ -356,12 +460,20 @@
   </div>
 
   <div class="pane stage">
-    <h2>12 × 9 格子</h2>
+    <div class="stagehead">
+      <h2 id="gridTitle">格子</h2>
+      <!-- いま開いているboardの格子数。変えたら「保存」で書き戻す -->
+      <span class="gridctl">
+        <label>列 <input id="gridCols" type="number" min="1" max="24" step="1"></label>
+        <span>×</span>
+        <label>行 <input id="gridRows" type="number" min="1" max="24" step="1"></label>
+      </span>
+    </div>
     <div class="grid" id="grid"></div>
     <div id="verdict"></div>
   </div>
 
-  <div class="pane">
+  <div class="pane" id="inspectorPane" hidden>
     <h2>選択中の区画</h2>
     <div id="props"><p class="note">区画をクリックすると出ます。</p></div>
     <h2 style="margin-top:18px">出来上がるJSON</h2>
@@ -386,15 +498,64 @@ const token = params.get("token") || "";
 KDComponents.renderNav(document.getElementById("navHost"), "/", token);
 KDComponents.syncTheme(token);
 
-const TARGET = { name: "iPad Pro 12.9 横", w: 1366, h: 1024, header: 44 };
 const TAP = 44;   // タップ目標の下限。既存実装は layout.html=40 / panel.html=44 と
                   // 食い違っているので、標準的な 44 に寄せる
 const PAGEBAR = 26;  // Deckのページ送り帯の高さ
 
-function cellSize(grid) {
+/// boardを載せる端末。**格子の縦横比と、部品の最小サイズはここから決まる。**
+///   w / h     … 実機のブラウザが layout.html に渡す画面の大きさ（CSS px）
+///   header    … その上に出るKeyDeckの帯の高さ。格子に使えるのは h - header
+///   grid      … 新しくboardを作るときの格子数
+///   trackball / jog … 中身から寸法が出ない部品の下限（人が決めた値）
+/// スマホの h はブラウザ横向き（アドレスバーあり）の実効値の**見積もり**。実機で測ったら直すこと。
+///   iPhone 7   … 画面 667×375。Safari 横でおよそ 331、縦（下にツールバー）でおよそ 375×553
+///   iPhone 17  … 画面 874×402。Safari 横でおよそ 370
+///   Pixel 6a   … 画面 915×412。Chrome 横（ステータスバーとツールバー）でおよそ 356
+/// スマホの header 40 は layout.html の「横向きスマホで帯を詰める」指定に合わせた実測値。
+/// grid は1マスが 44px（指で押せる下限）を割らず、正方形に近くなる数にしてある。
+/// 画面が小さいぶん、トラックボールとダイヤルの下限は iPad より詰めてある。
+/// wheel（縦長のホイール）は細い区画に入れるための下限。幅は指1本ぶん（44px）、
+/// 高さは上下にこすれる長さ。どの端末でも 1列×2行 に収まるように決めてある。
+const PHONE_MINS = {
+  trackball: { w: 130, h: 140 }, jog: { w: 130, h: 140 }, wheel: { w: 44, h: 100 },
+};
+const DEVICES = {
+  ipad_pro_129_land: {
+    name: "iPad Pro 12.9 横", w: 1366, h: 1024, header: 44,
+    grid: { cols: 12, rows: 9 },
+    trackball: { w: 220, h: 220 }, jog: { w: 200, h: 240 }, wheel: { w: 60, h: 130 },
+  },
+  iphone7_land: {
+    name: "iPhone 7 横", w: 667, h: 331, header: 40,
+    grid: { cols: 10, rows: 4 }, ...PHONE_MINS,
+  },
+  // 縦向き。横幅が狭いので列を減らし、行を増やす。帯は詰めない（高さは足りる）ので header は iPad と同じ作り
+  iphone7_port: {
+    name: "iPhone 7 縦", w: 375, h: 553, header: 56,
+    grid: { cols: 4, rows: 8 }, ...PHONE_MINS,
+  },
+  iphone17_land: {
+    name: "iPhone 17 横", w: 874, h: 370, header: 40,
+    grid: { cols: 12, rows: 5 }, ...PHONE_MINS,
+  },
+  pixel6a_land: {
+    name: "Pixel 6a 横", w: 915, h: 356, header: 40,
+    grid: { cols: 12, rows: 5 }, ...PHONE_MINS,
+  },
+};
+/// 格子数の上限。Hub は u8 まで受け取るが、これより細かいと1マスが指で押せない
+const GRID_MAX = 24;
+/// device を書いていないboardは、すべてこの前提で作られている
+const DEFAULT_DEVICE = "ipad_pro_129_land";
+
+function deviceOf(m) {
+  return DEVICES[m && m.device] || DEVICES[DEFAULT_DEVICE];
+}
+
+function cellSize(grid, dev = deviceOf(model)) {
   return {
-    w: TARGET.w / grid.cols,
-    h: (TARGET.h - TARGET.header) / grid.rows,
+    w: dev.w / grid.cols,
+    h: (dev.h - dev.header) / grid.rows,
   };
 }
 
@@ -411,11 +572,8 @@ function cellSize(grid) {
 //   type "reduce" … 入りきらないぶんはページ送りへ回す。だから小さくできる
 // ================================================================
 
-/// トラックボールは中身から寸法が出ない。**人が決めるしかない**既定値。
-/// 相対移動を指で出すのに要る面積として置いている。
-const TRACKBALL_MIN_PX = { w: 220, h: 220 };
-/// ダイヤルの下限。丸＋下のラベル1行が読める大きさ。
-const JOG_MIN_PX = { w: 200, h: 240 };
+/// トラックボールとダイヤルは中身から寸法が出ないので、**人が決めた下限**を端末ごとに持つ
+/// （DEVICES の trackball / jog）。ここでは「どちらの値を引くか」だけを覚えておく。
 
 function buildComponentTable(config) {
   const table = {};
@@ -425,7 +583,19 @@ function buildComponentTable(config) {
     if (!keymap.board || !keymap.board.keys.length) continue;
     // ダイヤルは盤面を持つが並べるものではない。丸が潰れない下限だけ持たせる。
     if (keymap.jog) {
-      table[id] = { type: "floor", label: "ダイヤル", pxW: JOG_MIN_PX.w, pxH: JOG_MIN_PX.h };
+      table[id] = keymap.jog.shape === "wheel"
+        ? { type: "floor", label: "ホイール", pxOf: "wheel" }
+        : { type: "floor", label: "ダイヤル", pxOf: "jog" };
+      continue;
+    }
+    // ラジアルボタンは盤面（方向のキー）を並べて描かない。ボタン1つぶん＝指1本で押せる大きさでよい。
+    // 選択肢は押した瞬間に区画の外へ広がるので、必要な大きさは項目の数と関係しない。
+    if (keymap.radial) {
+      const sectors = keymap.radial.sectors || 4;
+      const label = keymap.radial.rings === 2
+        ? "ラジアル二層 " + sectors + "×2"
+        : "ラジアル " + sectors + "方向";
+      table[id] = { type: "floor", label, fixedPx: { w: TAP, h: TAP } };
       continue;
     }
     const keys = keymap.board.keys;
@@ -449,6 +619,7 @@ function buildComponentTable(config) {
       cols: deck.grid.cols,
       rows: deck.grid.rows,
       slots: (deck.pages || []).reduce((sum, page) => sum + page.slots.length, 0),
+      pages: (deck.pages || []).length,
     };
   }
 
@@ -457,10 +628,7 @@ function buildComponentTable(config) {
   for (const layout of Object.values(config.layouts || {})) {
     for (const sec of layout.sections) {
       if (sec.component.kind === "trackball" && !table[sec.component.ref]) {
-        table[sec.component.ref] = {
-          type: "floor", label: "トラックボール",
-          pxW: TRACKBALL_MIN_PX.w, pxH: TRACKBALL_MIN_PX.h,
-        };
+        table[sec.component.ref] = { type: "floor", label: "トラックボール", pxOf: "trackball" };
       }
     }
   }
@@ -487,6 +655,7 @@ function buildSource(config) {
       // エディタは配置しか編集しないが、**説明文は持ち回る**。
       // 送らずに保存すると、Hub側で空として書かれて消える（実際に一度消した）。
       description: layout.description || "",
+      device: layout.device || null,
       grid: layout.grid,
       sections: layout.sections.map((sec) => ({
         id: sec.id, row: sec.row, col: sec.col,
@@ -499,22 +668,26 @@ function buildSource(config) {
 }
 
 // 部品が機能するのに要る実ピクセル
-function requiredPx(ref) {
+function requiredPx(ref, dev = deviceOf(model)) {
   const c = COMPONENT[ref];
   if (!c) return { w: TAP, h: TAP };
-  if (c.pxW) return { w: c.pxW, h: c.pxH };
+  if (c.pxOf) return { w: dev[c.pxOf].w, h: dev[c.pxOf].h };
+  if (c.fixedPx) return { w: c.fixedPx.w, h: c.fixedPx.h };
   if (c.type === "floor") {
     return { w: c.cols * (TAP / c.minColSpan), h: c.rows * (TAP / c.minRowSpan) };
   }
-  // reduce型の下限は「1個ぶん＋ページ送りの帯」。これ以上小さいと何も押せない
-  if (c.render === "list") return { w: 200, h: TAP + PAGEBAR };
-  return { w: TAP, h: TAP + PAGEBAR };
+  // reduce型の下限は「1個ぶん（＋2ページ以上あればページ送りの帯）」。これ以上小さいと何も押せない
+  // ページ送りの帯は、Deck が2ページ以上を持つときだけ出る。1ページだけの Deck に
+  // 帯の高さを足すと、1行に収まる Deck（アプリ切り替えの4ボタン等）まで「最小サイズ割れ」と出た
+  const bar = c.pages > 1 ? PAGEBAR : 0;
+  if (c.render === "list") return { w: 200, h: TAP + bar };
+  return { w: TAP, h: TAP + bar };
 }
 
 // 実ピクセル → マス数（切り上げ）。ここが「マスでは決まらない」の実装
-function minCells(ref, grid) {
-  const need = requiredPx(ref);
-  const cell = cellSize(grid);
+function minCells(ref, grid, dev = deviceOf(model)) {
+  const need = requiredPx(ref, dev);
+  const cell = cellSize(grid, dev);
   return {
     cols: Math.max(1, Math.ceil(need.w / cell.w)),
     rows: Math.max(1, Math.ceil(need.h / cell.h)),
@@ -701,7 +874,78 @@ const secEls = new Map();
 
 /// 骨組みを作り直す。区画の増減・レイアウト切替など「顔ぶれが変わる」ときだけ呼ぶ。
 /// ドラッグ中に呼んではいけない（掴んでいる要素が消える）。
+/// 格子の形と大きさを決める。
+/// 縦横比は端末の画面（格子に使える部分）そのもの。大きさは「区画の枠の横幅に入り、
+/// かつ縦も画面の下端に収まる」最大。狭い画面で縦積みになっているときは
+/// パレットが上にあって縦が足りないので、横幅だけで決める。
+const stagePane = gridEl.closest(".stage");
+const stacked = window.matchMedia("(max-width: 900px)");
+function fitGrid() {
+  const dev = deviceOf(model);
+  const { cols, rows } = model.grid;
+  gridEl.style.gridTemplateColumns = "repeat(" + cols + ", 1fr)";
+  gridEl.style.gridTemplateRows = "repeat(" + rows + ", 1fr)";
+  const aspect = dev.w / (dev.h - dev.header);
+  gridEl.style.aspectRatio = String(aspect);
+  document.getElementById("gridTitle").textContent =
+    cols + " × " + rows + " 格子（" + dev.name + "）";
+  syncGridInputs(false);
+
+  const pane = stagePane.getBoundingClientRect();
+  const styles = getComputedStyle(stagePane);
+  const availW = pane.width - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+  let width = availW;
+  if (!stacked.matches) {
+    // 格子の下に判定の1行（#verdict）と、ページ下の余白が要る
+    const top = gridEl.getBoundingClientRect().top;
+    const availH = window.innerHeight - top - 64;
+    width = Math.min(availW, Math.max(240, availH) * aspect);
+  }
+  gridEl.style.width = Math.floor(width) + "px";
+}
+window.addEventListener("resize", fitGrid);
+
+/// 列・行の欄を今の格子数に合わせる。force=false のときは入力中の欄を書き換えない
+/// （打っている途中の数字が戻されてしまう）。取り消すときは force=true で戻す。
+function syncGridInputs(force) {
+  for (const [elId, value] of [["gridCols", model.grid.cols], ["gridRows", model.grid.rows]]) {
+    const input = document.getElementById(elId);
+    if (force || document.activeElement !== input) input.value = value;
+  }
+}
+
+/// いま開いているboardの格子数を変える。保存するまではHubに書かない。
+/// **縮めて区画がはみ出すなら変えない。** はみ出したまま描くと CSS Grid が勝手に
+/// 行と列を足して形が崩れ、どこがはみ出したのか読めなくなるため。先に区画を動かしてもらう。
+function changeGrid(cols, rows) {
+  const out = model.sections.filter((s) =>
+    s.col + s.colSpan - 1 > cols || s.row + s.rowSpan - 1 > rows);
+  if (out.length) {
+    notifyReverted(cols + "×" + rows + " にすると はみ出す区画があります（"
+      + out.map((s) => s.id).join(", ") + "）。先に動かすか小さくしてください");
+    syncGridInputs(true);
+    return;
+  }
+  model.grid = { cols, rows };
+  render();
+}
+for (const elId of ["gridCols", "gridRows"]) {
+  document.getElementById(elId).addEventListener("change", () => {
+    const cols = Number(document.getElementById("gridCols").value);
+    const rows = Number(document.getElementById("gridRows").value);
+    if (![cols, rows].every((n) => Number.isInteger(n) && n >= 1 && n <= GRID_MAX)) {
+      notifyReverted("格子の数は 1〜" + GRID_MAX + " の整数で入れてください");
+      syncGridInputs(true);
+      return;
+    }
+    changeGrid(cols, rows);
+  });
+}
+// 右パネルの開閉でも枠の幅が変わる。resize イベントは来ないので枠そのものを見張る
+new ResizeObserver(fitGrid).observe(stagePane);
+
 function render() {
+  fitGrid();
   gridEl.textContent = "";
   secEls.clear();
   // 空きセルを敷く（どこが空いているか見えないと置けない）
@@ -749,8 +993,12 @@ function render() {
       const edit = document.createElement("a");
       edit.className = "seclink";
       edit.textContent = "編集";
+      // fromに「いま開いているboard」を持たせる。keys.html側の「Layout編集」
+      // パンくずがこれを読んで、Homeへ戻る動線が常にipad_mainへ固定される
+      // （＝作業中のboardを見失う）事故を避ける。
       edit.href = "/keys?keymap=" + encodeURIComponent(sec.component.ref)
-        + "&layer=0&token=" + encodeURIComponent(token);
+        + "&layer=0&from=" + encodeURIComponent(layoutId)
+        + "&token=" + encodeURIComponent(token);
       // 区画のドラッグに巻き込まれないよう、押下はここで止める
       edit.addEventListener("pointerdown", (event) => event.stopPropagation());
       head.appendChild(edit);
@@ -981,17 +1229,17 @@ function renderProps() {
 
   // 基準値はヘッダから外した（2026-09-07 ユーザー指示）。
   // ただし「なぜこの大きさで止まるのか」の根拠はここでしか要らないので、
-  // 最小サイズの脇に小さく残す。数字そのものは TARGET / TAP が保持している。
+  // 最小サイズの脇に小さく残す。数字そのものは DEVICES / TAP が保持している。
   const basis = document.createElement("div");
   basis.className = "why";
   const cell = cellSize(model.grid);
-  basis.textContent = "基準 " + TARGET.name + "・1マス≒" + Math.round(cell.w) + "×"
+  basis.textContent = "基準 " + deviceOf(model).name + "・1マス≒" + Math.round(cell.w) + "×"
     + Math.round(cell.h) + "px・タップ下限" + TAP + "px";
   box.appendChild(basis);
 
   const why = document.createElement("div"); why.className = "why";
   if (meta && meta.type === "floor") {
-    why.textContent = meta.pxW
+    why.textContent = meta.pxOf
       ? "実体がある部品。中身が機能する面積として手で決めた値。"
       : meta.cols + "列×" + meta.rows + "行、一番細いキーが " + (TAP / meta.minColSpan).toFixed(0)
         + "px を割らない大きさ。キーは間引けないので、これ以上小さくできない。";
@@ -1252,35 +1500,43 @@ function renderPalette() {
     }
     shown += 1;
     const count = placed.get(item.ref) || 0;
+    const lim = minCells(item.ref, model.grid);
     const row = document.createElement("div");
     row.className = "palette-item" + (count ? " placed" : "");
-    const dot = iconFor(item.kind);
-    const name = document.createElement("div");
+    // 素のid・種類・最小サイズは見た目からは省き、hoverで出す
+    // （カードは「header=アイコン＋名前」「サムネ=種別の抽象イメージ」の縦二段のみ）。
+    row.title = label + "（" + item.ref + " / " + kindLabel
+      + " / 最小 " + lim.cols + "×" + lim.rows + "）";
+
+    const head = document.createElement("div");
+    head.className = "pitem-head";
+    head.appendChild(iconFor(item.kind));
+    const name = document.createElement("span");
     name.className = "pname";
-    name.appendChild(document.createTextNode(label));
-    const idTag = document.createElement("span");
-    idTag.className = "pid";
-    idTag.textContent = item.ref;
-    name.appendChild(idTag);
-    name.title = label + "（" + item.ref + " / " + kindLabel + "）";
-    const lim = minCells(item.ref, model.grid);
-    const meta = document.createElement("div");
-    meta.className = "pmeta";
+    name.textContent = label;
+    head.appendChild(name);
+
+    const thumb = document.createElement("div");
+    thumb.className = "pitem-thumb kind-" + item.kind;
+    const bigIcon = iconFor(item.kind);
+    bigIcon.classList.add("big");
+    thumb.appendChild(bigIcon);
     if (count) {
       const chip = document.createElement("span");
       chip.className = "placedchip";
       chip.textContent = count > 1 ? "配置済み ×" + count : "配置済み";
-      meta.appendChild(chip);
+      thumb.appendChild(chip);
     }
     const kindChip = document.createElement("span");
     kindChip.className = "pkind " + item.kind;
     kindChip.textContent = kindLabel;
-    meta.appendChild(kindChip);
+    thumb.appendChild(kindChip);
     const size = document.createElement("span");
     size.className = "psize";
-    size.textContent = "最小 " + lim.cols + "×" + lim.rows;
-    meta.appendChild(size);
-    row.appendChild(dot); row.appendChild(name); row.appendChild(meta);
+    size.textContent = lim.cols + "×" + lim.rows;
+    thumb.appendChild(size);
+
+    row.appendChild(head); row.appendChild(thumb);
     row.addEventListener("click", () => { clearFlash(); addSection(item); });
     host.appendChild(row);
   }
@@ -1465,36 +1721,123 @@ function closeQr() { qrModal.hidden = true; }
 
 // ================================================================
 // boardの新規作成。
-// 中身は空の12×9で作る。部品はあとから置く。
+// ダイアログで「名前・端末・格子の数」を決め、空のboardを作る。部品はあとから置く。
+// 端末を選ぶと、その端末のおすすめ格子数（DEVICES の grid）が入る。変えてもよい。
 // 保存まで一度に行うのは、作っただけで保存し忘れると
 // 「作ったのに次に開いたら無い」ことになるため。
 // ================================================================
-/// 一覧から「＋ 新しいboardを作る…」を選んだときの流れ。
-async function createBoard() {
-  const raw = prompt("新しいboardの名前（英小文字・数字・_ のみ）", "");
-  if (raw === null) return;
-  const id = raw.trim();
+const newModal = document.getElementById("newmodal");
+const nb = {
+  form: document.getElementById("newForm"),
+  name: document.getElementById("nbName"),
+  devices: document.getElementById("nbDevices"),
+  cols: document.getElementById("nbCols"),
+  rows: document.getElementById("nbRows"),
+  cell: document.getElementById("nbCell"),
+  err: document.getElementById("nbErr"),
+  submit: document.getElementById("nbSubmit"),
+};
+
+// 端末のラジオボタン。DEVICES から作るので、端末を足すときは DEVICES だけ直せばよい
+for (const [devId, dev] of Object.entries(DEVICES)) {
+  const label = document.createElement("label");
+  label.className = "nb-dev";
+  const radio = document.createElement("input");
+  radio.type = "radio"; radio.name = "nbDevice"; radio.value = devId;
+  radio.addEventListener("change", () => {
+    nb.cols.value = dev.grid.cols;
+    nb.rows.value = dev.grid.rows;
+    updateCellHint();
+  });
+  const text = document.createElement("span");
+  text.textContent = dev.name;
+  const sub = document.createElement("small");
+  sub.textContent = dev.w + "×" + dev.h + "px・おすすめ " + dev.grid.cols + "×" + dev.grid.rows;
+  text.appendChild(sub);
+  label.appendChild(radio); label.appendChild(text);
+  nb.devices.appendChild(label);
+}
+
+function pickedDeviceId() {
+  const checked = nb.devices.querySelector("input:checked");
+  return checked ? checked.value : DEFAULT_DEVICE;
+}
+
+/// 1マスが実機で何pxになるかをその場で出す。44px（指で押せる下限）を割ったら黄色で知らせる。
+/// **止めはしない。** 小さいマスを束ねて1区画にする使い方もあるため。
+function updateCellHint() {
+  const cols = Number(nb.cols.value), rows = Number(nb.rows.value);
+  if (!(cols >= 1 && rows >= 1)) { nb.cell.textContent = ""; return; }
+  const cell = cellSize({ cols, rows }, DEVICES[pickedDeviceId()]);
+  const w = Math.round(cell.w), h = Math.round(cell.h);
+  const small = w < TAP || h < TAP;
+  nb.cell.textContent = "1マス ≒ " + w + "×" + h + "px"
+    + (small ? "（" + TAP + "px を下回るので、1マスだけの区画は指で押しにくい）" : "");
+  nb.cell.classList.toggle("warn", small);
+}
+nb.cols.addEventListener("input", updateCellHint);
+nb.rows.addEventListener("input", updateCellHint);
+
+/// 一覧から「＋ 新しいboardを作る…」を選んだときの入口。
+/// 端末は、いま開いているboardと同じものを初期選択にする（続けて同じ端末のboardを作ることが多い）。
+function createBoard() {
+  const current = model.device && DEVICES[model.device] ? model.device : DEFAULT_DEVICE;
+  nb.name.value = "";
+  nb.err.textContent = "";
+  nb.devices.querySelector('input[value="' + current + '"]').checked = true;
+  nb.cols.value = DEVICES[current].grid.cols;
+  nb.rows.value = DEVICES[current].grid.rows;
+  updateCellHint();
+  newModal.hidden = false;
+  nb.name.focus();
+}
+
+function closeNewModal() { newModal.hidden = true; }
+document.getElementById("nbCancel").addEventListener("click", closeNewModal);
+newModal.addEventListener("click", (event) => { if (event.target === newModal) closeNewModal(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !newModal.hidden) closeNewModal();
+});
+
+nb.form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  nb.err.textContent = "";
+  const id = nb.name.value.trim();
   if (!/^[a-z0-9_]{1,64}$/.test(id)) {
-    notifyReverted("名前に使えるのは英小文字・数字・_ だけです（1〜64文字）");
+    nb.err.textContent = "名前に使えるのは英小文字・数字・_ だけです（1〜64文字）";
+    nb.name.focus(); return;
+  }
+  if (SOURCE[id]) { nb.err.textContent = id + " は既にあります"; nb.name.focus(); return; }
+  const cols = Number(nb.cols.value), rows = Number(nb.rows.value);
+  if (![cols, rows].every((n) => Number.isInteger(n) && n >= 1 && n <= GRID_MAX)) {
+    nb.err.textContent = "格子の数は 1〜" + GRID_MAX + " の整数で入れてください";
     return;
   }
-  if (SOURCE[id]) { notifyReverted(id + " は既にあります"); return; }
+  const devId = pickedDeviceId();
+  const dev = DEVICES[devId];
+  const grid = { cols, rows };
 
-  // 空のboardはHub側の検証に落ちる（区画が0件）ので、
-  // 置ける部品の中から最小の1つを仮に置いて成立させる。
-  const seed = PALETTE[0];
-  if (!seed) { notifyReverted("置ける部品がありません"); return; }
-  const lim = minCells(seed.ref, { cols: 12, rows: 9 });
+  // 空のboardはHub側の検証に落ちる（区画が0件）ので、置ける部品を1つ仮に置いて成立させる。
+  // **その格子に収まるもの**を選ぶ（先頭の部品が大きいと、小さい格子では置けない）。
+  const seed = PALETTE.find((item) => {
+    const lim = minCells(item.ref, grid, dev);
+    return lim.cols <= cols && lim.rows <= rows;
+  });
+  if (!seed) { nb.err.textContent = "この格子に収まる部品がありません。格子を増やしてください"; return; }
+  const lim = minCells(seed.ref, grid, dev);
   const payload = {
     layoutId: id,
     description: "",
-    grid: { cols: 12, rows: 9 },
+    // 既定の端末は書かない（これまでのboardと同じ形にして、差分を出さない）
+    device: devId === DEFAULT_DEVICE ? undefined : devId,
+    grid,
     sections: [{
       id: "SEC-1", row: 1, col: 1,
       colSpan: lim.cols, rowSpan: lim.rows,
       component: { kind: seed.kind, ref: seed.ref },
     }],
   };
+  nb.submit.disabled = true;
   try {
     const res = await fetch("/api/layout/save?token=" + encodeURIComponent(token), {
       method: "POST", headers: { "content-type": "application/json" },
@@ -1502,16 +1845,46 @@ async function createBoard() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      notifyReverted("作れません: " + (body.code || res.status) + " — " + (body.cause || ""));
+      // ダイアログは閉じない。直して押し直せるように、理由をその場に出す
+      nb.err.textContent = "作れません: " + (body.code || res.status) + " — " + (body.cause || "");
       return;
     }
+    closeNewModal();
     // 保存の再配信で SOURCE が更新される。そこへ切り替える
     layoutId = id;
-    notifyReverted(id + " を作りました（" + seed.ref + " を1つ置いてあります）");
+    notifyReverted(id + " を作りました（" + dev.name + "・" + cols + "×" + rows
+      + "。" + seed.ref + " を1つ置いてあります）");
   } catch (error) {
-    notifyReverted("通信エラー: " + error);
+    nb.err.textContent = "通信エラー: " + error;
+  } finally {
+    nb.submit.disabled = false;
   }
+});
+
+// ================================================================
+// 右の「選択中の区画」パネルの出し入れ。
+// 中身（差し替え・JSONプレビュー）は消さず、既定で畳んでおくだけ。
+// 開閉はlocalStorageへ持ち回るので、一度開けばその端末では開いたままになる。
+// ================================================================
+const INSPECTOR_OPEN_KEY = "kd_editor_inspector_open";
+const colsEl = document.querySelector(".cols");
+const inspectorPane = document.getElementById("inspectorPane");
+const inspectorToggle = document.getElementById("inspectorToggle");
+
+function setInspectorOpen(open) {
+  inspectorPane.hidden = !open;
+  colsEl.classList.toggle("inspector-collapsed", !open);
+  inspectorToggle.textContent = open ? "区画の詳細を隠す" : "区画の詳細を表示";
+  inspectorToggle.setAttribute("aria-expanded", String(open));
+  try { localStorage.setItem(INSPECTOR_OPEN_KEY, open ? "1" : "0"); }
+  catch (error) { /* プライベートモード等で保存できなくても表示自体は動く */ }
 }
+
+let inspectorOpen = false;
+try { inspectorOpen = localStorage.getItem(INSPECTOR_OPEN_KEY) === "1"; }
+catch (error) { /* 既定どおり畳んでおく */ }
+setInspectorOpen(inspectorOpen);
+inspectorToggle.addEventListener("click", () => setInspectorOpen(inspectorPane.hidden));
 
 document.getElementById("qrBtn").addEventListener("click", openQr);
 // 画面外（覆いそのもの）を押したら閉じる。カードの中を押しても閉じない
@@ -1533,6 +1906,8 @@ document.getElementById("saveBtn").addEventListener("click", async () => {
     const payload = {
       layoutId,
       description: model.description || "",
+      // 端末を落として保存すると、iPhone用のboardが次に開いたとき iPad扱いに化ける
+      device: model.device || undefined,
       grid: model.grid,
       sections: model.sections.map((s) => ({
         id: s.id, row: s.row, col: s.col,

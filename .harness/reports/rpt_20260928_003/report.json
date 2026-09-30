@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260928_003",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "design",
+  "kind": "decision",
+  "date": "2026-09-28",
+  "title": "SVG演出カタログ（8種）とOpus相談文の作成、UI方針の裁定記録",
+  "summary": "利用者裁定（既定=ダーク、明るい透明はスケルトン需要のため温存、素のブラウザタブに留める、3Dは負荷が無理ない場合のみ、押下インジケーターは背景非依存で分離）を記録し、質感の異なるSVG/CSS演出8種のカタログと、Opusへの相談文（論点6件）を作成した。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-sonnet-5",
+  "startedAt": "2026-09-28T02:00:00+09:00",
+  "completedAt": "2026-09-28T02:50:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "00_勉強フォルダー/36_SVG演出カタログ.html を新規作成（単一HTML・外部ライブラリなし・既定ダーク・テーマトグル付き）。演出8種: キーキャップ凹み／独立インジケーター／波紋／光のスイープ／ターゲットロックリング／バウンス／水面ゆれ／ジェリー",
+    "独立インジケーター（②）は、ボタンとは別要素のリングを押下時に重ねる部品。背景やスキンに依存せず、賑やかな背景上でも読めることを確認",
+    "00_勉強フォルダー/37_Opus相談_後継機の触感UIと技術スタック.md を新規作成。裁定5件・試作で分かったこと・Opusへの論点6件（Q1〜Q6）・Sonnetの見立て・利用者が先に決めること・参照ファイルを記載"
+  ],
+  "verification": [
+    "Browser paneでfile://を開き、既定がダーク・カード8枚・コンソールエラー0件を確認",
+    "javascript_toolで8種の各トリガーを発火し、is-pressedクラス付与・リング発火・波紋ドット生成・ロックリング描画・水面パス生成が反応することを確認",
+    "未検証: 実機（iPad/iPhone/Android）での見え方と性能。PCブラウザ上の確認のみ",
+    "Hub・凍結領域・static/は未接触。開発サーバーは自動起動していない"
+  ],
+  "nextActions": [
+    "利用者が「後継機で実現したいUI体験」「対象端末」「新しいアプリVersionか専用ハードか」を決める（37_の§6）",
+    "実機でSVG演出の負荷を測る測定計画を決める（Opus相談Q1・Q6）",
+    "37_をOpusへ渡し、Q1〜Q6の判断を得る",
+    "演出のバリエーションを増やす（現在8種。利用者から追加要望あり）",
+    "採用が決まればテーマトグルを実際のsettings.html（/api/theme）へ移植する"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/36_SVG演出カタログ.html",
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/37_Opus相談_後継機の触感UIと技術スタック.md"
+  ],
+  "tags": ["keydeck", "ui", "svg", "tactile", "opus-consult", "decision"],
+  "blockedEncountered": [],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": true,
+    "note": "「Opusへ渡す相談文」は、背景／裁定済み／試作で分かったこと／論点／叩き台／未決事項／参照ファイル、の順で書くと文脈ゼロから読める。他プロジェクトのOpus相談にも使えるテンプレート候補"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

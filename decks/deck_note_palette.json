@@ -1,0 +1,96 @@
+{
+  "deckId": "note_palette",
+  "description": "Note Story の定型文（縦リスト）。押すとその文字列がいま入力中のところへそのまま入る（text＝KEYEVENTF_UNICODE。日本語入力の状態に関係なく、クリップボードも触らない）。括弧はカーソルが後ろに来る（中へは入らない）。項目を増やすときは slots に足して grid.rows も増やす。",
+  "grid": {
+    "cols": 1,
+    "rows": 10
+  },
+  "render": "list",
+  "pages": [
+    {
+      "id": 1,
+      "slots": [
+        {
+          "slotId": "P01",
+          "label": "柱：",
+          "action": {
+            "t": "text",
+            "string": "柱："
+          }
+        },
+        {
+          "slotId": "P02",
+          "label": "備考：",
+          "action": {
+            "t": "text",
+            "string": "備考："
+          }
+        },
+        {
+          "slotId": "P03",
+          "label": "ナレーション：「」",
+          "action": {
+            "t": "text",
+            "string": "ナレーション：「」"
+          }
+        },
+        {
+          "slotId": "P04",
+          "label": "[bg_town_night]",
+          "action": {
+            "t": "text",
+            "string": "[bg_town_night]"
+          }
+        },
+        {
+          "slotId": "P05",
+          "label": "[bg_room]",
+          "action": {
+            "t": "text",
+            "string": "[bg_room]"
+          }
+        },
+        {
+          "slotId": "P06",
+          "label": "# ",
+          "action": {
+            "t": "text",
+            "string": "# "
+          }
+        },
+        {
+          "slotId": "P07",
+          "label": "// ",
+          "action": {
+            "t": "text",
+            "string": "// "
+          }
+        },
+        {
+          "slotId": "P08",
+          "label": "{}",
+          "action": {
+            "t": "text",
+            "string": "{}"
+          }
+        },
+        {
+          "slotId": "P09",
+          "label": "[]",
+          "action": {
+            "t": "text",
+            "string": "[]"
+          }
+        },
+        {
+          "slotId": "P10",
+          "label": "()",
+          "action": {
+            "t": "text",
+            "string": "()"
+          }
+        }
+      ]
+    }
+  ]
+}

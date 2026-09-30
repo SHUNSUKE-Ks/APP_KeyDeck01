@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  36_SVG演出カタログ.html
+
+  ■ これは何か
+    「押した/触った」を伝える演出のカタログ。3D(three.js/WebGL)を使わず、
+    SVG・CSS・素のJSだけで作れる範囲を集めた（35_の続き。D2＝素のHTML+JSを維持）。
+    種類を増やす依頼を受けて、質感の違う8種類を並べた:
+      硬い/ガラス質(凹み) ・ 柔らかい(ジェリー) ・ 液体(水面) ・ 光(スイープ)
+      ・ 波紋(リップル) ・ 跳ねる(バウンス) ・ 狙いを定める(ロックリング)
+      ・ 背景に依存しない独立インジケーター
+
+  ■ 既定はダーク（利用者裁定 2026-09-28）。
+    明るい透明（グラスモーフィズム）は「keyboard界隈のスケルトン人気」に備えて
+    将来のために残す、という位置づけ。右上のトグルで切替できる（35_と同じ仕組み）。
+
+  ■ 8番目「独立インジケーター」について
+    利用者の指摘: 「背景がある場所にUIを置いても、押したかどうか分かりやすい
+    機能を分離すればゲームでも使いやすい」への回答。
+    ボタン自体の色や素材（ガラス／木目／キャラクター画像など何でも）に依存させず、
+    **押した点にリング1つを重ねるだけ**の独立部品にしてある。
+    どんな背景の上に置いても読めることを、あえて賑やかな背景で試せるようにした。
+  ============================================================ -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyDeck — SVG演出カタログ</title>
+<style>
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: radial-gradient(circle at 20% -10%, #1a2036 0%, #0b0e13 55%);
+    --panel: #161c2e; --panel-line: #2a3352;
+    --ink: #f2f5ff; --ink-dim: #8a93ac;
+    --accent: #4a8fff; --accent-glow: rgba(74,143,255,.55);
+    --ring-a: #ffffff; --ring-b: #4a8fff;
+    --key-a: #3a4460; --key-b: #12151f; --key-hi: rgba(255,255,255,.35);
+    --water: rgba(74,143,255,.65); --water-hi: rgba(160,200,255,.9);
+    --card-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: linear-gradient(160deg, #eef1f8 0%, #dfe4ee 60%, #e7ebf3 100%);
+    --panel: rgba(255,255,255,.55); --panel-line: rgba(255,255,255,.75);
+    --ink: #20242c; --ink-dim: #626b7c;
+    --accent: #ff6b57; --accent-glow: rgba(255,107,87,.45);
+    --ring-a: #ffffff; --ring-b: #ff6b57;
+    --key-a: #ffffff; --key-b: #c9d0dd; --key-hi: rgba(255,255,255,.9);
+    --water: rgba(74,150,255,.55); --water-hi: rgba(255,255,255,.85);
+    --card-shadow: 0 10px 24px rgba(90,100,130,.18);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px; line-height: 1.7; padding: 22px 26px 60px;
+  }
+  h1 { font-size: 16px; margin: 0; }
+  h2 { font-size: 12px; margin: 0 0 4px; }
+  .note { color: var(--ink-dim); font-size: 11px; margin: 6px 0 0; }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-radius: 14px; margin-bottom: 18px;
+    background: var(--panel); border: 1px solid var(--panel-line);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    box-shadow: var(--card-shadow);
+  }
+  .switch { position: relative; width: 52px; height: 28px; border-radius: 999px; background: var(--panel-line); border: 1px solid var(--panel-line); cursor: pointer; }
+  .switch .thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); transition: left .22s cubic-bezier(.22,1,.36,1); }
+  [data-theme="light"] .switch .thumb { left: 27px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-line); border-radius: 16px;
+    padding: 16px; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    box-shadow: var(--card-shadow); display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
+  }
+  .demo { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 110px; width: 100%; }
+
+  /* ---- 1. キーキャップの凹み（角丸スクエア） ---- */
+  .keycap {
+    width: 68px; height: 68px; border-radius: 16px; border: none; cursor: pointer;
+    background: radial-gradient(circle at 32% 26%, var(--key-hi), transparent 45%), linear-gradient(160deg, var(--key-a), var(--key-b));
+    box-shadow: 0 8px 14px rgba(0,0,0,.35), inset 0 2px 2px rgba(255,255,255,.25);
+    transition: transform .09s, box-shadow .09s, background-position .09s;
+  }
+  .keycap.is-pressed { transform: scale(.94) translateY(2px); background-position: 46% 40%, center;
+    box-shadow: inset 0 6px 10px rgba(0,0,0,.5), inset 0 -3px 6px rgba(255,255,255,.06); }
+
+  /* ---- 2. 独立インジケーター（背景に依存しない） ---- */
+  .game-bg {
+    width: 100%; min-height: 120px; border-radius: 12px; position: relative; overflow: hidden;
+    background:
+      radial-gradient(circle at 20% 30%, #ff8a5c 0%, transparent 40%),
+      radial-gradient(circle at 80% 70%, #4ad6c4 0%, transparent 45%),
+      repeating-linear-gradient(45deg, rgba(0,0,0,.15) 0 8px, rgba(255,255,255,.05) 8px 16px),
+      #33415c;
+  }
+  .game-token {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 46px; height: 46px; border-radius: 50%; background: rgba(0,0,0,.25);
+    border: 2px solid rgba(255,255,255,.5); cursor: pointer;
+  }
+  .press-ring {
+    position: absolute; top: 50%; left: 50%; width: 46px; height: 46px; border-radius: 50%;
+    transform: translate(-50%,-50%) scale(1); pointer-events: none;
+    box-shadow: 0 0 0 3px var(--ring-a), 0 0 0 6px var(--ring-b);
+    opacity: 0;
+  }
+  .press-ring.fire { animation: ringPulse .5s ease-out; }
+  @keyframes ringPulse { 0% { opacity: 1; transform: translate(-50%,-50%) scale(.7); } 100% { opacity: 0; transform: translate(-50%,-50%) scale(1.9); } }
+
+  /* ---- 3. 波紋（リップル） ---- */
+  .ripple-host { position: relative; overflow: hidden; width: 96px; height: 64px; border-radius: 12px;
+    background: var(--panel-line); cursor: pointer; }
+  .ripple-dot { position: absolute; border-radius: 50%; background: var(--accent-glow);
+    transform: translate(-50%,-50%) scale(0); animation: rippleOut .6s ease-out forwards; pointer-events: none; }
+  @keyframes rippleOut { to { transform: translate(-50%,-50%) scale(1); opacity: 0; } }
+
+  /* ---- 4. 光のスイープ（シャイン） ---- */
+  .shine-btn { position: relative; overflow: hidden; width: 120px; height: 64px; border-radius: 12px; border: none; cursor: pointer;
+    background: linear-gradient(160deg, var(--key-a), var(--key-b)); color: var(--ink); font: inherit; }
+  .shine-btn::after {
+    content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.35), transparent);
+    transform: skewX(-20deg); transition: left .5s ease;
+  }
+  .shine-btn.is-pressed::after { left: 130%; }
+
+  /* ---- 5. ターゲットロックリング ---- */
+  .lock-host { width: 96px; height: 96px; cursor: pointer; }
+
+  /* ---- 6. バウンス(弾む) ---- */
+  .bounce-btn { width: 68px; height: 68px; border-radius: 50%; border: none; cursor: pointer;
+    background: radial-gradient(circle at 32% 28%, var(--key-hi), transparent 45%), linear-gradient(160deg, var(--accent), var(--key-b));
+    box-shadow: 0 8px 14px rgba(0,0,0,.35); }
+  .bounce-btn.is-pressed { animation: bouncePulse .5s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes bouncePulse { 0% { transform: scale(1); } 35% { transform: scale(.82); } 70% { transform: scale(1.08); } 100% { transform: scale(1); } }
+
+  /* ---- 8. ジェリー(スクワッシュ&ストレッチ) ---- */
+  .jelly-btn { width: 84px; height: 56px; border-radius: 18px; border: none; cursor: pointer;
+    background: linear-gradient(160deg, #35c47a, #1c6b43); color: #eafff2; }
+  .jelly-btn.is-pressed { animation: jellySquish .55s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes jellySquish {
+    0% { transform: scale(1,1); }
+    25% { transform: scale(1.18, .78); }
+    55% { transform: scale(.9, 1.12); }
+    80% { transform: scale(1.05, .96); }
+    100% { transform: scale(1,1); }
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <h1>KeyDeck — SVG演出カタログ</h1>
+      <p class="note">3D(three.js)不使用。既定=ダーク。明るい透明はスケルトン需要のため温存。</p>
+    </div>
+    <div class="switch" id="themeSwitch" role="switch" aria-checked="false" tabindex="0"><div class="thumb"></div></div>
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <h2>① キーキャップの凹み</h2>
+      <div class="demo"><button class="keycap" type="button"></button></div>
+      <p class="note">実際のキー形状（角丸スクエア）で再現。35_の球体版と同じ仕組み。</p>
+    </div>
+
+    <div class="card">
+      <h2>② 独立インジケーター（背景に依存しない）</h2>
+      <div class="demo">
+        <div class="game-bg">
+          <div class="game-token" id="gameToken"></div>
+          <div class="press-ring" id="pressRing"></div>
+        </div>
+      </div>
+      <p class="note">リングはトークン自体の色や背景と無関係に重ねているだけ。ゲーム部門の盤面でもそのまま使える。</p>
+    </div>
+
+    <div class="card">
+      <h2>③ 波紋（リップル）</h2>
+      <div class="demo"><div class="ripple-host" id="rippleHost"></div></div>
+      <p class="note">触れた座標から円が広がって消える。押した位置がそのまま起点になる。</p>
+    </div>
+
+    <div class="card">
+      <h2>④ 光のスイープ（シャイン）</h2>
+      <div class="demo"><button class="shine-btn" type="button">Fire</button></div>
+      <p class="note">帯状のハイライトが斜めに走り抜ける。ガラス質のボタンと相性がよい。</p>
+    </div>
+
+    <div class="card">
+      <h2>⑤ ターゲットロックリング</h2>
+      <div class="demo"><svg class="lock-host" id="lockHost" viewBox="0 0 100 100"></svg></div>
+      <p class="note">外側のリングが縮んでロックし、少し弾んで止まる。「狙いを定めて確定」の感触。</p>
+    </div>
+
+    <div class="card">
+      <h2>⑥ バウンス（弾む）</h2>
+      <div class="demo"><button class="bounce-btn" type="button"></button></div>
+      <p class="note">凹まず、逆にオーバーシュートして弾む。柔らかい確定音のような視覚版。</p>
+    </div>
+
+    <div class="card">
+      <h2>⑦ 水面ゆれ（丸い器）</h2>
+      <div class="demo">
+        <div style="width:110px;height:110px;border-radius:50%;position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--panel-line);touch-action:none;cursor:grab" id="waterOrb">
+          <svg viewBox="0 0 100 100" style="position:absolute;inset:0;width:100%;height:100%">
+            <defs><clipPath id="wc2"><circle cx="50" cy="50" r="50"/></clipPath></defs>
+            <g clip-path="url(#wc2)"><path id="waterPath2" fill="var(--water)"></path></g>
+          </svg>
+        </div>
+      </div>
+      <p class="note">35_と同じバネ物理。ドラッグして離すと揺れ戻る。</p>
+    </div>
+
+    <div class="card">
+      <h2>⑧ ジェリー（柔らかい変形）</h2>
+      <div class="demo"><button class="jelly-btn" type="button">Push</button></div>
+      <p class="note">凹み(①)が硬い/ガラス質なのに対し、こちらは潰れて伸びる柔らかい質感。同じ「押した」でも触感の種類を選べる。</p>
+    </div>
+
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var root = document.documentElement;
+  var sw = document.getElementById("themeSwitch");
+  function setTheme(name) { root.dataset.theme = name; sw.setAttribute("aria-checked", String(name === "light")); }
+  setTheme("dark"); // 既定はダーク（利用者裁定 2026-09-28）
+  sw.addEventListener("click", function () { setTheme(root.dataset.theme === "light" ? "dark" : "light"); });
+
+  // 共通: pointerdown/upで.is-pressedを付け外しするだけの単純な部品はまとめて登録
+  document.querySelectorAll(".keycap, .shine-btn, .bounce-btn, .jelly-btn").forEach(function (el) {
+    el.addEventListener("pointerdown", function () { el.classList.add("is-pressed"); });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(function (ev) {
+      el.addEventListener(ev, function () { el.classList.remove("is-pressed"); });
+    });
+  });
+
+  // ② 独立インジケーター: トークンとは別要素のリングを、押した瞬間だけ発火させる
+  var token = document.getElementById("gameToken");
+  var ring = document.getElementById("pressRing");
+  token.addEventListener("pointerdown", function () {
+    ring.classList.remove("fire");
+    void ring.offsetWidth; // reflow: 同じアニメを連打しても最初から出し直す
+    ring.classList.add("fire");
+  });
+
+  // ③ 波紋: 押した座標にドットを作って、アニメ終了後に消す
+  var rippleHost = document.getElementById("rippleHost");
+  rippleHost.addEventListener("pointerdown", function (e) {
+    var rect = rippleHost.getBoundingClientRect();
+    var size = Math.max(rect.width, rect.height) * 1.4;
+    var dot = document.createElement("div");
+    dot.className = "ripple-dot";
+    dot.style.width = dot.style.height = size + "px";
+    dot.style.left = (e.clientX - rect.left) + "px";
+    dot.style.top = (e.clientY - rect.top) + "px";
+    rippleHost.appendChild(dot);
+    dot.addEventListener("animationend", function () { dot.remove(); });
+  });
+
+  // ⑤ ターゲットロックリング: SVGを直接書き換えて、外側のリングを縮めてロックする
+  var lockHost = document.getElementById("lockHost");
+  var lockRunning = false;
+  function drawLock(r, opacity) {
+    lockHost.innerHTML =
+      '<circle cx="50" cy="50" r="6" fill="var(--accent)"></circle>' +
+      '<circle cx="50" cy="50" r="' + r.toFixed(1) + '" fill="none" stroke="var(--accent)" stroke-width="3" opacity="' + opacity.toFixed(2) + '"></circle>';
+  }
+  drawLock(42, .9);
+  lockHost.addEventListener("pointerdown", function () {
+    if (lockRunning) return;
+    lockRunning = true;
+    var start = performance.now();
+    var from = 42, to = 16, overshoot = 11;
+    function frame(now) {
+      var t = Math.min(1, (now - start) / 420);
+      var r;
+      if (t < 0.7) { var k = t / 0.7; r = from + (to - overshoot - from) * k; }
+      else { var k2 = (t - 0.7) / 0.3; r = (to - overshoot) + (to - (to - overshoot)) * k2; }
+      drawLock(r, 1);
+      if (t < 1) requestAnimationFrame(frame); else { setTimeout(function () { drawLock(42, .9); lockRunning = false; }, 260); }
+    }
+    requestAnimationFrame(frame);
+  });
+
+  // ⑦ 水面ゆれ（35_と同じ仕組みを簡略移植）
+  function makeWaterOrb(hostEl, pathEl) {
+    var LEVEL = 58, tilt = 0, tiltVel = 0, energy = 0, phase = 0;
+    var dragging = false, lastX = 0, lastT = 0;
+    function build(amp) {
+      var pts = [], N = 22;
+      for (var i = 0; i <= N; i++) {
+        var x = (i / N) * 100;
+        var y = LEVEL + tilt * (x - 50) * 0.9 + amp * Math.sin((x / 100) * Math.PI * 2 + phase);
+        pts.push(x.toFixed(1) + "," + y.toFixed(1));
+      }
+      pathEl.setAttribute("d", "M0,100 L0," + pts[0].split(",")[1] + " L" + pts.join(" L") + " L100,100 Z");
+    }
+    var last = performance.now();
+    function loop(now) {
+      var dt = Math.min(0.033, (now - last) / 1000); last = now;
+      var force = -42 * tilt - 5.2 * tiltVel;
+      tiltVel += force * dt; tilt += tiltVel * dt;
+      energy = Math.max(energy * (1 - dt * 1.4), Math.min(1.4, Math.abs(tiltVel) * 0.35));
+      phase += dt * (2.2 + energy * 2.0);
+      build(2.2 + energy * 5);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+    hostEl.addEventListener("pointerdown", function (e) { dragging = true; hostEl.setPointerCapture(e.pointerId); lastX = e.clientX; lastT = performance.now(); });
+    hostEl.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var now = performance.now(), dt = Math.max(1, now - lastT), dx = e.clientX - lastX;
+      tiltVel += (dx / dt) * 40; tilt = Math.max(-14, Math.min(14, tilt + dx * 0.06));
+      lastX = e.clientX; lastT = now;
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function (ev) { hostEl.addEventListener(ev, function () { dragging = false; }); });
+    tiltVel = 3;
+  }
+  makeWaterOrb(document.getElementById("waterOrb"), document.getElementById("waterPath2"));
+})();
+</script>
+</body>
+</html>

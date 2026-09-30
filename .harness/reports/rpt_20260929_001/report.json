@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260929_001",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": "REQ-20260929-001",
+  "phase": "implementation",
+  "kind": "tech_trial",
+  "date": "2026-09-29",
+  "title": "1マス多重操作（SpaceMouse風）の判定ページ /lab/multigesture（段階1）",
+  "summary": "1マスの上でパン／ズーム／回転／傾け／左右ボタンをどこまで取り違えずに見分けられるかを iPad で測るページを作成。PCへは何も送らない。依頼のままではパンとズームがぶつかるため、指の本数と時間で分けた。PCの実マウスと合成タッチで判定ロジックを確認済み、iPad での実測はまだ。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-opus-5-5",
+  "startedAt": "2026-09-29T16:00:00+09:00",
+  "completedAt": "2026-09-29T17:00:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "static/lab_multigesture.html（お題モード・取り違え表・自由モード・操作ごとのオンオフ・マスの大きさ4種・しきい値7つ・JSON書き出し）",
+    "ws.rs にルート1行 /lab/multigesture、ナビに「実験」部門",
+    "依頼への返事 REQ-20260929-001.reply.md、できること.md 版2.4"
+  ],
+  "verification": [
+    "cargo test --workspace = 158 passed",
+    "本物の Hub から配信されることを確認",
+    "PC の実マウスでパン→・パン↑・左ボタン・右ボタン・なしの5回すべて正しく判定",
+    "合成 PointerEvent でズームイン/アウト・回転↻↺・傾け←を確認（ロジックのみ。指での識別性の証拠ではない）",
+    "setPointerCapture の例外で2本目の指が落ちる不具合を発見・修正",
+    "未確認: iPad での実測"
+  ],
+  "nextActions": [
+    "利用者が iPad でお題モードを実施（全部オン・1マス／傾けを外して1回）し、JSON を書き出す",
+    "結果から取り違えの多い組としきい値の調整案をまとめ、段階2（部品化）に進むかを利用者に諮る"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/static/lab_multigesture.html",
+    "DevApps/APP_KeyDeck01/crates/proto-hub/src/ws.rs",
+    "C:/00_CreatorCompass/KeyDeck/依頼/REQ-20260929-001.reply.md"
+  ],
+  "tags": ["keydeck", "gesture", "experiment", "request"],
+  "blockedEncountered": [
+    "マウスでは2本指と長押しを作れず、PC上では合成イベントでしか確かめられない"
+  ],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": true,
+    "note": "新しい入力方式は、部品にする前に『何も送らない判定ページ＋取り違え表』で測ると、仕様の衝突（今回はパンとズーム）が数字で見える"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

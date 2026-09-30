@@ -72,12 +72,21 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/keymap/board/save", post(board_save_handler))
         // 新しいキーボードを1枚作る。書き先は許可済みの2箇所だけ。
         .route("/api/keymap/new", post(keymap_new_handler))
+        // V2.1: Deckの保存。書き先は decks/deck_<id>.json に固定され、idは厳格に検証される。
+        .route("/api/deck/save", post(deck_save_handler))
+        // V2.1: Deck編集画面が「どのアイコンを選べるか」を引くための**読み取り専用**API。
+        .route("/api/icons", get(icons_handler))
+        // 2026-09-25（ユーザー裁定）: アイコン画像の保存。書き先は static/icons/<name>.<ext> だけ。
+        // 拡張子は中身から決め、PNG/JPEG/WebP 以外（SVGを含む）は拒否する（icon.rs）
+        .route("/api/icon/save", post(icon_save_handler))
         .route("/ws", get(ws_handler))
         .route("/api/deck/export", get(deck_export))
         .route_service("/kb", ServeFile::new("static/kb.html"))
         .route_service("/deck", ServeFile::new("static/deck.html"))
         .route_service("/ipad", ServeFile::new("static/ipad.html"))
         .route_service("/trackball", ServeFile::new("static/trackball.html"))
+        // Vol1.1 凍結版（2026-09-22）。boardには埋め込まれない。単独で開いて比べる・戻すためのもの
+        .route_service("/trackball_v1_1", ServeFile::new("static/trackball_v1_1.html"))
         // T20（P-003 Ver1-a）: 分割面（上=Deck／下=キーボード）。WSは既存の
         // `/ws?surface=ipad` を使うため、プロトコル・状態管理の追加はゼロ。
         .route_service("/panel", ServeFile::new("static/panel.html"))
@@ -88,6 +97,23 @@ pub fn router(state: SharedState) -> Router {
         .route_service("/schema", ServeFile::new("static/schema.html"))
         // P-007: キー編集。PCでもiPadでも同じURLで開ける
         .route_service("/keys", ServeFile::new("static/keys.html"))
+        // View_Ver1.1 凍結版（2026-09-23）。V2.1 へ作り替える前の編集2画面。
+        // 描画も同じ日の写し（components_v1_1.js）を使うので、生の components.js を
+        // 変えてもこちらは変わらない。比べる・戻すためだけのもの
+        // V2.1: Deck編集（アイコン盤面）。タイルの色・アイコン・ラベル・動作を並べる
+        .route_service("/deckedit", ServeFile::new("static/deckedit.html"))
+        .route_service("/editor_v1_1", ServeFile::new("static/editor_v1_1.html"))
+        // レイアウト編集の新View（2026-09-23〜）。置ける部品を探しやすく作り替えた別画面。
+        // 保存は `/` と同じ経路（layout.save）を通るので、書き込み口は増えていない
+        .route_service("/editor_v2", ServeFile::new("static/editor_v2.html"))
+        // 実験（REQ-20260929-001・2026-09-29）: 1マスに操作をいくつ積めるかを測るページ。
+        // WebSocket も API も使わず、判定と記録は端末の中だけ。何も送らないので口は増えていない
+        .route_service("/lab/multigesture", ServeFile::new("static/lab_multigesture.html"))
+        .route_service("/keys_v1_1", ServeFile::new("static/keys_v1_1.html"))
+        .route_service(
+            "/components_v1_1.js",
+            ServeFile::new("static/components_v1_1.js"),
+        )
         // 部品の描画は static/components.js が唯一の実装。実機の面とエディタが
         // これを共有するので、プレビューと実機の絵がズレない。
         .route_service("/components.js", ServeFile::new("static/components.js"))
@@ -97,6 +123,9 @@ pub fn router(state: SharedState) -> Router {
         // ギャラリーに実機スクショを出すための置き場。ファイルが無ければ
         // クライアント側が簡易図へ自動で切り替えるので、空でも動く。
         .nest_service("/shots", ServeDir::new("static/shots"))
+        // Deck のボタンに出すアイコン画像（deck の slot.icon に "/icons/app_chrome.png" のように書く）。
+        // 配るのは static/icons の中だけ（ServeDir は外へ出る `..` を受け付けない）
+        .nest_service("/icons", ServeDir::new("static/icons"))
         // P-005: **すべての応答に Cache-Control: no-store を付ける。**
         //
         // これが無いと、ブラウザは last-modified/etag だけを見て独自判断でキャッシュを
@@ -321,6 +350,7 @@ async fn schema_handler(State(state): State<SharedState>, Query(query): Query<To
         { "t": "app.launch",   "fields": ["id", "fire?"],   "note": "登録済みのアプリを起動する。起動できるのは apps/apps.json に書いたものだけ" },
         { "t": "mouse.click",  "fields": ["button"],        "note": "left / right" },
         { "t": "mouse.dblclick","fields": ["button"],       "note": "left / right" },
+        { "t": "mouse.wheel",  "fields": ["dir"],           "note": "up / down。ホイールを1段（Windowsの1ノッチ）回す" },
     ]);
     let internal_actions = json!([
         "mouse.move", "mouse.scroll", "mouse.button", "key.button"
@@ -353,6 +383,7 @@ async fn schema_handler(State(state): State<SharedState>, Query(query): Query<To
             "jog": { "detentDeg": [5, 90], "weight": [0, 95], "requiredKeys": ["CW", "CCW"] },
             "ids": {
                 "layoutId": "[a-z0-9_]{1,64}",
+                "iconName": "[a-z0-9_]{1,64}（POST /api/icon/save。PNG/JPEG/WebPのみ・1MiBまで。SVG不可）",
                 "keymapId": "いま読み込まれているものだけ（新規はファイルを置いて再読込）"
             }
         },
@@ -748,6 +779,262 @@ async fn layout_save_handler(
             "path": path.display().to_string(),
             "backup": if had_previous { Some(backup.display().to_string()) } else { None },
             "layoutsLoaded": layouts_loaded,
+        })),
+    )
+        .into_response()
+}
+
+/// V2.1: `static/icons/` に置いてある画像の名前を並べて返す。**読み取り専用**。
+///
+/// Deck編集画面がアイコンを選ぶための一覧。中身は配らず、`/icons/<名前>` という
+/// 参照先だけを返す（画像そのものは既存の `/icons` が配る）。
+/// 並びは名前順に固定する。読むたび順番が変わると、選び直すたびに位置がずれる。
+async fn icons_handler(State(state): State<SharedState>, Query(query): Query<TokenQuery>) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let dir = std::path::Path::new("static/icons");
+    let mut icons: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|t| t.is_file()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+            if matches!(ext.as_str(), "png" | "svg" | "jpg" | "jpeg" | "webp" | "gif") {
+                icons.push(format!("/icons/{name}"));
+            }
+        }
+    }
+    icons.sort();
+    (StatusCode::OK, Json(json!({ "icons": icons }))).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IconSaveQuery {
+    pub token: Option<String>,
+    pub name: Option<String>,
+}
+
+/// 2026-09-25（ユーザー裁定。不変条件6の `static/icons/` 追加ぶん）: アイコン画像を1枚保存する。
+///
+/// 本文は画像のバイト列そのもの。`name` はファイル名の元になるので `[a-z0-9_]{1,64}` だけを通し、
+/// 拡張子は中身の先頭バイトから決める。検査と書き込みは `icon::save_icon` に一本化してある。
+/// 画像は `/icons` がそのまま配るので、surface.config の再配信は要らない
+/// （使うのは deck の `slot.icon` で、それは `/api/deck/save` が配り直す）。
+async fn icon_save_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<IconSaveQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting icon save");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+    let name = query.name.unwrap_or_default();
+    match crate::icon::save_icon(std::path::Path::new(crate::icon::ICONS_DIR), &name, &body) {
+        Ok(saved) => {
+            tracing::info!(chk = "ICON", file = %saved.file_name, bytes = body.len(), "icon saved");
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "url": saved.url,
+                    "fileName": saved.file_name,
+                    "backup": saved.backup.map(|p| p.display().to_string()),
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => {
+            tracing::error!(chk = "ICON", code = error.code, cause = %error.cause, "icon save refused");
+            let status = if error.code == ICON_SAVE_REJECTED {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, Json(json!({ "code": error.code, "cause": error.cause }))).into_response()
+        }
+    }
+}
+
+/// V2.1: Deckを `decks/deck_<id>.json` へ保存する。
+///
+/// ■ なぜ書き先を1箇所に固定するか
+/// 不変条件6（書けるのは決められた場所だけ）に Deck を足すぶん。`deckId` を
+/// ファイル名に使う以上、ここが**パスを組み立てる前の唯一の関門**になる。
+/// `..` や `/` が通ると、Deck編集画面から任意のファイルを上書きできてしまう。
+///
+/// ■ 手順（レイアウト保存と同じ。壊れた構成をディスクに残さないことを最優先）
+///   1. token検証
+///   2. `deckId` の形を検証
+///   3. 本文をDeckとして解釈し、単体の妥当性を検証（slotId重複・格子の容量・vk名）
+///   4. 既存があれば `.bak` へ退避
+///   5. 書く
+///   6. **全体を読み直す**（参照切れ・許可リストの衝突はここでしか分からない）
+///   7. 落ちたら `.bak` から巻き戻す
+async fn deck_save_handler(
+    State(state): State<SharedState>,
+    Query(query): Query<TokenQuery>,
+    body: String,
+) -> Response {
+    if !token_ok(&state, query.token.as_deref()) {
+        tracing::error!(code = WS_TOKEN_INVALID, "rejecting deck save");
+        return (StatusCode::UNAUTHORIZED, WS_TOKEN_INVALID).into_response();
+    }
+
+    let deck = match crate::deck::load_deck_str("request body", &body) {
+        Ok(deck) => deck,
+        Err(error) => {
+            tracing::error!(chk = "V2.1", code = error.code, cause = %error.cause, "deck save rejected");
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "code": error.code, "cause": error.cause })),
+            )
+                .into_response();
+        }
+    };
+
+    // レイアウトidと同じ規則。ここを通った文字だけがファイル名になる
+    if !layout_id_is_safe(&deck.deck_id) {
+        let cause = format!(
+            "deckId '{}' must be 1-64 chars of [a-z0-9_] (it becomes a file name)",
+            deck.deck_id
+        );
+        tracing::error!(chk = "V2.1", code = DECK_SAVE_REJECTED, cause = %cause, "deck save rejected");
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": DECK_SAVE_REJECTED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    let dir = std::path::Path::new(crate::DECKS_DIR);
+    let path = dir.join(format!("deck_{}.json", deck.deck_id));
+    let backup = dir.join(format!("deck_{}.json.bak", deck.deck_id));
+
+    // レイアウト保存と同じ理由で、説明文は黙って消させない。
+    // Deck編集画面はタイルしか触らないので、説明が空＝「指定しなかった」とみなす
+    let mut deck = deck;
+    if deck.description.is_empty() {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(existing) = crate::deck::load_deck_str("existing", &text) {
+                if !existing.description.is_empty() {
+                    tracing::info!(
+                        chk = "V2.1", deck_id = %deck.deck_id,
+                        "carrying over the existing description (request had none)"
+                    );
+                    deck.description = existing.description;
+                }
+            }
+        }
+    }
+    let deck = deck;
+
+    if let Err(error) = std::fs::create_dir_all(dir) {
+        let cause = format!("failed to create {}: {error}", dir.display());
+        tracing::error!(chk = "V2.1", code = DECK_SAVE_FAILED, cause = %cause, "deck save failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": DECK_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    let had_previous = path.exists();
+    if had_previous {
+        if let Err(error) = std::fs::copy(&path, &backup) {
+            let cause = format!("failed to back up {}: {error}", path.display());
+            tracing::error!(chk = "V2.1", code = DECK_SAVE_FAILED, cause = %cause, "deck save failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "code": DECK_SAVE_FAILED, "cause": cause })),
+            )
+                .into_response();
+        }
+    }
+
+    // 受け取った本文をそのまま書かず、解釈し直したものを整形して書く
+    let text = match serde_json::to_string_pretty(&deck) {
+        Ok(text) => text + "\n",
+        Err(error) => {
+            let cause = format!("failed to serialize deck: {error}");
+            tracing::error!(chk = "V2.1", code = DECK_SAVE_FAILED, cause = %cause, "deck save failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "code": DECK_SAVE_FAILED, "cause": cause })),
+            )
+                .into_response();
+        }
+    };
+    if let Err(error) = std::fs::write(&path, &text) {
+        let cause = format!("failed to write {}: {error}", path.display());
+        tracing::error!(chk = "V2.1", code = DECK_SAVE_FAILED, cause = %cause, "deck save failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "code": DECK_SAVE_FAILED, "cause": cause })),
+        )
+            .into_response();
+    }
+
+    let keymaps_dir = std::path::Path::new(crate::KEYMAPS_DIR);
+    let surfaces_dir = std::path::Path::new(crate::SURFACES_DIR);
+    let layouts_dir = std::path::Path::new(crate::LAYOUTS_DIR);
+    let apps_dir = std::path::Path::new(crate::APPS_DIR);
+    let loaded =
+        match crate::startup::load_startup_data(keymaps_dir, dir, surfaces_dir, layouts_dir, apps_dir)
+        {
+            Ok(data) => data,
+            Err(errors) => {
+                let restored = if had_previous {
+                    std::fs::copy(&backup, &path).is_ok()
+                } else {
+                    std::fs::remove_file(&path).is_ok()
+                };
+                let cause = errors.join("; ");
+                tracing::error!(
+                    chk = "V2.1", code = DECK_SAVE_REJECTED, cause = %cause, restored,
+                    "deck save rejected after reload; rolled back"
+                );
+                return (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({
+                        "code": DECK_SAVE_REJECTED, "cause": cause,
+                        "errors": errors, "rolledBack": restored,
+                    })),
+                )
+                    .into_response();
+            }
+        };
+
+    let decks_loaded = loaded.decks.len();
+    {
+        let mut s = state.lock().unwrap();
+        s.keymaps = loaded.keymaps;
+        s.decks = loaded.decks;
+        s.command_registry = loaded.command_registry;
+        s.surfaces = loaded.surfaces;
+        s.layouts = loaded.layouts;
+        s.layer_state.reset();
+        s.ipad_layer_state.reset();
+        s.layer_states.clear();
+    }
+
+    tracing::info!(
+        chk = "V2.1", deck_id = %deck.deck_id, decks_loaded,
+        "deck saved; broadcasting surface.config"
+    );
+    broadcast_surface_config_for(&state, SurfaceKind::Split);
+    broadcast_surface_config_for(&state, SurfaceKind::Ipad);
+    broadcast_surface_config_for(&state, SurfaceKind::Layout);
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "deckId": deck.deck_id,
+            "path": path.display().to_string(),
+            "backup": if had_previous { Some(backup.display().to_string()) } else { None },
+            "decksLoaded": decks_loaded,
         })),
     )
         .into_response()
@@ -1932,6 +2219,12 @@ async fn handle_surface_gesture(
         },
     };
 
+    // 押しっぱなし（down/up）は、Windowsへ送れたら台帳に記録する。切断時に離すため
+    let hold = match &action {
+        Action::MouseButton { button, down } => Some((*button, *down)),
+        _ => None,
+    };
+
     // ④ 既存のadapter_tx（D7直列ワーカー）へAdapterJobとして送る。新しい発火経路は作らない。
     let adapter_tx = {
         let s = state.lock().unwrap();
@@ -1951,7 +2244,11 @@ async fn handle_surface_gesture(
     }
 
     match reply_rx.await {
-        Ok(Ok(())) => {}
+        Ok(Ok(())) => {
+            if let Some((button, down)) = hold {
+                state.lock().unwrap().note_mouse_hold(client_id, button, down);
+            }
+        }
         Ok(Err(adapter_error)) => emit_error(
             state,
             client_id,
@@ -1975,10 +2272,39 @@ async fn handle_surface_gesture(
 /// 許可リストの再確認は行わない（押下時に通っているものだけが台帳に載るため）。
 /// ここで詰まるとPCが操作不能のままになるので、1件失敗しても残りを撃ち続ける。
 async fn release_held_keys(state: &SharedState, client_id: ClientId) {
-    let (held, adapter_tx) = {
+    let (held, held_mouse, adapter_tx) = {
         let mut s = state.lock().unwrap();
-        (s.take_held_keys(client_id), s.adapter_tx.clone())
+        (s.take_held_keys(client_id), s.take_held_mouse(client_id), s.adapter_tx.clone())
     };
+
+    // マウスボタンも離す。トラックボールで「つかんだ」まま画面を閉じる・電波が切れると、
+    // 端末からは離す合図を送れないので、Hub が離すしかない
+    if !held_mouse.is_empty() {
+        tracing::info!(
+            chk = "T18",
+            client_id,
+            buttons = ?held_mouse,
+            "releasing mouse buttons still held by a disconnecting client"
+        );
+    }
+    for button in held_mouse {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let action = Action::MouseButton { button, down: false };
+        if adapter_tx.send(AdapterJob { action, reply: reply_tx }).is_err() {
+            tracing::error!(code = INTERNAL, ?button, "adapter worker gone; cannot release held mouse button");
+            continue;
+        }
+        match reply_rx.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::error!(code = ADAPTER_SENDINPUT_FAIL, ?button, cause = %error, "failed to release held mouse button")
+            }
+            Err(error) => {
+                tracing::error!(code = INTERNAL, ?button, cause = %error, "adapter reply dropped while releasing held mouse button")
+            }
+        }
+    }
+
     if held.is_empty() {
         return;
     }
@@ -2089,7 +2415,8 @@ async fn fire_action(state: &SharedState, client_id: ClientId, action: Action) {
         | Action::Text { .. }
         | Action::KeyButton { .. }
         | Action::MouseClick { .. }
-        | Action::MouseDoubleClick { .. } => {
+        | Action::MouseDoubleClick { .. }
+        | Action::MouseWheel { .. } => {
             let Some(command_id) = canonical_command_id(&action) else {
                 emit_error(
                     state,
@@ -2523,6 +2850,48 @@ mod tests {
         handle.await.unwrap();
     }
 
+    /// 押しっぱなしのまま切断したら、Hub が左ボタンを離す。
+    /// 端末は通信が切れた後に離す合図を送れないので、ここが最後の砦になる。
+    #[tokio::test]
+    async fn held_mouse_button_is_released_when_the_client_disconnects() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        let press = tokio::spawn({
+            let state = state.clone();
+            async move { handle_surface_gesture(&state, 7, "tb01", "hold1", edge_wire(Edge::Down)).await; }
+        });
+        let job = rx.recv().await.expect("hold1 down must enqueue an AdapterJob");
+        assert_eq!(job.action, Action::MouseButton { button: MouseButtonKind::Left, down: true });
+        let _ = job.reply.send(Ok(()));
+        press.await.unwrap();
+
+        let release = tokio::spawn({
+            let state = state.clone();
+            async move { release_held_keys(&state, 7).await; }
+        });
+        let job = rx.recv().await.expect("disconnect must release the held mouse button");
+        assert_eq!(job.action, Action::MouseButton { button: MouseButtonKind::Left, down: false });
+        let _ = job.reply.send(Ok(()));
+        release.await.unwrap();
+        assert!(state.lock().unwrap().take_held_mouse(7).is_empty());
+    }
+
+    /// 自分で離したボタンは、切断時にもう一度離さない（二重の up を打たない）。
+    #[tokio::test]
+    async fn released_mouse_button_is_not_released_again_on_disconnect() {
+        let (state, mut rx) = test_state(TB01_GESTURES_JSON);
+        for edge in [Edge::Down, Edge::Up] {
+            let task = tokio::spawn({
+                let state = state.clone();
+                async move { handle_surface_gesture(&state, 7, "tb01", "hold1", edge_wire(edge)).await; }
+            });
+            let job = rx.recv().await.expect("hold1 must enqueue an AdapterJob");
+            let _ = job.reply.send(Ok(()));
+            task.await.unwrap();
+        }
+        release_held_keys(&state, 7).await;
+        assert!(rx.try_recv().is_err(), "nothing is held, so nothing must be released");
+    }
+
     // tap3 → Action::Key{vk:"ESC"}のジョブ（3本タップ=Esc）。
     #[tokio::test]
     async fn tap3_enqueues_key_esc() {
@@ -2692,6 +3061,65 @@ mod tests {
         }
     }
 
+    /// V2.1（Deck編集）: Deck保存が受け入れる形は `decks/` にある**実物**と同じ形であること。
+    /// 往復して同じものに戻らないと、画面で触っていないタイルが保存のたびに変質する。
+    #[test]
+    fn deck_save_accepts_the_real_deck_files() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..");
+        let paths =
+            crate::startup::discover_prefixed_json(&repo_root.join(crate::DECKS_DIR), "deck_");
+        assert!(!paths.is_empty(), "decks/ に実物が1件も無い（テストの前提が崩れている）");
+        for path in paths {
+            let text = std::fs::read_to_string(&path).expect("real deck file must be readable");
+            let deck = crate::deck::load_deck_str(&path.display().to_string(), &text)
+                .unwrap_or_else(|e| panic!("{} must load: {}", path.display(), e.cause));
+            assert!(
+                layout_id_is_safe(&deck.deck_id),
+                "{} has a deckId the save API would reject: {}",
+                path.display(),
+                deck.deck_id
+            );
+            let round = serde_json::to_string_pretty(&deck).expect("serialize");
+            let again = crate::deck::load_deck_str("roundtrip", &round).expect("reload");
+            assert_eq!(deck, again, "{} did not survive a save round-trip", path.display());
+        }
+    }
+
+    /// 保存の前段（単体検証）が、格子に収まらない枚数のタイルを弾くこと。
+    /// ここで弾かれるものはディスクに触れない。
+    #[test]
+    fn deck_save_rejects_more_tiles_than_the_grid_holds() {
+        let too_many = r#"{
+            "deckId": "tmp_overflow",
+            "grid": { "cols": 2, "rows": 1 },
+            "pages": [ { "id": 1, "slots": [
+                { "slotId": "A1", "label": "1", "action": { "t": "key", "vk": "A" } },
+                { "slotId": "A2", "label": "2", "action": { "t": "key", "vk": "B" } },
+                { "slotId": "A3", "label": "3", "action": { "t": "key", "vk": "C" } }
+            ] } ]
+        }"#;
+        let error = crate::deck::load_deck_str("test", too_many)
+            .expect_err("a page with more slots than the grid holds must be rejected");
+        assert!(
+            error.cause.contains("capacity"),
+            "cause should explain the capacity: {}",
+            error.cause
+        );
+    }
+
+    /// deckId はファイル名になるので、パスを組み立てる前に弾く。
+    /// ここが緩むと、Deck編集画面から任意のファイルを上書きできてしまう。
+    #[test]
+    fn deck_id_rejects_path_characters() {
+        assert!(layout_id_is_safe("apps"));
+        assert!(!layout_id_is_safe("../secret"));
+        assert!(!layout_id_is_safe("a/b"));
+        assert!(!layout_id_is_safe("Apps"));
+        assert!(!layout_id_is_safe(""));
+    }
+
     /// 保存で**説明文が消えないこと**。
     ///
     /// 実際に一度消した: エディタが `description` を送らず、Hubが空として書いたため、
@@ -2795,5 +3223,22 @@ mod tests {
         let s = state.lock().unwrap();
         let ids: Vec<String> = connection_targets(&s).into_iter().map(|(t, _, _)| t).collect();
         assert!(ids.iter().any(|t| t == "trackball"), "surfaceがあるのに出ていない: {ids:?}");
+    }
+
+    /// アイコン保存は token 無しなら、ディスクに触る前に 401 で断る。
+    /// （保存の中身の検査は icon.rs の単体テストが持つ。ここは入口の関門だけを固定する）
+    #[tokio::test]
+    async fn icon_save_without_token_is_refused() {
+        let (state, _rx) = test_state(TB01_JSON);
+        for token in [None, Some("wrong".to_string())] {
+            let res = icon_save_handler(
+                State(state.clone()),
+                Query(IconSaveQuery { token, name: Some("never_written".into()) }),
+                axum::body::Bytes::from_static(b"\x89PNG\r\n\x1a\n"),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        }
+        assert!(!std::path::Path::new("static/icons/never_written.png").exists());
     }
 }

@@ -1,0 +1,125 @@
+{
+  "deckId": "note_cast",
+  "description": "Note Story の話者（人物1〜9＋ナレーション）。押すと ALT+番号 を送り、会話ログ／執筆デスクでその人物のセリフを今の行の直下に作る。\n\n■ これは置き場所の見本\nNote Story の「KeyDeckへ書き出し」で Deck名を note_cast にし、Deck編集の「取り込み」で読むと、作品の人物の名前とアイコンで上書きされる（前の中身は .bak に残る）。並び（C1〜C9 のあと C0）と 5列×2行 は書き出し側（keydeckExport.ts）と同じにしてある。",
+  "grid": {
+    "cols": 5,
+    "rows": 2
+  },
+  "pages": [
+    {
+      "id": 1,
+      "slots": [
+        {
+          "slotId": "C1",
+          "label": "人物1",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "1"
+            ]
+          }
+        },
+        {
+          "slotId": "C2",
+          "label": "人物2",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "2"
+            ]
+          }
+        },
+        {
+          "slotId": "C3",
+          "label": "人物3",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "3"
+            ]
+          }
+        },
+        {
+          "slotId": "C4",
+          "label": "人物4",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "4"
+            ]
+          }
+        },
+        {
+          "slotId": "C5",
+          "label": "人物5",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "5"
+            ]
+          }
+        },
+        {
+          "slotId": "C6",
+          "label": "人物6",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "6"
+            ]
+          }
+        },
+        {
+          "slotId": "C7",
+          "label": "人物7",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "7"
+            ]
+          }
+        },
+        {
+          "slotId": "C8",
+          "label": "人物8",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "8"
+            ]
+          }
+        },
+        {
+          "slotId": "C9",
+          "label": "人物9",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "9"
+            ]
+          }
+        },
+        {
+          "slotId": "C0",
+          "label": "ナレーション",
+          "action": {
+            "t": "chord",
+            "keys": [
+              "ALT",
+              "0"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

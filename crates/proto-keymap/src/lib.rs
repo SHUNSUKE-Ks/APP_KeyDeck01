@@ -112,6 +112,9 @@ pub const VK_DICTIONARY: &[&str] = &[
     "ENTER", "ESC", "TAB", "SPACE", "BKSP", "DEL",
     // 矢印
     "UP", "DOWN", "LEFT", "RIGHT",
+    // 移動（2026-09-23 追加）。キー編集画面の部品一覧には前から並んでいたが、
+    // 辞書に無かったので選んで保存すると LOAD_VK_UNKNOWN で弾かれていた
+    "HOME", "END", "PGUP", "PGDN",
     // 修飾
     "CTRL", "SHIFT", "ALT", "WIN",
     // 記号
@@ -185,6 +188,11 @@ pub enum Action {
     /// `handle_surface_state`がclamp済み`dy`から組み立てる。
     #[serde(rename = "mouse.scroll")]
     MouseScroll { dy: i32 },
+    /// マウスホイールを1段（Windows の WHEEL_DELTA=120）だけ回す。**キーマップに書ける**。
+    /// 量は固定で、端末からは向きも量も送れない（押したキーIDに対して JSON が決める。不変条件1）。
+    /// `mouse.scroll`（トラックボールの連続スクロール。内部専用）とは別物。
+    #[serde(rename = "mouse.wheel")]
+    MouseWheel { dir: WheelDir },
     /// P-005 段階C: 押している間だけキーを押し続ける（ゲームの十字キー用）。
     /// 既存の`key`は`send_key()`がpressの直後にreleaseを呼ぶため「押しっぱなし」ができない。
     ///
@@ -315,6 +323,29 @@ pub enum KeymapKind {
     Single,
 }
 
+/// `mouse.wheel` の向き。up＝奥へ回す（画面は上へ）、down＝手前へ回す（画面は下へ）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WheelDir {
+    Up,
+    Down,
+}
+
+/// ダイヤル部品の形。どちらも「目盛りを越えるたびに CW/CCW を1回押す」だけで、違うのは見た目と指の動かし方。
+///   dial  … 丸いつまみを回す（既定。これまでのダイヤル）
+///   wheel … マウスのホイールのような縦長の筒を上下にこする。細い区画（1列×2行）に入る
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum JogShape {
+    #[default]
+    Dial,
+    Wheel,
+}
+
+fn default_detent_deg() -> u16 {
+    15
+}
+
 /// ダイヤル（jog）部品の設定。**この項目があるキーマップだけがダイヤルとして置ける。**
 ///
 /// ダイヤルは盤面の2つのキー（`CW`=時計回り / `CCW`=反時計回り）を、
@@ -324,9 +355,16 @@ pub enum KeymapKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JogConfig {
-    /// 1目盛りの角度。小さいほど少し回すだけで送れるが、狙って止めにくくなる。
-    #[serde(rename = "detentDeg")]
+    /// 形。省略時は dial（丸いつまみ）。
+    #[serde(default, skip_serializing_if = "is_dial")]
+    pub shape: JogShape,
+    /// 1目盛りの角度（dial 用）。小さいほど少し回すだけで送れるが、狙って止めにくくなる。
+    /// wheel では使わないので省略できる（既定15）。
+    #[serde(rename = "detentDeg", default = "default_detent_deg")]
     pub detent_deg: u16,
+    /// 1目盛りの指の移動量（px。wheel 用）。小さいほど少しこするだけで送れる。省略時は18。
+    #[serde(rename = "detentPx", default, skip_serializing_if = "Option::is_none")]
+    pub detent_px: Option<u16>,
     /// 外周に進み具合の弧を出すか。既定は出す。
     /// 1周で一巡する値（音量・明るさ等）には意味があるが、コマ送りのように
     /// 終わりの無いものに出すと、何の進捗なのか嘘になるので消せるようにする。
@@ -346,9 +384,93 @@ fn default_true() -> bool {
     true
 }
 
+fn is_dial(shape: &JogShape) -> bool {
+    *shape == JogShape::Dial
+}
+
 /// ダイヤルが押す2つのキーのid。盤面に必ずこの2つが要る。
 pub const JOG_CW: &str = "CW";
 pub const JOG_CCW: &str = "CCW";
+
+/// ラジアルボタン（1マス）の設定。**この項目があるキーマップは、1つのボタンとして描かれる。**
+/// 押すと周りに扇形の選択肢が開き、指を倒した方向の項目が離した瞬間に決まる。
+/// 決まった方向のキーを1回押すだけの部品で、何が起きるかはそのキーの
+/// action が決める（不変条件1: 端末は位置IDしか送らない。ダイヤルと同じ形）。
+///
+/// `rings` を 2 にすると**二層**になる。外周が大分類、内周がその方向の細かい操作で、
+/// 「どの扇か」は指の角度、「外周か内周か」は中心からの距離で決まる。
+/// 内周のキーidは方向のうしろに `2` を付けたもの（例 `N` の内側は `N2`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RadialConfig {
+    /// ボタンの真ん中に出す短い名前（例 "編集"）。省略時は ◎。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    /// 扇の数。4 / 6 / 8 のどれか。省略時は 4（上右下左）。
+    #[serde(default = "default_sectors", skip_serializing_if = "is_default_sectors")]
+    pub sectors: u8,
+    /// 輪の数。1 か 2。省略時は 1。
+    #[serde(default = "default_rings", skip_serializing_if = "is_default_rings")]
+    pub rings: u8,
+}
+
+fn default_sectors() -> u8 {
+    4
+}
+
+fn default_rings() -> u8 {
+    1
+}
+
+fn is_default_sectors(value: &u8) -> bool {
+    *value == default_sectors()
+}
+
+fn is_default_rings(value: &u8) -> bool {
+    *value == default_rings()
+}
+
+impl Default for RadialConfig {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            sectors: default_sectors(),
+            rings: default_rings(),
+        }
+    }
+}
+
+/// 扇の数ごとの方向id。上から時計回りに並べる。
+/// 6方向で真横（E/W）を使わないのは、6等分だと横がちょうど扇の境目に来るため。
+pub const RADIAL_DIRS_4: [&str; 4] = ["N", "E", "S", "W"];
+pub const RADIAL_DIRS_6: [&str; 6] = ["N", "NE", "SE", "S", "SW", "NW"];
+pub const RADIAL_DIRS_8: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+/// 4方向のときのキーid。二層でない古いラジアルはこれだけを要求する。
+pub const RADIAL_KEYS: [&str; 4] = RADIAL_DIRS_4;
+
+pub fn radial_dirs(sectors: u8) -> Option<&'static [&'static str]> {
+    match sectors {
+        4 => Some(&RADIAL_DIRS_4),
+        6 => Some(&RADIAL_DIRS_6),
+        8 => Some(&RADIAL_DIRS_8),
+        _ => None,
+    }
+}
+
+/// 盤面に必ず要るキーidを並べる。扇や輪の数が取れない値なら None。
+/// 二層のときは外周のぶんに続けて、内周の `<方向>2` が並ぶ。
+pub fn radial_key_ids(sectors: u8, rings: u8) -> Option<Vec<String>> {
+    let dirs = radial_dirs(sectors)?;
+    if rings == 0 || rings > 2 {
+        return None;
+    }
+    let mut ids: Vec<String> = dirs.iter().map(|d| (*d).to_string()).collect();
+    if rings == 2 {
+        ids.extend(dirs.iter().map(|d| format!("{d}2")));
+    }
+    Some(ids)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -365,6 +487,9 @@ pub struct Keymap {
     /// ダイヤルとして置けるキーマップだけが持つ。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jog: Option<JogConfig>,
+    /// ラジアルボタンとして描くキーマップだけが持つ。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radial: Option<RadialConfig>,
     pub layers: Vec<Layer>,
 }
 
@@ -394,6 +519,8 @@ struct KeymapManifest {
     board: Option<Board>,
     #[serde(default)]
     jog: Option<JogConfig>,
+    #[serde(default)]
+    radial: Option<RadialConfig>,
     #[serde(rename = "layerFiles")]
     layer_files: Vec<String>,
 }
@@ -596,8 +723,42 @@ pub fn load_keymap_with(
         halves: manifest.halves,
         board: manifest.board,
         jog: manifest.jog,
+        radial: manifest.radial,
         layers,
     };
+
+    // ラジアルの成立条件。方向のキーが揃っていないと「開いたのに押せない方向」が出る
+    if let Some(radial) = &keymap.radial {
+        if keymap.jog.is_some() {
+            return Err(KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!("{source}: a keymap cannot be both 'jog' and 'radial'"),
+            ));
+        }
+        let board = keymap.board.as_ref().ok_or_else(|| {
+            KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!("{source}: a keymap with 'radial' must have a 'board'"),
+            )
+        })?;
+        let needed_ids = radial_key_ids(radial.sectors, radial.rings).ok_or_else(|| {
+            KeymapError::new(
+                LOAD_SCHEMA_INVALID,
+                format!(
+                    "{source}: radial.sectors must be 4, 6 or 8 and radial.rings must be 1 or 2 (got sectors={}, rings={})",
+                    radial.sectors, radial.rings
+                ),
+            )
+        })?;
+        for needed in needed_ids {
+            if !board.keys.iter().any(|k| k.id == needed) {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: radial board must contain a key with id '{needed}'"),
+                ));
+            }
+        }
+    }
 
     // ダイヤルの成立条件。ここで止めないと、実機で「回しても何も起きない丸」が出る。
     if let Some(jog) = &keymap.jog {
@@ -606,6 +767,14 @@ pub fn load_keymap_with(
                 LOAD_SCHEMA_INVALID,
                 format!("{source}: jog.weight must be 0..=95 (got {})", jog.weight),
             ));
+        }
+        if let Some(px) = jog.detent_px {
+            if !(6..=80).contains(&px) {
+                return Err(KeymapError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!("{source}: jog.detentPx must be between 6 and 80 (got {px})"),
+                ));
+            }
         }
         if !(5..=90).contains(&jog.detent_deg) {
             return Err(KeymapError::new(
@@ -830,7 +999,8 @@ fn validate_merged(source: &str, keymap: &Keymap) -> Result<(), KeymapError> {
                 | Action::MouseClick { .. }
                 | Action::MouseDoubleClick { .. }
                 | Action::MouseButton { .. }
-                | Action::MouseScroll { .. } => {}
+                | Action::MouseScroll { .. }
+                | Action::MouseWheel { .. } => {}
             }
         }
     }
@@ -997,7 +1167,8 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
         // T15: MouseButton{..}はresolve()を経由しない想定（handle_surface_gestureが
         // edgeから直接組み立てる）。exhaustive matchのためのみここに入れる（実害なし）。
         | Action::MouseButton { .. }
-        | Action::MouseScroll { .. } => match edge {
+        | Action::MouseScroll { .. }
+        | Action::MouseWheel { .. } => match edge {
             Edge::Down => Resolved::Fire(action.clone()),
             Edge::Up => Resolved::Ignored,
         },
@@ -1009,6 +1180,66 @@ pub fn resolve(keymap: &Keymap, state: &mut LayerState, key_id: &str, edge: Edge
 // ============================================================================
 // 単体テスト
 // ============================================================================
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    /// キーマップに書ける `mouse.wheel`。向きは up/down のどちらかだけ
+    #[test]
+    fn mouse_wheel_action_parses_both_directions() {
+        let up: Action = serde_json::from_str(r#"{"t":"mouse.wheel","dir":"up"}"#).unwrap();
+        let down: Action = serde_json::from_str(r#"{"t":"mouse.wheel","dir":"down"}"#).unwrap();
+        assert_eq!(up, Action::MouseWheel { dir: WheelDir::Up });
+        assert_eq!(down, Action::MouseWheel { dir: WheelDir::Down });
+        assert!(serde_json::from_str::<Action>(r#"{"t":"mouse.wheel","dir":"left"}"#).is_err());
+        // 量を端末や JSON から渡す口は無い（1段固定）
+        assert!(serde_json::from_str::<Action>(r#"{"t":"mouse.wheel","dir":"up","amount":9}"#).is_err());
+    }
+
+    /// ラジアルの設定。余計な欄は拒否し、既定（4方向・1層）のままなら何も書き出さない
+    #[test]
+    fn radial_config_parses_and_rejects_unknown_fields() {
+        let r: RadialConfig = serde_json::from_str(r#"{"label":"編集"}"#).unwrap();
+        assert_eq!(r.label, "編集");
+        // 書いていない扇と輪は、古いラジアルと同じ 4方向・1層 になる
+        assert_eq!((r.sectors, r.rings), (4, 1));
+        let two: RadialConfig =
+            serde_json::from_str(r#"{"label":"編集","sectors":8,"rings":2}"#).unwrap();
+        assert_eq!((two.sectors, two.rings), (8, 2));
+        assert!(serde_json::from_str::<RadialConfig>(r#"{"label":"x","slots":8}"#).is_err());
+        assert_eq!(serde_json::to_string(&RadialConfig::default()).unwrap(), "{}");
+    }
+
+    /// 二層ラジアルが盤面に要求するキーid。内周は方向のうしろに 2 が付く
+    #[test]
+    fn radial_key_ids_cover_every_sector_and_ring() {
+        assert_eq!(radial_key_ids(4, 1).unwrap(), vec!["N", "E", "S", "W"]);
+        let eight_two = radial_key_ids(8, 2).unwrap();
+        assert_eq!(eight_two.len(), 16);
+        assert_eq!(&eight_two[..8], &RADIAL_DIRS_8[..]);
+        assert_eq!(eight_two[8], "N2");
+        assert_eq!(eight_two[15], "NW2");
+        // 取れない値は先に弾く。実機で「開いたのに押せない扇」が出ないようにするため
+        assert!(radial_key_ids(5, 1).is_none());
+        assert!(radial_key_ids(8, 3).is_none());
+        assert!(radial_key_ids(8, 0).is_none());
+    }
+
+    /// wheel 形は detentDeg を書かなくてよく、既存のダイヤル（形の指定なし）は dial のまま
+    #[test]
+    fn jog_shape_defaults_to_dial_and_wheel_needs_no_detent_deg() {
+        let wheel: JogConfig =
+            serde_json::from_str(r#"{"shape":"wheel","detentPx":18,"sound":true}"#).unwrap();
+        assert_eq!(wheel.shape, JogShape::Wheel);
+        assert_eq!(wheel.detent_px, Some(18));
+        let dial: JogConfig = serde_json::from_str(r#"{"detentDeg":10,"ring":false}"#).unwrap();
+        assert_eq!(dial.shape, JogShape::Dial);
+        // 書き出しても既存のダイヤルの JSON に shape / detentPx が増えない
+        let text = serde_json::to_string(&dial).unwrap();
+        assert!(!text.contains("shape") && !text.contains("detentPx"), "{text}");
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1049,6 +1280,7 @@ mod tests {
             }),
             board: None,
             jog: None,
+            radial: None,
             layers: vec![
                 layer_with(
                     0,

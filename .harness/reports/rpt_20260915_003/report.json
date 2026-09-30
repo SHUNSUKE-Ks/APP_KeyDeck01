@@ -1,0 +1,26 @@
+{
+  "reportId": "rpt_20260915_003",
+  "schemaVersion": "1.0",
+  "title": "KeyDeck技術書 初版を執筆し、読本屋への納品形・引継ぎ書・本の作り方の実録を作成",
+  "status": "completed",
+  "taskId": null,
+  "agent": "Claude Code",
+  "model": "Opus 5",
+  "artifacts": [
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\00_この本について.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\chapter-01.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\appendix-b_逆引き索引.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\figures\\fig-06-01_fn_mo.html",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\figures\\fig-06-01_fn_mo.json",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\納品_読本屋\\book.json",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\20_書籍_初版\\納品_読本屋\\book.md",
+    "C:\\00_master\\DevApps\\APP_KeyDeck01\\00_勉強フォルダー\\15_引継ぎ_次のチャットへ_20260915.md",
+    "C:\\00_CreatorHub\\knowledge\\BookStandard\\実録_KeyDeck技術書_本の作り方.md",
+    "C:\\00_CreatorCompass\\CCへ_本の作り方の実録_KeyDeck技術書_20260915.md"
+  ],
+  "verification": {
+    "status": "passed",
+    "summary": "cargo test --workspace 139 passed / 0 failed。Hubを起動し、同じ/ipad画面を開いたまま別のWS接続から実際のkey.press（K101 down/up）を送って3枚撮影、Hubログでmomentary [1]→[]を確認。機械検査: 個人情報・絶対パス・token・IP 0件、確認問題と解答43問の番号一致、画像5点の実在、図JSONがbookmaker-diagram v1.1 schemaに適合、book.jsonが解析可能。撮影後にHubを停止。独立した監修は未実施。"
+  },
+  "nextAction": "別のAIに監修を依頼する（書き直さず指摘のみ）。利用者に著者表記・掲載許可・読本屋CMSの納品先を確認する。Moを押したまま切断するとレイヤーが残る件を開発側で判断する。"
+}

@@ -90,6 +90,16 @@
       .sel-cap { display: none; }
       .sel select { max-width: 116px; }
     }
+    /* 横向きのスマホ（iPhone 7 横で使える高さは約330px）。帯が50pxあると
+       盤面の1割半を食うので、帯だけ詰める。iPadはこの高さにならないので影響しない。
+       エディタの DEVICES.iphone7_land.header（40px＝帯36px＋上の隙間4px、667×331で実測）はこれに合わせてある。 */
+    @media (max-height: 450px) {
+      .head { padding: 3px 8px; gap: 6px; }
+      #wiredBtn, #qrOpenBtn { min-height: 30px; }
+      #statusBtn { padding: 3px 10px 3px 6px; }
+      .sel select { min-height: 28px; padding: 3px 6px; }
+      #stage { padding-top: 4px; }
+    }
 
     /* ===== 区画グリッド =====
        layouts/*.json の grid.cols / grid.rows をそのままCSS Gridへ転記する。

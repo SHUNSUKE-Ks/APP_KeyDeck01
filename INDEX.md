@@ -1,15 +1,18 @@
 # INDEX — APP_KeyDeck01 全ファイル索引（AI用の地図）
 
-迷ったらここ。**読み順: ①CLAUDE.md → ②vision → ③DEVBOARD → ④brain JSON**。その後は目的別に下表へ。
+迷ったらここ。**読み順: ⓪引継ぎ → ①CLAUDE.md → ②vision → ③DEVBOARD → ④brain JSON**。その後は目的別に下表へ。
 
-## 0. 最初に読む4点（この順）
+## 0. 最初に読む5点（この順）
 
 | # | ファイル | 何か |
 |---|---|---|
+| ⓪ | `AI_Memory/引継ぎ.md` | **いまどうなっているか。** 上書き式で短い。次にやること・**確認できていないこと**。2026-09-23 新設。`STATE.md` の役目はここへ移した |
 | ① | `CLAUDE.md` | 憲法。凍結領域・不変条件6箇条・品質ゲート。**違反する変更は書く前に止まる** |
 | ② | `brief/keydeck_vision_and_agents_v1.md` | 北極星。ゴールの言語化・守り/攻めのハーネス・製品化ループ・新Surface追加時の手順 |
-| ③ | `DEVBOARD.md` | 現在地。決定事項ログ・タスク進捗・検証記録（時系列の全履歴） |
+| ③ | `DEVBOARD.md` | 履歴の正本。決定事項ログ・タスク進捗・検証記録（時系列の全履歴）。**長いので必要な日付だけ** |
 | ④ | `brief/keydeck_brain_v1.json` | 暗黙知DB。ユーザープロファイル・罠PF1〜8・未決スレッドOT・検証レシピ |
+
+`AI_Memory/作業ログ/` は1セッション1枚の積み増し式。**なぜそうなったか**を追うときに読む。
 
 ## 1. 設計書（brief/。番号が新しいほど優先。古いものも有効なD番号を含む）
 
@@ -70,6 +73,7 @@
 | `brief/proposals/P-003_streamdeck_v2.md` | Stream Deck v2（Ver1-a実装済み・Ver1-b/1-c裁定待ち） |
 | `brief/proposals/P-005_layout_components.md` | **レイアウトと部品の三層化**（section/Component/slot）。段階A実装済み・段階B以降は未着手 |
 | `brief/proposals/P-004_ssd_field_deck.md` | SSD外出先専用キーボードView（**別セッション担当**。P-005段階Bと領域が重なる） |
+| `brief/proposals/P-007_device_image_upload_to_gallery.md` | **端末から画像を送ってNote StoryのGalleryへ**（1枚ごとに付帯JSON・作品/人物をIDで持つ）。依頼書のみ・裁定待ち（不変条件6に`gallery_inbox/`を足すか） |
 | `README.md` | 起動手順・フォーマットの変え方・トラブルシュート |
 
 ## 6. Git

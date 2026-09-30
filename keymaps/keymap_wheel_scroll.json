@@ -1,0 +1,16 @@
+{
+  "keymapId": "wheel_scroll",
+  "kind": "single",
+  "description": "画面のスクロール用ホイール（縦長）。マウスのホイールと同じく、上下にこすると1目盛りごとにカチッと鳴って1段スクロールする。\n\n■ 置き方\n1列×2行の細い区画に入る（jog の shape=wheel）。トラックボールとは別の区画に置く。\n\n■ 送るもの\n目盛りを1つ越えるたびに CW（指を下へ＝画面は下へ）か CCW（指を上へ＝画面は上へ）を1回押す。何が起きるかは下の layer が決めていて、どちらも mouse.wheel（Windows の1ノッチ＝通常3行）。\n\n■ 手ごたえ\ndetentPx=18 … 指を18px動かすごとに1段。細かすぎると1回こするだけで何段も飛ぶので、iPhone の1マス（約62px）で3段ほどに合わせた。\nsound=true … 1段ごとに音を鳴らす（iPhone/iPad は本体の消音スイッチが入っていると鳴らない）。\n\n■ スクロールする先\nWindows は**マウスカーソルの下にあるウィンドウ**をスクロールする。先にトラックボールでカーソルを動かしたい場所へ置いてから回す。",
+  "jog": { "shape": "wheel", "detentPx": 18, "ring": false, "sound": true },
+  "board": {
+    "cols": 2,
+    "keys": [
+      { "id": "CCW", "row": 1, "col": 1 },
+      { "id": "CW", "row": 1, "col": 2 }
+    ]
+  },
+  "layerFiles": [
+    "layers/wheel_scroll_layer0.json"
+  ]
+}

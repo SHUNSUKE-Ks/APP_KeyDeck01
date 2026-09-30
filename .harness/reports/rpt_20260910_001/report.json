@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260910_001",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "documentation",
+  "kind": "phase_report",
+  "date": "2026-09-10",
+  "title": "KeyDeck技術書 第2稿の状態図と確認問題",
+  "summary": "初稿を保存したまま、第1〜5章の差し替え原稿、確認問題、解答を追加し、状態変化と入力出力の違いを図解した。",
+  "agentId": "codex",
+  "modelProfileId": "codex-gpt-5",
+  "startedAt": "2026-09-10T00:00:00+09:00",
+  "completedAt": "2026-09-10T00:00:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "第1〜3章を小さな注釈付きコードblockと図へ分解した。",
+    "第5章でMo、Key、TgFire、KeyHoldを状態変化とWindows入力の差分として説明した。",
+    "確認問題と解答を別ファイルに分け、問題だけを先に開ける見開き構成にした。"
+  ],
+  "verification": [
+    "新規3ファイルの章構造、図、コードblock、個人情報の伏字対象が無いことをrgで確認した。",
+    "router、canonical_command_id、load_keymap_from_path、resolve、fitDeckの実在を前段のソース検索で確認した。",
+    "ソースコードは変更していないため、Hubや開発サーバーは起動していない。",
+    "cargo test --workspaceは今回も実行していない。原稿変更のみであり、既存のテスト結果を再確認済みとは扱わない。"
+  ],
+  "nextActions": [
+    "利用者が第2稿の状態図を読み、図の密度とコードblockの量を判断する。",
+    "了承後、第6章以降にも前→処理→後の図と見開き形式の確認問題を適用する。"
+  ],
+  "deliverables": [
+    "00_勉強フォルダー/04_確認問題.md",
+    "00_勉強フォルダー/05_確認問題_解答.md",
+    "00_勉強フォルダー/06_技術書_第2稿_第1〜5章差し替え.md"
+  ],
+  "tags": ["documentation", "keydeck", "state-driven", "learning"],
+  "blockedEncountered": [],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": true,
+    "note": "状態前後と副作用を別レーンで描き、問題と解答を別ページにする構成は、状態を持つアプリの学習教材に再利用できる。"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

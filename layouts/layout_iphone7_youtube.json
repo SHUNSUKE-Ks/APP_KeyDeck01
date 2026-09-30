@@ -1,0 +1,54 @@
+{
+  "layoutId": "iphone7_youtube",
+  "description": "iPhone 7 を横向きで使う YouTube 視聴用。ipad_youtube と同じ部品を、小さい画面向けに 10×4 の格子へ並べ直したもの。\n\n■ 格子を 10×4 にした理由\niPhone 7 横（Safari）で格子に使えるのはおよそ 667×289px。12×9 のままだと1マスが約55×32pxになり、指で押せる44pxを縦で割る。10×4 なら1マスが約67×72pxで、正方形に近く押しやすい。\n\n■ 並び\n左上: ボタン盤（youtube01）。左下: 左クリック・右クリック・スクショ。中央: コマ送りダイヤル。右: トラックボール。\n\n■ 使う順番は ipad_youtube と同じ\n動画の上を一度クリックしてページにフォーカスを当ててから、ボタン・ダイヤルを使う。",
+  "device": "iphone7_land",
+  "grid": {
+    "cols": 10,
+    "rows": 4
+  },
+  "sections": [
+    {
+      "id": "SEC-BUTTONS",
+      "row": 1,
+      "col": 1,
+      "colSpan": 3,
+      "rowSpan": 2,
+      "component": {
+        "kind": "keyboard",
+        "ref": "youtube01"
+      }
+    },
+    {
+      "id": "SEC-CLICK-L",
+      "row": 3,
+      "col": 1,
+      "colSpan": 2,
+      "rowSpan": 2,
+      "component": {
+        "kind": "keyboard",
+        "ref": "mouse_left"
+      }
+    },
+    {
+      "id": "SEC-CLICK-R",
+      "row": 1,
+      "col": 4,
+      "rowSpan": 2,
+      "component": {
+        "kind": "keyboard",
+        "ref": "mouse_right"
+      }
+    },
+    {
+      "id": "SEC-BALL",
+      "row": 1,
+      "col": 5,
+      "colSpan": 6,
+      "rowSpan": 4,
+      "component": {
+        "kind": "trackball",
+        "ref": "tb01"
+      }
+    }
+  ]
+}

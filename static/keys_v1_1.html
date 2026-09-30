@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  ■■ View_Ver1.1 凍結（2026-09-23）。このファイルは変更しない ■■
+  V2.1（アイコンタイル化・Deck編集の追加）へ作り替える前のkeys.html（キー編集）をそのまま残したもの。
+  URL: /keys_v1_1?token=…
+  描画は /components_v1_1.js（同じ日の写し）を使う。生の components.js を変えてもこの画面は変わらない。
+============================================================ -->
+<!-- ============================================================
+  keys.html — キー編集。URL: /keys?keymap=<id>&layer=<n>&token=…
+  素のHTML+JSのみ（D2）。PCでもiPadでも同じURLで開ける。
+
+  ■ この画面がやること / やらないこと
+    やる   … キーの「中身」を変える。ラベル・アクション・レイヤーへの割当
+    やらない … キーの「位置」を変える（並び替え）
+             位置は keymaps/keymap_*.json の board にあり、そこは
+             CLAUDE.md 不変条件6の書き込み許可外。裁定が要る。
+
+  ■ 触り方
+    ① 上の部品エリアで部品を選ぶ（選ぶと枠が光る）
+    ② 盤面のキーを押すと、その部品が入る
+    ③ 盤面のキーを上の部品エリアへ放り込むと、そのキーを空にする
+
+    「部品をキーへドラッグ」ではなく「選んでから押す」にしてある。
+    キーは小さく密なので、掴んで正確に落とすのは指では難しい。
+    消す操作だけドラッグなのは、誤って消えないようにするため
+    （区画エディタの「置ける部品へ戻す」と同じ考え方）。
+
+  ■ 継承の見え方
+    レイヤー2を編集していても、そこに定義の無いキーは下のレイヤーの
+    ものが見える（D3のtransフォールスルー）。**このレイヤーが自分で
+    決めているキー**だけを実線で、継承しているキーは薄く出す。
+    これが分からないと「消したのに残っている」と誤解する。
+
+  ■ 保存
+    POST /api/layer/save → keymaps/layers/<keymapId>_layer<N>.json
+    書き込み先は不変条件6が元から許している場所（D22）。
+    既存レイヤーの上書きのみ。新しいレイヤーの追加はマニフェストの
+    書き換えを伴うため、この画面からはできない。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — キー編集</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel2:#161c2e; --ink:#f4f7ff;
+      --ink-muted:#b7bfd6; --ink-dim:#6b7590; --empty:#161c30;
+      --accent:#2d67d9; --accent-soft:#24478f; --ok:#35c47a; --err:#e2555a;
+      --warn:#e8b44a; --line:#2d3550; --key-radius:10px; --key-gap:6px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); font-size: 13px;
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+
+    .head {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+    }
+    .head h1 { font-size: 14px; margin: 0; white-space: nowrap; }
+    .head .sp { flex: 1 1 auto; }
+    button, select {
+      min-height: 32px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel); color: var(--ink); font: inherit; font-size: 12px;
+      padding: 0 12px; cursor: pointer;
+    }
+    button:hover, select:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .45; cursor: default; }
+    a { color: var(--ink-muted); font-size: 12px; }
+    .cap { font-size: 10px; color: var(--ink-dim); letter-spacing: .06em; }
+    #board .key.moving { outline-color: var(--warn); z-index: 3; }
+    #conn { font-size: 11px; color: var(--ink-dim); }
+    #conn.bad { color: var(--err); }
+
+    /* ---- 部品エリア（上） ---- */
+    .parts {
+      flex: 0 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid var(--line);
+      background: var(--panel2); position: relative;
+    }
+    .tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .tab {
+      min-height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink-muted);
+    }
+    .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* 部品は四角いボタンで並べる（リストにしない） */
+    /* **高さを固定する。** タブによって部品の数が違うため、内容に高さを
+       任せると部品エリアが伸び縮みし、そのぶん下の盤面が拡大縮小してしまう。
+       盤面の大きさが操作のたびに変わるのは、キーの位置を覚える妨げになる。
+       中身が多いときはこの中でスクロールさせる。 */
+    .partgrid {
+      display: grid; gap: 6px; align-content: start;
+      grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+      height: 116px; overflow-y: auto;
+    }
+    .part {
+      aspect-ratio: 1 / 1; min-height: 46px; padding: 2px;
+      border-radius: 9px; border: 1px solid var(--line); background: var(--panel);
+      color: var(--ink); font-size: 13px; line-height: 1.1;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      overflow: hidden; word-break: break-all;
+      /* 部品の上で始めた指の動きは**ドラッグ**として扱う。これが無いと、
+         一覧をスクロールする動きだと解釈されて掴めないことがある。 */
+      touch-action: none;
+    }
+    .part.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 2px rgba(45,103,217,.45); }
+    .part small { font-size: 9px; color: var(--ink-dim); display: block; }
+
+    /* 放り込み口。キーを掴んでいる間だけ出す */
+    .dropveil {
+      position: absolute; inset: 0; z-index: 5; border-radius: 0;
+      background: rgba(226,85,90,.20); border: 2px dashed rgba(226,85,90,.72);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: #ffdfe0;
+      pointer-events: none;   /* 当たり判定は座標で行う */
+    }
+    .dropveil[hidden] { display: none !important; }
+    .dropveil.over { background: rgba(226,85,90,.46); border-style: solid; }
+
+    /* ---- 盤面（下・大きく） ---- */
+    .boardwrap {
+      flex: 1 1 auto; min-height: 0; padding: 12px 14px 14px;
+      display: flex; flex-direction: column; position: relative;
+    }
+    /* 説明文も**高さを固定**する。文の長短で行数が変わると、その分だけ
+       盤面が伸び縮みする。入りきらない分は … にし、全文は title に入れる。 */
+    .boardhint {
+      font-size: 11px; color: var(--ink-dim); margin-bottom: 6px; flex: 0 0 auto;
+      height: 15px; line-height: 15px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #board { flex: 1 1 auto; min-height: 0; touch-action: none; user-select: none; }
+
+    /* このレイヤーが自分で決めているキー / 下から継承しているキー */
+    #board .key { outline: 2px solid transparent; }
+    #board .key.own { outline-color: rgba(53,196,122,.85); }
+    #board .key.inherited { opacity: .45; }
+    #board .key.picked { outline-color: var(--accent); }
+    /* ドラッグで持っているキー／落とす先のキー */
+    #board .key.dragsrc { opacity: .35; }
+    #board .key.dragover { outline-color: var(--warn); outline-width: 3px; }
+    /* 指の下についてくる影。どれを持っているかが分かる */
+    #dragghost {
+      position: fixed; z-index: 500; pointer-events: none;
+      min-width: 48px; min-height: 40px; padding: 6px 10px;
+      border-radius: 9px; background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+      transform: translate(-50%, -50%);
+    }
+    #dragghost[hidden] { display: none !important; }
+    #board .key.bad { outline-color: var(--err); }
+    /* 落下予想地。手を離すとここへ入る。中身は出さず枠だけ */
+    .dropcell {
+      border: 2px dashed var(--accent); border-radius: var(--key-radius);
+      background: rgba(45,103,217,.12); pointer-events: none; z-index: 4;
+    }
+    .dropcell.blocked { border-color: var(--err); background: rgba(226,85,90,.14); }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <span id="navHost"></span>
+    <label class="cap" for="keymapSel"
+           style="font-size:10px;color:var(--ink-dim);letter-spacing:.06em">keyboard</label>
+    <select id="keymapSel" aria-label="編集するキーボード"></select>
+    <select id="layerSel" aria-label="編集するレイヤー"></select>
+    <button id="undoBtn" type="button">1つ戻す</button>
+    <button id="revertBtn" type="button">全部戻す</button>
+    <button id="saveBtn" type="button" class="primary">保存</button>
+    <span class="sp"></span>
+    <span id="conn"></span>
+  </div>
+  <!-- 2段目。左に現在地、右にこの画面固有の操作。知らせはこの帯の上に浮かぶ。 -->
+  <div id="subhead"></div>
+  <div class="parts">
+    <div class="dropveil" id="dropveil" hidden><span>ここへ放すと、そのキーを空にする</span></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="partgrid" id="parts"></div>
+  </div>
+
+  <div id="dragghost" hidden></div>
+
+  <div class="boardwrap">
+    <div class="boardhint" id="hint"></div>
+    <div id="board"></div>
+  </div>
+
+  <script src="/components_v1_1.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+    // editor.htmlの「編集」リンクが、いま開いていたboardのidを持たせてくる。
+    // 無ければ（直接このURLを開いた等）これまでどおり既定のboardへ戻る。
+    const fromLayout = params.get("from") || "";
+    KDComponents.renderNav(document.getElementById("navHost"), "/keys", token);
+    /// 2段目の帯。左が現在地、右がこの画面固有の操作。
+    /// 中で呼ぶ setDefaultKeymap / addKey は関数宣言なので、ここから参照できる。
+    const SUB = KDComponents.renderSubHeader(document.getElementById("subhead"), {
+      token,
+      crumbs: [
+        { label: "ホーム", path: "/connect" },
+        { label: "PC部門" },
+        { label: "Layout編集", path: fromLayout ? "/?id=" + encodeURIComponent(fromLayout) : "/" },
+        { label: "編集" },
+      ],
+      actions: [
+        { label: "スロットを追加する", id: "addKeyBtn",
+          title: "空いている場所に1つ足します。空きが無ければ1段増やします",
+          onClick: () => addKey() },
+        { label: "default にする", id: "setDefaultKeymapBtn",
+          title: "いま選んでいるキーボードを、次に開いたとき最初に出すものにします",
+          onClick: () => setDefaultKeymap(keymapId) },
+      ],
+    });
+    KDComponents.syncTheme(token);
+
+    // Hubが持つ「最初に出すキーボード」を先に取りに行く。
+    // 一覧を組み立てる前に届けば、それが最初の選択になる。
+    fetch("/api/defaults?token=" + encodeURIComponent(token))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        HUB_DEFAULT_KEYMAP = d.keymap;
+        const sel = document.getElementById("keymapSel");
+        if (sel.options.length) KDComponents.markDefaultOption(sel, HUB_DEFAULT_KEYMAP);
+      })
+      .catch(() => { /* 取れなくても編集はできる */ });
+
+    /// **長押しではなくボタン。** 押せば結果が出る方が確かめられる。
+    async function setDefaultKeymap(id) {
+        try {
+          const res = await fetch("/api/defaults?token=" + encodeURIComponent(token), {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ keymap: id }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) { flash("既定にできません: " + (body.cause || res.status)); return; }
+          HUB_DEFAULT_KEYMAP = body.keymap;
+          KDComponents.markDefaultOption(document.getElementById("keymapSel"), HUB_DEFAULT_KEYMAP);
+          flash(id + " を『最初に出すキーボード』にしました");
+        } catch (error) {
+          flash("通信エラー: " + error);
+        }
+    }
+
+    /// 新しいキーボードを1枚作る。
+    /// 名前の初期値は keyboard_1（既にあれば次の番号）。
+    async function createKeymap() {
+      const ids = Object.keys((CONFIG && CONFIG.keymaps) || {});
+      const suggested = nextKeymapName(ids);
+      const raw = prompt("新しいキーボードの名前（英小文字・数字・_ のみ）", suggested);
+      if (raw === null) return;
+      const id = raw.trim();
+      if (!/^[a-z0-9_]{1,64}$/.test(id)) {
+        flash("名前に使えるのは英小文字・数字・_ だけです（1〜64文字）");
+        return;
+      }
+      try {
+        const res = await fetch("/api/keymap/new?token=" + encodeURIComponent(token), {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ keymapId: id }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          flash("作れません: " + (body.code || res.status) + " — " + (body.cause || ""));
+          return;
+        }
+        // 保存の再配信で一覧が更新される。そこへ切り替える
+        keymapId = id;
+        flash(id + " を作りました（空のキーが3つ置いてあります）");
+      } catch (error) {
+        flash("通信エラー: " + error);
+      }
+    }
+
+
+
+    function log(kind, code, message, context) {
+      const line = "[KD][" + kind + "][" + code + "] " + message;
+      if (kind === "ERR") console.error(line, context ?? "");
+      else console.info(line, context ?? "");
+    }
+
+    // ================================================================
+    // 状態
+    //   CONFIG  … Hubから届いた構成そのもの
+    //   draft   … いま編集中のレイヤーの keys（保存するまでディスクには行かない）
+    //   picked  … 選んでいる部品
+    // ================================================================
+    let CONFIG = null;
+    let keymapId = params.get("keymap") || "";
+    let layerId = Number(params.get("layer") || 0);
+    let draft = {};
+    let picked = null;
+    // 位置編集用の下書き。board.keys を丸ごと持つ（保存するまでディスクへは行かない）
+    let boardDraft = null;
+
+    // ------------------------------------------------------------------
+    // 一手戻す。
+    //
+    // 触るたびに「触る前」を積む。**中身（レイヤー）と位置（盤面）を
+    // 一緒に積む**ので、どちらを触った操作でも同じ1手として戻せる。
+    // 保存はしないので、戻したあとに保存すれば無かったことにできる。
+    // ------------------------------------------------------------------
+    const HISTORY_MAX = 50;
+    const undoStack = [];   // window.history と衝突しない名前にする
+
+    /// 変更を加える**直前**に呼ぶ。
+    function snapshot() {
+      undoStack.push({
+        draft: JSON.parse(JSON.stringify(draft)),
+        board: boardDraft ? JSON.parse(JSON.stringify(boardDraft)) : null,
+      });
+      if (undoStack.length > HISTORY_MAX) undoStack.shift();
+      updateUndoBtn();
+    }
+
+    function undo() {
+      const prev = undoStack.pop();
+      if (!prev) { flash("これ以上戻せません"); return; }
+      draft = prev.draft;
+      boardDraft = prev.board;
+      picked = null;
+      renderParts();
+      renderBoard();
+      updateUndoBtn();
+      flash("1つ戻しました（あと " + undoStack.length + " 手戻せます）");
+    }
+
+    function updateUndoBtn() {
+      const b = document.getElementById("undoBtn");
+      if (b) b.disabled = undoStack.length === 0;
+    }
+
+    /// 空いている場所を左上から探す。**盤面が埋まっていたら1段下に増やす。**
+    ///
+    /// これが無いと、隙間の無い盤面（例: 3キーが1行に並んだだけの盤面）には
+    /// キーを1つも足せない。部品を空きへ落とす操作はあるが、そもそも空きが
+    /// 無ければ使えなかった。
+    function findFreeSpot(size) {
+      if (!boardDraft) return null;
+      const cols = boardDraft.cols;
+      const rows = boardDraft.keys.length
+        ? Math.max(...boardDraft.keys.map((k) => k.row + (k.rowSpan || 1) - 1))
+        : 0;
+      for (let r = 1; r <= rows; r += 1) {
+        for (let c = 1; c + (size.colSpan || 1) - 1 <= cols; c += 1) {
+          const spot = { row: r, col: c };
+          if (cellIsFree(spot, size.colSpan, size.rowSpan, null)) return spot;
+        }
+      }
+      // どこも空いていない。1段増やして左端へ置く
+      return { row: rows + 1, col: 1 };
+    }
+
+    /// 読み直したら、それが新しい出発点。履歴は捨てる。
+    function clearHistory() {
+      undoStack.length = 0;
+      updateUndoBtn();
+    }
+
+    const connEl = document.getElementById("conn");
+    const boardEl = document.getElementById("board");
+    const dropVeil = document.getElementById("dropveil");
+
+    /// 知らせは2段目の帯の上に浮かべ、2秒で消す。**行を占めない**ので、
+    /// 出るたびに盤面が縮んでキーの高さが変わることがない。
+    function flash(msg) { SUB.toast(msg); }
+    function clearFlash() { SUB.hideToast(); }
+    function setConn(text, bad) {
+      connEl.textContent = text;
+      connEl.className = bad ? "bad" : "";
+    }
+
+    // ================================================================
+    // 部品。**押した瞬間にHubへ送るものではなく、キーに入れる中身の見本**。
+    // 実行できるかどうかは、保存後にHubが全JSONから作り直す許可リストが決める。
+    // ================================================================
+    const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    const DIGITS = "0123456789".split("");
+    const NAMED = [
+      ["ENTER", "Enter"], ["SPACE", "Space"], ["BKSP", "Bksp"], ["TAB", "Tab"],
+      ["ESC", "Esc"], ["SHIFT", "Shift"], ["CTRL", "Ctrl"], ["ALT", "Alt"],
+      ["WIN", "Win"], ["UP", "↑"], ["DOWN", "↓"], ["LEFT", "←"], ["RIGHT", "→"],
+      ["HOME", "Home"], ["END", "End"], ["PGUP", "PgUp"], ["PGDN", "PgDn"],
+      ["DELETE", "Del"], ["F1", "F1"], ["F2", "F2"], ["F3", "F3"], ["F4", "F4"],
+      ["F5", "F5"], ["F6", "F6"], ["F7", "F7"], ["F8", "F8"], ["F9", "F9"],
+      ["F10", "F10"], ["F11", "F11"], ["F12", "F12"],
+    ];
+    const SYMBOLS = "、。・ー！？＃＠／＊＋－＝（）「」『』【】％＆＄＾～｜＜＞：；".split("");
+
+    /// 部品1つ = { label, action, tab }
+    function buildParts() {
+      // 文字と数字（36個）
+      const basic = [];
+      for (const c of LETTERS) basic.push({ label: c, action: { t: "key", vk: c } });
+      for (const d of DIGITS) basic.push({ label: d, action: { t: "key", vk: d } });
+      // Ctrl / Shift / Enter / 矢印 / F1〜F12 など（30個）。
+      // 文字と混ぜると2行に収まらず、下端のものが見切れて掴めなくなる。
+      const special = NAMED.map(([vk, label]) => ({ label, action: { t: "key", vk } }));
+
+      const symbols = SYMBOLS.map((c) => ({ label: c, action: { t: "text", string: c } }));
+
+      // マクロ = すでにDeckに登録されている操作。許可リストに入っているので確実に動く。
+      // 「Vol+ などのキーをそのまま使えるように」というご要望に対応。
+      const macros = [];
+      const seen = new Set();
+      for (const deck of Object.values((CONFIG && CONFIG.decks) || {})) {
+        for (const page of deck.pages || []) {
+          for (const slot of page.slots) {
+            if (!slot.action || slot.action.t === "none") continue;
+            const key = JSON.stringify(slot.action);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            macros.push({ label: slot.label || "?", action: slot.action, note: deck.deckId });
+          }
+        }
+      }
+
+      // レイヤー切替キー。**切替ボタンと盤の紐づけはここで行う。**
+      // いま読み込まれているレイヤーの数だけ自動で並ぶ。
+      const layers = [];
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      for (const layer of (keymap ? keymap.layers : [])) {
+        if (layer.id === 0) continue;   // 0は基盤なので切替先にしない
+        const name = layerName(layer);
+        layers.push({ label: name + "\n押す間", action: { t: "mo", layer: layer.id }, note: "mo" });
+        layers.push({ label: name + "\n固定", action: { t: "tg", layer: layer.id }, note: "tg" });
+      }
+
+      // ---- 同時押し（chord） ----
+      // 1キーでは表せない操作。ここに無いものは /schema の辞書を見て
+      // レイヤーのJSONへ直接書ける（t: "chord", keys: [...]）。
+      //
+      // Win+数字は**タスクバーの左から何番目を開くか**。並び順を変えると
+      // 行き先も変わるので、タスクバー側を固定してから割り当てること。
+      const shortcut = [];
+      for (let n = 1; n <= 9; n += 1) {
+        shortcut.push({
+          label: "Win+" + n + "\nタスクバー",
+          action: { t: "chord", keys: ["WIN", String(n)] },
+        });
+      }
+      const COMBOS = [
+        ["コピー", ["CTRL", "C"]],
+        ["貼り付け", ["CTRL", "V"]],
+        ["切り取り", ["CTRL", "X"]],
+        ["元に戻す", ["CTRL", "Z"]],
+        ["やり直し", ["CTRL", "Y"]],
+        ["全選択", ["CTRL", "A"]],
+        ["保存", ["CTRL", "S"]],
+        ["検索", ["CTRL", "F"]],
+        ["閉じる", ["CTRL", "W"]],
+        ["新規", ["CTRL", "N"]],
+        ["窓の切替", ["ALT", "TAB"]],
+        ["戻る", ["ALT", "LEFT"]],
+        ["進む", ["ALT", "RIGHT"]],
+        ["デスクトップ", ["WIN", "D"]],
+        ["エクスプローラ", ["WIN", "E"]],
+        ["切り取り&スケッチ", ["WIN", "SHIFT", "S"]],
+      ];
+      for (const [label, keys] of COMBOS) {
+        shortcut.push({ label: label + "\n" + keys.join("+"), action: { t: "chord", keys } });
+      }
+
+      return { basic, special, shortcut, symbols, macros, layers };
+    }
+
+    /// レイヤーの表示名。説明の1行目から「Vol1.3 」などの接頭辞を落として短くする。
+    function layerName(layer) {
+      const first = (layer.description || "").split("\n")[0].trim();
+      if (!first) return "レイヤー" + layer.id;
+      const m = first.match(/^\S+\s+(.+?)[。.]/);
+      return (m ? m[1] : first).slice(0, 12);
+    }
+
+    const TABS = [
+      { id: "recent", label: "最近" },
+      { id: "basic", label: "文字" },
+      { id: "special", label: "特殊キー" },
+      { id: "shortcut", label: "ショートカット" },
+      { id: "symbols", label: "記号" },
+      { id: "layers", label: "レイヤー切替" },
+      { id: "macros", label: "マクロ" },
+    ];
+    let activeTab = "basic";
+
+    const RECENT_KEY = "keydeck.recentParts";
+    function loadRecent() {
+      try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
+    }
+    function pushRecent(part) {
+      const list = loadRecent().filter((p) => JSON.stringify(p.action) !== JSON.stringify(part.action));
+      list.unshift({ label: part.label, action: part.action });
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 24))); } catch { /* 保存できなくても動く */ }
+    }
+
+    // ================================================================
+    // 描画
+    // ================================================================
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    }
+
+    function renderTabs() {
+      const host = document.getElementById("tabs");
+      host.textContent = "";
+      for (const t of TABS) {
+        const b = el("button", "tab" + (t.id === activeTab ? " on" : ""), t.label);
+        b.type = "button";
+        b.addEventListener("click", () => { activeTab = t.id; renderTabs(); renderParts(); });
+        host.appendChild(b);
+      }
+    }
+
+    function currentParts() {
+      const all = buildParts();
+      if (activeTab === "recent") return loadRecent();
+      if (activeTab === "basic") return all.basic;
+      if (activeTab === "special") return all.special;
+      if (activeTab === "shortcut") return all.shortcut;
+      if (activeTab === "symbols") return all.symbols;
+      if (activeTab === "layers") return all.layers;
+      return all.macros;
+    }
+
+    function renderParts() {
+      const host = document.getElementById("parts");
+      host.textContent = "";
+      const list = currentParts();
+      if (list.length === 0) {
+        host.appendChild(el("p", null,
+          activeTab === "recent" ? "まだ使った部品がありません。" : "この分類にはまだ部品がありません。"));
+        return;
+      }
+      for (const part of list) {
+        const b = el("button", "part");
+        b.type = "button";
+        const lines = String(part.label).split("\n");
+        b.appendChild(document.createTextNode(lines[0]));
+        if (lines[1]) b.appendChild(el("small", null, lines[1]));
+        if (picked && JSON.stringify(picked.action) === JSON.stringify(part.action)) b.classList.add("on");
+        b.title = JSON.stringify(part.action);
+        b.addEventListener("click", () => {
+          picked = (picked && JSON.stringify(picked.action) === JSON.stringify(part.action)) ? null : part;
+          clearFlash();
+          renderParts();
+          renderHint();
+        });
+        // **部品をキーへドラッグして落とせる。**
+        // 「選んでから押す」も残してあるので、やりやすい方を使える。
+        bindPartDrag(b, part);
+        host.appendChild(b);
+      }
+    }
+
+    /// 部品をキーへドラッグして入れる。
+    function bindPartDrag(el, part) {
+      let dragging = false, moved = false, sx = 0, sy = 0;
+      el.addEventListener("pointerdown", (event) => {
+        dragging = true; moved = false;
+        sx = event.clientX; sy = event.clientY;
+        try { el.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
+      });
+      el.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        if (!moved && Math.hypot(event.clientX - sx, event.clientY - sy) < 8) return;
+        if (!moved) { moved = true; showGhost(String(part.label).split("\n")[0], event); }
+        moveGhost(event);
+        clearDragMarks();
+        const target = keyUnder(event, null);
+        if (target) {
+          target.classList.add("dragover");
+        } else {
+          // **空きへ落とすと、そこに新しいキーができる。**
+          // 枠は「ふつうのキー1つ分」で出す。1×1 で出すと半分の幅になり、
+          // 実際に置かれる大きさと食い違う。
+          const cell = cellAt(event);
+          if (cell) {
+            const size = standardKeySize();
+            const spot = snapFree(fitCell(cell, size), size);
+            showDropCell(spot, size.colSpan, size.rowSpan,
+              !cellIsFree(spot, size.colSpan, size.rowSpan, null));
+          }
+        }
+      });
+      const done = (event) => {
+        if (!dragging) return;
+        dragging = false;
+        if (!moved) return;          // 動いていなければ click 側に任せる
+        moved = false;
+        hideGhost();
+        const target = keyUnder(event, null);
+        clearDragMarks();
+        const name = String(part.label).split("\n")[0];
+
+        if (target) {
+          snapshot();
+          const keyId = target.dataset.keyId;
+          draft[keyId] = { label: name, action: part.action };
+          pushRecent(part);
+          flash(keyId + " に「" + name + "」を入れました");
+          renderBoard();
+          return;
+        }
+
+        // **空きへ落とした = そこに新しいキーを作る。**
+        // これが無いと、キーを動かして空いたところへ別のキーを置けず、
+        // 「消したら二度と戻せない」ことになる。
+        const cell = cellAt(event);
+        if (!cell || !boardDraft) return;
+        const size = standardKeySize();
+        const spot = snapFree(fitCell(cell, size), size);
+        if (!cellIsFree(spot, size.colSpan, size.rowSpan, null)) {
+          flash("そこには置けません（他のキーと重なります）");
+          return;
+        }
+        snapshot();
+        const id = newKeyId(spot.row, spot.col);
+        boardDraft.keys.push({
+          id, row: spot.row, col: spot.col,
+          colSpan: size.colSpan, rowSpan: size.rowSpan,
+        });
+        draft[id] = { label: name, action: part.action };
+        pushRecent(part);
+        renderBoard();
+        flash(id + " を 行" + spot.row + " 列" + spot.col + " に作って「" + name + "」を入れました");
+      };
+      el.addEventListener("pointerup", done);
+      el.addEventListener("pointercancel", done);
+    }
+
+    function renderHint() {
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      const layer = keymap && keymap.layers.find((l) => l.id === layerId);
+      const own = Object.keys(draft).length;
+      const name = layer ? layerName(layer) : "?";
+      const hint = document.getElementById("hint");
+      if (picked) {
+        hint.textContent = "「" + String(picked.label).split("\n")[0] + "」を選んでいます。"
+          + "入れたいキーを押すか、部品をキーへドラッグしてください。";
+        hint.title = hint.textContent;
+        return;
+      }
+      hint.textContent = "レイヤー " + layerId + "（" + name + "）／このレイヤーが決めているキー "
+        + own + " 個（緑枠）。"
+        + "キーを空きへドラッグ＝位置を動かす、別のキーへドラッグ＝中身を入れ替える、"
+        + "部品を空きへドラッグ＝そこに新しいキーを作る、"
+        + "上の部品エリアへ放り込む＝空にする。"
+        + "位置はレイヤー共通、中身はこのレイヤーだけに効きます。";
+      hint.title = hint.textContent;
+    }
+
+    /// 盤面を描く。**編集中レイヤーが有効な状態**で描くので、
+    /// 実際に切り替えたときと同じ絵になる。
+    function renderBoard() {
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      boardEl.textContent = "";
+      if (!keymap || !keymap.board) {
+        boardEl.appendChild(el("p", null, "このキーボードには編集できる盤面がありません（分割キーボードは対象外）。"));
+        return;
+      }
+      // draftを反映した一時的なkeymapを作って描く。保存前でも見た目に出る。
+      const shown = JSON.parse(JSON.stringify(keymap));
+      const target = shown.layers.find((l) => l.id === layerId);
+      if (target) target.keys = draft;
+      if (boardDraft) shown.board = JSON.parse(JSON.stringify(boardDraft));
+
+      const state = layerId === 0 ? { momentary: [], toggled: [] } : { momentary: [], toggled: [layerId] };
+      // editable: Hubへは送らないが触れる。interactive:false だけにすると盤面全体が
+      // pointer-events:none になり、ドラッグも押下も一切届かない。
+      KDComponents.renderKeyboard(boardEl, shown, state, { interactive: false, editable: true });
+
+      for (const btn of boardEl.querySelectorAll(".key")) {
+        const id = btn.dataset.keyId;
+        // 継承と自前を見分けられるようにする
+        btn.classList.add(draft[id] ? "own" : "inherited");
+        // 1つの画面で両方できるようにする。
+        //   空きへドラッグ … 位置を動かす（盤面）
+        //   キーへドラッグ … 中身を入れ替える（レイヤー）
+        //   部品を空きへ    … そこに新しいキーを作る
+        bindKeyEdit(btn, id);
+      }
+      paintConflicts();
+      renderHint();
+    }
+
+    // ================================================================
+    // ドラッグ＆ドロップの共通部分。
+    //
+    // 指の下に影（ghost）を出し、落とす先のキーを枠で示す。
+    // ポインタは掴んだ要素にキャプチャされるので、落とす先は
+    // **座標から elementFromPoint で引く**（相手側にイベントは飛ばない）。
+    // ================================================================
+    const ghostEl = document.getElementById("dragghost");
+
+    function showGhost(text, event) {
+      ghostEl.hidden = false;
+      ghostEl.textContent = text;
+      moveGhost(event);
+    }
+    function moveGhost(event) {
+      ghostEl.style.left = event.clientX + "px";
+      ghostEl.style.top = (event.clientY - 34) + "px";
+    }
+    function hideGhost() { ghostEl.hidden = true; }
+
+    /// いま指の下にあるキー（自分自身は除く）
+    function keyUnder(event, exceptId) {
+      // 影が当たり判定を横取りするので一瞬どける。
+      // **元の表示状態へ戻す**こと。ここで無条件に出すと、
+      // 指を離した後（hideGhost の後）に影が復活して残る。
+      const wasHidden = ghostEl.hidden;
+      ghostEl.hidden = true;
+      const el = document.elementFromPoint(event.clientX, event.clientY);
+      ghostEl.hidden = wasHidden;
+      const key = el && el.closest ? el.closest("#board .key") : null;
+      if (!key) return null;
+      if (exceptId && key.dataset.keyId === exceptId) return null;
+      return key;
+    }
+
+    function clearDragMarks() {
+      for (const el of boardEl.querySelectorAll(".dragover, .dragsrc")) {
+        el.classList.remove("dragover", "dragsrc");
+      }
+      hideDropCell();
+    }
+
+    /// 落下予想地の枠。**中身は描かず枠だけ**を、実際に入るマスへ出す。
+    /// 掴んでいるキーの大きさで出すので、入る場所と大きさが手を離す前に分かる。
+    function showDropCell(cell, colSpan, rowSpan, blocked) {
+      const grid = boardEl.querySelector(".kbgrid");
+      if (!grid || !cell) return hideDropCell();
+      let box = grid.querySelector(".dropcell");
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "dropcell";
+        grid.appendChild(box);
+      }
+      box.style.gridColumn = cell.col + " / span " + (colSpan || 1);
+      box.style.gridRow = cell.row + " / span " + (rowSpan || 1);
+      box.classList.toggle("blocked", !!blocked);
+      box.hidden = false;
+    }
+
+    function hideDropCell() {
+      const box = boardEl.querySelector(".dropcell");
+      if (box) box.remove();
+    }
+
+    /// 盤面からはみ出さないところまで左へ寄せたマス。
+    function fitCell(cell, size) {
+      const cols = boardDraft ? boardDraft.cols : 1;
+      return {
+        row: cell.row,
+        col: Math.max(1, Math.min(cell.col, cols - (size.colSpan || 1) + 1)),
+      };
+    }
+
+    /// 指したマスが埋まっていたら、**同じ行の一番近い空きへ寄せる**。
+    /// 盤面は1キー＝2列なので、穴を狙っても1列ずれて弾かれることがある。
+    /// 狙ったところがそのまま空いていれば動かさない。
+    function snapFree(cell, size) {
+      const span = size.colSpan || 1;
+      if (cellIsFree(cell, span, size.rowSpan, null)) return cell;
+      for (let d = 1; d <= span; d += 1) {
+        for (const col of [cell.col - d, cell.col + d]) {
+          const spot = fitCell({ row: cell.row, col }, size);
+          if (col >= 1 && spot.col === col
+            && cellIsFree(spot, span, size.rowSpan, null)) return spot;
+        }
+      }
+      return cell;
+    }
+
+    /// そのマスへ置けるか（自分以外のキーが居ないか）
+    function cellIsFree(cell, colSpan, rowSpan, exceptId) {
+      if (!cell || !boardDraft) return false;
+      const cs = colSpan || 1, rs = rowSpan || 1;
+      if (cell.col + cs - 1 > boardDraft.cols) return false;
+      return !boardDraft.keys.some((k) => {
+        if (k.id === exceptId) return false;
+        const kc = k.colSpan || 1, kr = k.rowSpan || 1;
+        return cell.col < k.col + kc && cell.col + cs > k.col
+            && cell.row < k.row + kr && cell.row + rs > k.row;
+      });
+    }
+
+    // ================================================================
+    // キーへの操作
+    //   押す         … 選んでいる部品を入れる
+    //   上へ放り込む … そのキーを空にする（このレイヤーの定義を消す）
+    // ================================================================
+    /// 中身モードのキー操作。
+    ///   キーを別のキーへドラッグ … **2つの中身を入れ替える**
+    ///   キーを上の部品エリアへ    … このレイヤーの定義を外す
+    ///   その場で離す（部品を選んでいるとき）… その部品を入れる
+    function bindKeyEdit(btn, keyId) {
+      let dragging = false;
+      let moved = false;
+      let overDrop = false;
+      let startX = 0, startY = 0;
+
+      btn.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        dragging = true;
+        moved = false;
+        overDrop = false;
+        startX = event.clientX;
+        startY = event.clientY;
+        btn.classList.add("picked");
+        try { btn.setPointerCapture(event.pointerId); } catch { /* 未対応環境 */ }
+      });
+
+      btn.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        // 少し動かして初めて「ドラッグ」とみなす。押しただけでは影を出さない
+        if (!moved && Math.hypot(event.clientX - startX, event.clientY - startY) < 8) return;
+        if (!moved) {
+          moved = true;
+          btn.classList.add("dragsrc");
+          showGhost(btn.textContent.trim() || keyId, event);
+          dropVeil.hidden = false;
+        }
+        moveGhost(event);
+
+        const z = dropVeil.getBoundingClientRect();
+        overDrop = event.clientX >= z.left && event.clientX <= z.right
+                && event.clientY >= z.top && event.clientY <= z.bottom;
+        dropVeil.classList.toggle("over", overDrop);
+
+        clearDragMarks();
+        btn.classList.add("dragsrc");
+        if (!overDrop) {
+          const target = keyUnder(event, keyId);
+          if (target) {
+            // キーの上 = 入れ替え。予想枠は出さない（相手が光る）
+            target.classList.add("dragover");
+          } else {
+            // 空きの上 = そこへ動く。**落下予想地に枠を出す**
+            const k = boardKey(keyId);
+            const cell = cellAt(event);
+            if (k && cell) {
+              const col = Math.min(cell.col, boardDraft.cols - (k.colSpan || 1) + 1);
+              const spot = { row: cell.row, col: Math.max(1, col) };
+              showDropCell(spot, k.colSpan, k.rowSpan,
+                !cellIsFree(spot, k.colSpan, k.rowSpan, keyId));
+            }
+          }
+        }
+      });
+
+      const finish = (event) => {
+        if (!dragging) return;
+        dragging = false;
+        btn.classList.remove("picked");
+        dropVeil.hidden = true;
+        dropVeil.classList.remove("over");
+        hideGhost();
+
+        if (moved) {
+          const wasOverDrop = overDrop;
+          const target = wasOverDrop ? null : keyUnder(event, keyId);
+          clearDragMarks();
+          moved = false;
+          overDrop = false;
+
+          if (wasOverDrop) {
+            if (draft[keyId]) {
+              snapshot();
+              delete draft[keyId];
+              flash(keyId + " をこのレイヤーから外しました（下のレイヤーの内容が出ます）");
+            } else {
+              flash(keyId + " はこのレイヤーでは元から定義していません");
+            }
+            renderBoard();
+            return;
+          }
+
+          if (target) {
+            // **キーの上で離した = 中身を入れ替える。**
+            // どちらかが未定義（下から継承）なら、見えている内容を写してから
+            // 入れ替える。そうしないと「空と入れ替えたら片方が消えた」ように見える。
+            snapshot();
+            const otherId = target.dataset.keyId;
+            const a = draft[keyId] || shownDef(keyId);
+            const b = draft[otherId] || shownDef(otherId);
+            if (b) draft[keyId] = JSON.parse(JSON.stringify(b)); else delete draft[keyId];
+            if (a) draft[otherId] = JSON.parse(JSON.stringify(a)); else delete draft[otherId];
+            flash(keyId + " と " + otherId + " の中身を入れ替えました");
+            renderBoard();
+            return;
+          }
+
+          // **空きの上で離した = そのキーの位置を動かす。**
+          // 大きさは変えない。既にキーがある場所へは動かさない
+          // （そこはキーが居るので、上の「入れ替え」に回る）。
+          const cell = cellAt(event);
+          if (cell && boardDraft) {
+            const k = boardKey(keyId);
+            if (k) {
+              snapshot();
+              const before = { row: k.row, col: k.col };
+              k.row = cell.row;
+              k.col = Math.min(cell.col, boardDraft.cols - (k.colSpan || 1) + 1);
+              if (paintConflicts().has(keyId) || k.col < 1) {
+                k.row = before.row; k.col = before.col;
+                undoStack.pop(); updateUndoBtn();   // 何も起きていないので1手に数えない
+                renderBoard();
+                flash("そこには置けません（他のキーと重なります）");
+                return;
+              }
+              renderBoard();
+              flash(keyId + " → 行" + k.row + " 列" + k.col);
+              return;
+            }
+          }
+          renderBoard();
+          return;
+        }
+
+        // 動かさずに離した = 選んでいる部品を入れる
+        clearDragMarks();
+        if (!picked) {
+          flash("キーを別のキーへドラッグすると入れ替わります。部品を入れるときは上の部品を選んでから押してください。");
+          return;
+        }
+        snapshot();
+        draft[keyId] = { label: String(picked.label).split("\n")[0], action: picked.action };
+        pushRecent(picked);
+        clearFlash();
+        renderBoard();
+      };
+
+      btn.addEventListener("pointerup", finish);
+      btn.addEventListener("pointercancel", finish);
+    }
+
+    /// いま画面に出ている内容（このレイヤーの定義、無ければ下から継承したもの）。
+    /// 入れ替えのときに「見えているもの」を動かすために使う。
+    function shownDef(keyId) {
+      const keymap = CONFIG && CONFIG.keymaps[keymapId];
+      if (!keymap) return null;
+      const state = layerId === 0 ? { momentary: [], toggled: [] } : { momentary: [], toggled: [layerId] };
+      const shown = JSON.parse(JSON.stringify(keymap));
+      const target = shown.layers.find((l) => l.id === layerId);
+      if (target) target.keys = draft;
+      const def = KDComponents.resolveDisplay(shown, state, keyId);
+      return def ? JSON.parse(JSON.stringify(def)) : null;
+    }
+
+    // ================================================================
+    // 位置編集。
+    //
+    // 盤面は22列のような細かい格子で、1キーが2列を占めることで
+    // **互い違い（半キーずらし）**を表している。だから格子に吸着させたまま
+    // 互い違いを保てる。吸着の単位は1列で、キーの幅の半分にあたる。
+    //
+    // 掴んで動かす＝位置。重なりとはみ出しは
+    // その場で赤くし、指を離した時点で不正なら元へ戻す（区画エディタと同じ）。
+    // ================================================================
+    /// この盤面での**ふつうのキー1つ分**の大きさ。
+    /// vol1.3 は 22 列で 1 キー＝2 列（互い違いを表すため）なので、
+    /// 決め打ちの 1×1 だと半分の幅になってしまう。実際に並んでいる
+    /// キーの一番多い大きさを見て決める。
+    function standardKeySize() {
+      const count = (field) => {
+        const tally = new Map();
+        for (const k of (boardDraft ? boardDraft.keys : [])) {
+          const v = k[field] || 1;
+          tally.set(v, (tally.get(v) || 0) + 1);
+        }
+        let best = 1, most = 0;
+        for (const [v, n] of tally) if (n > most) { most = n; best = v; }
+        return best;
+      };
+      return { colSpan: count("colSpan"), rowSpan: count("rowSpan") };
+    }
+
+    /// 新しいキーのid。既存は K<行><列2桁>（K419 = 行4 列19）なので、それに倣う。
+    /// 万一ぶつかったら末尾に文字を足して必ず一意にする。
+    function newKeyId(row, col) {
+      const base = "K" + row + String(col).padStart(2, "0");
+      const used = new Set((boardDraft ? boardDraft.keys : []).map((k) => k.id));
+      if (!used.has(base)) return base;
+      for (let i = 97; i <= 122; i += 1) {
+        const id = base + String.fromCharCode(i);
+        if (!used.has(id)) return id;
+      }
+      return base + Date.now();
+    }
+
+    function boardKey(id) {
+      return boardDraft.keys.find((k) => k.id === id);
+    }
+
+    /// 指の位置が盤面のどのマスかを返す。盤面の外なら null。
+    function cellAt(event) {
+      const grid = boardEl.querySelector(".kbgrid");
+      if (!grid || !boardDraft) return null;
+      const rect = grid.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right
+        || event.clientY < rect.top || event.clientY > rect.bottom) return null;
+      const rows = Math.max(...boardDraft.keys.map((k) => k.row + (k.rowSpan || 1) - 1));
+      return {
+        col: Math.max(1, Math.floor((event.clientX - rect.left) / (rect.width / boardDraft.cols)) + 1),
+        row: Math.max(1, Math.floor((event.clientY - rect.top) / (rect.height / rows)) + 1),
+      };
+    }
+
+    /// 指の位置が盤面のどのマスかを出し、そこを占めているキーを返す。
+    /// DOMの当たり判定を使わないのは、位置編集では動かした本人が
+    /// その場所へ既に移っていて、相手の上に乗ってしまうため。
+    function keyAtPoint(event, exceptId) {
+      const grid = boardEl.querySelector(".kbgrid");
+      if (!grid || !boardDraft) return null;
+      const rect = grid.getBoundingClientRect();
+      const rows = Math.max(...boardDraft.keys.map((k) => k.row + (k.rowSpan || 1) - 1));
+      const col = Math.floor((event.clientX - rect.left) / (rect.width / boardDraft.cols)) + 1;
+      const row = Math.floor((event.clientY - rect.top) / (rect.height / rows)) + 1;
+      return boardDraft.keys.find((k) => {
+        if (k.id === exceptId) return false;
+        const cs = k.colSpan || 1, rs = k.rowSpan || 1;
+        return col >= k.col && col < k.col + cs && row >= k.row && row < k.row + rs;
+      }) || null;
+    }
+
+    /// いまの下書きが成立しているか。Hub側と同じ条件を先に見る。
+    function boardConflicts() {
+      const occupied = new Map();
+      const bad = new Set();
+      for (const k of boardDraft.keys) {
+        const cs = k.colSpan || 1, rs = k.rowSpan || 1;
+        if (k.col + cs - 1 > boardDraft.cols) bad.add(k.id);
+        for (let r = k.row; r < k.row + rs; r += 1) {
+          for (let c = k.col; c < k.col + cs; c += 1) {
+            const cell = r + ":" + c;
+            if (occupied.has(cell)) { bad.add(k.id); bad.add(occupied.get(cell)); }
+            else occupied.set(cell, k.id);
+          }
+        }
+      }
+      return bad;
+    }
+
+    function paintConflicts() {
+      const bad = boardConflicts();
+      for (const btn of boardEl.querySelectorAll(".key")) {
+        btn.classList.toggle("bad", bad.has(btn.dataset.keyId));
+      }
+      return bad;
+    }
+
+    function loadBoardDraft() {
+      const km = CONFIG && CONFIG.keymaps[keymapId];
+      boardDraft = km && km.board ? JSON.parse(JSON.stringify(km.board)) : null;
+    }
+
+    // ================================================================
+    // 選択（キーボード / レイヤー）
+    // ================================================================
+
+    /// キーボード一覧の中に置く「新規」の印。実在のidと衝突しない形。
+    const NEW_KEYMAP = "__new_keymap__";
+
+    /// 次に使う名前。keyboard_1 から始め、空いている番号まで進める。
+    /// 名前を考えるのは後でよく、まず作って触れる方が早いため。
+    function nextKeymapName(ids) {
+      const used = new Set(ids);
+      for (let n = 1; n < 1000; n += 1) {
+        const name = "keyboard_" + n;
+        if (!used.has(name)) return name;
+      }
+      return "keyboard_" + Date.now();
+    }
+
+    /// "ipad01_vol13" → { base: "ipad01", ver: 13 }。版が付いていなければ 0。
+    function versionOf(id) {
+      const m = /^(.*?)_vol(\d+)$/.exec(id);
+      return m ? { base: m[1], ver: Number(m[2]) } : { base: id, ver: 0 };
+    }
+
+    /// Hubが持っている「最初に出すキーボード」。
+    let HUB_DEFAULT_KEYMAP = null;
+
+    /// URLで指定が無いときに最初に出すキーボード。
+    ///
+    /// **決め手はHubの既定ひとつだけ。** 以前は「端末が前に選んだもの」も
+    /// 見ていたが、端末ごとに違う物が出るうえ、どの規則で選ばれたのかが
+    /// 本人にも分からなくなっていた。
+    /// 既定が決まっていないときだけ、版が一番新しいものを仮に出す
+    /// （古い版が出ると、直したつもりが実機に出ない事故になるため）。
+    function defaultKeymapId(ids) {
+      if (HUB_DEFAULT_KEYMAP && ids.includes(HUB_DEFAULT_KEYMAP)) return HUB_DEFAULT_KEYMAP;
+      return ids.reduce((best, id) =>
+        versionOf(id).ver > versionOf(best).ver ? id : best, ids[0]);
+    }
+    function fillSelectors() {
+      const keymapSel = document.getElementById("keymapSel");
+      const layerSel = document.getElementById("layerSel");
+
+      keymapSel.textContent = "";
+      // **新しい版を上に並べる。** vol12 と vol13 が並んでいるとき、
+      // 触りたいのはほぼ必ず新しい方なので、それを先頭に置く。
+      const ids = Object.keys(CONFIG.keymaps || {})
+        .filter((id) => CONFIG.keymaps[id].board)   // 分割キーボードはこの画面では扱わない
+        .sort((a, b) => {
+          const va = versionOf(a), vb = versionOf(b);
+          return va.base === vb.base ? vb.ver - va.ver : va.base.localeCompare(vb.base);
+        });
+      for (const id of ids) {
+        const o = document.createElement("option");
+        o.value = id; o.textContent = id;
+        if (id === keymapId) o.selected = true;
+        keymapSel.appendChild(o);
+      }
+      // 新規はこの一覧の中に置く（boardの一覧と同じ形にそろえる）
+      const sep = document.createElement("option");
+      sep.disabled = true; sep.textContent = "──────────";
+      keymapSel.appendChild(sep);
+      const add = document.createElement("option");
+      add.value = NEW_KEYMAP;
+      add.textContent = "＋ 新しいキーボードを作る…";
+      keymapSel.appendChild(add);
+      if (!keymapId && ids.length) {
+        keymapId = defaultKeymapId(ids);
+        keymapSel.value = keymapId;
+      }
+      KDComponents.markDefaultOption(keymapSel, HUB_DEFAULT_KEYMAP);
+
+      const km = CONFIG.keymaps[keymapId];
+      layerSel.textContent = "";
+      for (const layer of (km ? km.layers : [])) {
+        const o = document.createElement("option");
+        o.value = String(layer.id);
+        o.textContent = "L" + layer.id + " " + layerName(layer);
+        if (layer.id === layerId) o.selected = true;
+        layerSel.appendChild(o);
+      }
+      if (km && !km.layers.some((l) => l.id === layerId)) {
+        layerId = km.layers[0].id;
+        layerSel.value = String(layerId);
+      }
+    }
+
+    function loadDraft() {
+      const km = CONFIG.keymaps[keymapId];
+      const layer = km && km.layers.find((l) => l.id === layerId);
+      draft = layer ? JSON.parse(JSON.stringify(layer.keys)) : {};
+    }
+
+    function rememberUrl() {
+      const url = new URL(location.href);
+      url.searchParams.set("keymap", keymapId);
+      url.searchParams.set("layer", String(layerId));
+      history.replaceState(null, "", url);
+    }
+
+    document.getElementById("keymapSel").addEventListener("change", (e) => {
+      if (e.target.value === NEW_KEYMAP) {
+        e.target.value = keymapId;      // 看板を戻してから作る
+        createKeymap();
+        return;
+      }
+      keymapId = e.target.value; picked = null;
+      fillSelectors(); loadDraft(); loadBoardDraft(); clearHistory();
+      rememberUrl(); renderParts(); renderBoard(); clearFlash();
+    });
+    document.getElementById("layerSel").addEventListener("change", (e) => {
+      layerId = Number(e.target.value); picked = null;
+      loadDraft(); clearHistory(); rememberUrl(); renderParts(); renderBoard(); clearFlash();
+    });
+    /// 空いている所へキーを1つ足す。空きが無ければ1段増やす。
+    /// 「3つしか無い盤面に4つ目を足せない」という行き止まりを無くすための口。
+    function addKey() {
+      if (!boardDraft) { flash("盤面が読み込まれていません"); return; }
+      const size = standardKeySize();
+      const spot = findFreeSpot(size);
+      if (!spot) { flash("置ける場所が見つかりません"); return; }
+      snapshot();
+      const id = newKeyId(spot.row, spot.col);
+      boardDraft.keys.push({
+        id, row: spot.row, col: spot.col,
+        colSpan: size.colSpan, rowSpan: size.rowSpan,
+      });
+      // 中身は空のまま置く。何を入れるかは、そのあと部品から選ぶ
+      draft[id] = { label: "", action: { t: "none" } };
+      renderBoard();
+      flash(id + " を 行" + spot.row + " 列" + spot.col
+        + " に足しました。上の部品から中身を入れてください。");
+    }
+
+    document.getElementById("undoBtn").addEventListener("click", undo);
+
+    document.getElementById("revertBtn").addEventListener("click", () => {
+      loadDraft(); loadBoardDraft(); clearHistory(); renderBoard();
+      flash("Hubが読み込んでいる内容へ戻しました（保存はしていません）");
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("saveBtn");
+      btn.disabled = true;
+      try {
+        // **変わったものだけを送る。** 位置（盤面）と中身（レイヤー）は
+        // 別のファイルなので、片方しか触っていないのに両方書くと、
+        // 触っていない側にも .bak と書式変更が発生してしまう。
+        const km0 = CONFIG.keymaps[keymapId];
+        const boardChanged = JSON.stringify(boardDraft) !== JSON.stringify(km0.board);
+        const layer0 = km0.layers.find((l) => l.id === layerId);
+        const layerChanged = JSON.stringify(draft) !== JSON.stringify(layer0 ? layer0.keys : {});
+
+        if (!boardChanged && !layerChanged) {
+          flash("変更がありません");
+          return;
+        }
+
+        if (boardChanged) {
+          const bad = paintConflicts();
+          if (bad.size > 0) {
+            flash("重なっているキーがあります: " + [...bad].join(", "));
+            return;
+          }
+          const res = await fetch("/api/keymap/board/save?token=" + encodeURIComponent(token), {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ keymapId, board: boardDraft }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            log("ERR", body.code || String(res.status), body.cause || "board save failed", body);
+            flash("位置を保存できません: " + (body.code || res.status) + " — " + (body.cause || "詳細不明")
+                  + (body.rolledBack ? "（ディスクは元へ戻しました）" : ""));
+            return;
+          }
+          log("P007B", "OK", "board saved", body);
+          if (!layerChanged) {
+            flash("位置を保存しました（" + body.keys + "キー）。繋がっている端末にも反映されます。");
+            return;
+          }
+        }
+
+        const km = CONFIG.keymaps[keymapId];
+        const layer = km.layers.find((l) => l.id === layerId);
+        const res = await fetch("/api/layer/save?token=" + encodeURIComponent(token), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            keymapId, layer: layerId,
+            description: (layer && layer.description) || "",   // 説明文は消さない
+            keys: draft,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          log("P007", "OK", "layer saved", body);
+          flash("保存しました。実行できる操作は " + body.allowedCommands
+            + " 件になりました。繋がっている端末にも反映されます。");
+        } else {
+          log("ERR", body.code || String(res.status), body.cause || "save failed", body);
+          flash("保存できません: " + (body.code || res.status) + " — " + (body.cause || "詳細不明")
+                + (body.rolledBack ? "（ディスクは元へ戻しました）" : ""));
+        }
+      } catch (error) {
+        log("ERR", "INTERNAL", "save request failed: " + error);
+        flash("通信エラー: " + error);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ================================================================
+    // Hubとの接続。/layout と同じ入口なので構成が食い違わない。
+    // ================================================================
+    let socket = null;
+    function connect() {
+      if (!token) {
+        setConn("トークンがありません", true);
+        KDComponents.showTokenNotice();
+        return;
+      }
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      socket = new WebSocket(scheme + "://" + location.host + "/ws?surface=layout&token=" + encodeURIComponent(token));
+      socket.addEventListener("open", () => setConn("接続中"));
+      socket.addEventListener("message", (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        if (msg.type !== "surface.config") return;
+        const first = CONFIG === null;
+        CONFIG = msg;
+        fillSelectors();
+        // **編集中の内容を上書きしない。**
+        // 保存するとHubが再配信するため、ここで毎回読み直すと、
+        // 直前に自分が保存した内容や、まだ保存していない編集が消える。
+        // 実際に「盤面を保存 → 再配信で下書きが戻る → 続けて送った
+        // レイヤー保存が元の内容を書き戻す」という取りこぼしが起きた。
+        // 読み直すのは最初の1回と、ユーザーが切り替え／元に戻すを押したときだけ。
+        if (first) {
+          loadDraft();
+          loadBoardDraft();
+          clearHistory();
+        }
+        rememberUrl();
+        renderTabs();
+        renderParts();
+        renderBoard();
+        log("P007", "OK", "surface.config received",
+          { keymaps: Object.keys(msg.keymaps || {}).length });
+      });
+      socket.addEventListener("close", () => {
+        setConn("切断。再接続します…", true);
+        setTimeout(connect, 2000);
+      });
+    }
+
+    window.addEventListener("error", (e) => log("ERR", "INTERNAL", "uncaught: " + e.message, e.error));
+    window.addEventListener("unhandledrejection", (e) => log("ERR", "INTERNAL", "unhandled: " + e.reason));
+
+    setConn("接続中…");
+    connect();
+  </script>
+</body>
+</html>

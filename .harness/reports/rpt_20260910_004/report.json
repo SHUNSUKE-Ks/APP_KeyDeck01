@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260910_004",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "documentation",
+  "kind": "phase_report",
+  "date": "2026-09-10",
+  "title": "状態変化図の処理矢印追加",
+  "summary": "操作前・コード・操作後をつなぐ2本の矢印へ、key.pressとLayerChangedの意味を明記した別版HTMLを追加した。",
+  "agentId": "codex",
+  "modelProfileId": "codex-gpt-5",
+  "startedAt": "2026-09-10T00:00:00+09:00",
+  "completedAt": "2026-09-10T00:00:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "左から中央へkey.pressの位置IDとDown、中央から右へLayerChangedの状態配信を示す矢印を追加した。",
+    "既存の縦フロー見本を残したまま、矢印入り比較版として保存した。"
+  ],
+  "verification": [
+    "Hubや開発サーバーを起動しない単独HTMLとして作成した。",
+    "Codex右ペインで開く操作を依頼し、アプリからqueued応答を受け取った。",
+    "実スクリーンショットは未挿入である。"
+  ],
+  "nextActions": [
+    "利用者が矢印の文言と横幅を確認する。",
+    "採用後、実スクリーンショットへ差し替えて本文の図版として組み込む。"
+  ],
+  "deliverables": ["00_勉強フォルダー/10_状態変化図_矢印入り見本.html"],
+  "tags": ["documentation", "keydeck", "diagram", "state-driven"],
+  "blockedEncountered": [],
+  "reflection": {"reusable": true, "skillCandidate": false, "templateCandidate": true, "note": "比較の各段の間にデータ名を持つ矢印を置くと、見た目の前後と内部処理の因果がつながる。"},
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

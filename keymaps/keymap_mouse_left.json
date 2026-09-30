@@ -5,7 +5,9 @@
   "board": {
     "cols": 1,
     "keys": [
-      { "id": "ML", "row": 1, "col": 1 }
+      { "col": 1, "id": "ML", "row": 1 },
+      { "col": 1, "id": "K201", "row": 2 },
+      { "col": 1, "id": "K301", "row": 3 }
     ]
   },
   "layerFiles": [

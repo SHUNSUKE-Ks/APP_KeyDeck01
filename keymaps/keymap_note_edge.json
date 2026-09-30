@@ -1,0 +1,43 @@
+{
+  "keymapId": "note_edge",
+  "kind": "single",
+  "description": "Note Story 用の盤面の「ふち」（2列×3行・小さく押す操作）。\n? ヘルプ（CTRL+/）／戻る（CTRL+Z）／Esc／キー確認（F17＝Note Story のキー入力モニター）／Note Story を Chrome のアプリ窓で開く（app.launch note_story）／既定の盤面へ戻る。\n起動と盤面移動は B-002 が直るまで fire を付けず、別々のボタンにしてある。",
+  "board": {
+    "cols": 2,
+    "keys": [
+      {
+        "id": "E1",
+        "row": 1,
+        "col": 1
+      },
+      {
+        "id": "E2",
+        "row": 1,
+        "col": 2
+      },
+      {
+        "id": "E3",
+        "row": 2,
+        "col": 1
+      },
+      {
+        "id": "E4",
+        "row": 2,
+        "col": 2
+      },
+      {
+        "id": "E5",
+        "row": 3,
+        "col": 1
+      },
+      {
+        "id": "E6",
+        "row": 3,
+        "col": 2
+      }
+    ]
+  },
+  "layerFiles": [
+    "layers/note_edge_layer0.json"
+  ]
+}

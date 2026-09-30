@@ -179,6 +179,69 @@
     ".kd-surface .joglabels b { color: var(--kd-ink); font-weight: 600; }",
     ".kd-surface.kd-preview .jogsvg { cursor: default; }",
 
+    // ---- ホイール（jog の shape=wheel）。マウスのホイールを縦に置いた形 ----
+    // 溝は repeating-linear-gradient で描き、指の移動に合わせて background-position を
+    // ずらすだけで「回って見える」。上下の暗い帯で筒の丸みを出す。
+    ".kd-surface .wheelwrap { display: flex; flex-direction: column; align-items: stretch;",
+    "  gap: 4px; height: 100%; min-height: 0; }",
+    ".kd-surface .wheellb { font-size: 10px; color: var(--kd-ink-muted); text-align: center;",
+    "  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; }",
+    ".kd-surface .wheeldrum { position: relative; flex: 1 1 auto; min-height: 0;",
+    "  width: min(100%, 64px); margin: 0 auto; border-radius: 14px; overflow: hidden;",
+    "  border: 1px solid var(--kd-line); touch-action: none; cursor: ns-resize;",
+    "  background-color: #1a1f2e;",
+    "  background-image: repeating-linear-gradient(to bottom,",
+    "    #3a4256 0px, #3a4256 3px, #1a1f2e 3px, #1a1f2e 9px); }",
+    ".kd-surface .wheeldrum::after { content: ''; position: absolute; inset: 0; pointer-events: none;",
+    "  background: linear-gradient(to bottom, rgba(0,0,0,.72), rgba(0,0,0,0) 30%,",
+    "    rgba(255,255,255,.06) 50%, rgba(0,0,0,0) 70%, rgba(0,0,0,.72)); }",
+    ".kd-surface .wheeldrum.on { border-color: var(--kd-accent); }",
+    ".kd-surface.kd-preview .wheeldrum { cursor: default; }",
+
+    // ---- ラジアルボタン（keymap に radial があるキーボード） ----
+    // ボタン本体は区画の中。開いた選択肢（.kd-radialmenu）は区画の外へ出す必要があるので
+    // body の直下に置き、position:fixed で画面の最前面に重ねる（区画の overflow:hidden に切られない）。
+    ".kd-surface .radialbtn { position: relative; width: 100%; height: 100%; min-height: 0;",
+    "  border: 1px solid var(--kd-line); border-radius: var(--kd-key-radius);",
+    "  background: var(--kd-panel); color: var(--kd-ink); font: inherit; padding: 0;",
+    "  display: flex; align-items: center; justify-content: center;",
+    "  touch-action: none; user-select: none; cursor: pointer; }",
+    ".kd-surface .radialbtn.on { background: var(--kd-accent); border-color: var(--kd-accent); }",
+    ".kd-surface .radialbtn .rlabel { font-size: 13px; font-weight: 600; }",
+    ".kd-surface .radialbtn .rarrow { position: absolute; font-size: 8px; color: var(--kd-ink-muted); line-height: 1; }",
+    ".kd-surface .radialbtn .rarrow.n { top: 4px; left: 50%; transform: translateX(-50%); }",
+    ".kd-surface .radialbtn .rarrow.s { bottom: 4px; left: 50%; transform: translateX(-50%); }",
+    ".kd-surface .radialbtn .rarrow.e { right: 5px; top: 50%; transform: translateY(-50%); }",
+    ".kd-surface .radialbtn .rarrow.w { left: 5px; top: 50%; transform: translateY(-50%); }",
+    ".kd-radialmenu { position: fixed; inset: 0; z-index: 1000; pointer-events: none;",
+    "  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }",
+    // 扇はSVGで描き、文字だけHTMLを上に重ねる（SVGのtextは折り返せないため）
+    ".kd-radialmenu .rsvg { position: absolute; overflow: visible;",
+    "  filter: drop-shadow(0 8px 22px rgba(0,0,0,.6)); }",
+    ".kd-radialmenu .rseg { fill: rgba(26,33,54,.94); stroke: #39425f; stroke-width: 1; }",
+    // 内周（細かい操作）は外周より一段暗くして、輪の違いを色でも分かるようにする
+    ".kd-radialmenu .rseg.inner { fill: rgba(15,20,35,.94); }",
+    ".kd-radialmenu .rseg.empty { fill: rgba(18,22,36,.5); stroke: #262d44; }",
+    // 指を倒している扇。**白く抜いて**、いまどれが選ばれているかを一目で分かるようにする
+    ".kd-radialmenu .rseg.on { fill: #ffffff; stroke: #ffffff; }",
+    ".kd-radialmenu .rhub { fill: rgba(12,16,28,.96); stroke: #39425f; stroke-width: 1; }",
+    ".kd-radialmenu .rhub.on { stroke: #ffffff; stroke-width: 2; }",
+    ".kd-radialmenu .rname { position: absolute; transform: translate(-50%, -50%);",
+    "  text-align: center; font-size: 12px; font-weight: 600; line-height: 1.15;",
+    "  color: #e8edff; white-space: pre-line; }",
+    ".kd-radialmenu .rname.inner { font-size: 11px; color: #b9c3de; }",
+    ".kd-radialmenu .rname.empty { color: #59627d; }",
+    ".kd-radialmenu .rname.on { color: #101526; font-weight: 700; }",
+    ".kd-radialmenu .rhub-label { position: absolute; transform: translate(-50%, -50%);",
+    "  text-align: center; font-size: 11px; color: #97a1bd; line-height: 1.2; }",
+    // 指がメニューを隠すので、決まる中身は必ず**上**（上に余白が無ければ下）へ大きく出す
+    ".kd-radialmenu .rtip { position: absolute; transform: translate(-50%, -50%);",
+    "  max-width: 86vw; padding: 6px 12px; border-radius: 999px; text-align: center;",
+    "  background: rgba(8,11,20,.95); border: 1px solid #39425f; color: #ffffff;",
+    "  font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden;",
+    "  text-overflow: ellipsis; box-shadow: 0 6px 18px rgba(0,0,0,.55); }",
+    ".kd-radialmenu .rtip.cancel { color: #b7bfd6; font-weight: 600; }",
+
     // ---- キーボード ----
     ".kd-surface .kbgrid { display: grid; grid-auto-rows: minmax(0, 1fr); gap: var(--kd-key-gap); height: 100%; }",
     ".kd-surface .kbgrid.tiny .key { font-size: 22px; }",
@@ -226,7 +289,20 @@
     "  touch-action: manipulation; user-select: none; position: relative;",
     "}",
     ".kd-surface .slot .ico { font-size: 18px; line-height: 1; }",
+    // アイコン画像のあるボタンだけ、画像をボタンの残りいっぱいに**収める**（ラベルは下に残す）。
+    // 大きさを指定しないと画像が元の寸法（256px 等）のまま出て、はみ出した分が切られ、
+    // 真ん中だけが拡大されて見えていた（2026-09-22、アイコン付きボタンを初めて置いて判明）。
+    ".kd-surface .slot.has-icon .ico { flex: 1 1 0; min-height: 0; width: 100%;",
+    "  display: flex; align-items: center; justify-content: center; }",
+    ".kd-surface .slot.has-icon .ico img { display: block; max-width: 100%; max-height: 100%;",
+    "  object-fit: contain; }",
     ".kd-surface .slot .lb { font-size: 10px; line-height: 1.15; color: var(--kd-ink-muted); overflow: hidden; }",
+    // V2.1: 地色を付けたタイル。色は slot.color（#rrggbb）から来る。
+    // 色の上では、細い灰色の文字は読めない。**文字と縁取りを色の側に合わせる**
+    ".kd-surface .slot.tinted { border-color: rgba(255,255,255,.22); }",
+    ".kd-surface .slot.tinted .lb { color: rgba(255,255,255,.92); font-weight: 600;",
+    "  text-shadow: 0 1px 2px rgba(0,0,0,.55); }",
+    ".kd-surface .slot.tinted .ico { color: #ffffff; }",
     ".kd-surface .slot.pressed { background: var(--kd-accent); border-color: var(--kd-accent); }",
     '.kd-surface .slot[data-empty="true"] { background: var(--kd-empty); border-style: dashed; border-color: #232b48; }',
     '.kd-surface .slot[data-empty="true"] .lb { color: var(--kd-ink-dim); }',
@@ -391,6 +467,8 @@
       oops(host, "ダイヤルが見つかりません");
       return null;
     }
+    // 形が wheel なら縦長のホイールを描く。送るもの（CW/CCW）は丸いダイヤルと同じ
+    if (keymap.jog.shape === "wheel") return renderWheel(host, keymap, state, opt);
 
     var doc = host.ownerDocument;
     var NS = "http://www.w3.org/2000/svg";
@@ -549,6 +627,307 @@
     return wrap;
   }
 
+  /// 縦長のホイール（jog の shape=wheel）。上下にこすると、detentPx 動くごとに
+  /// 1段送る。指を下へ＝CW、上へ＝CCW（丸いダイヤルと同じ2キー）。
+  /// 溝は指にぴったり付いて動く（重みは付けない）。細い区画では遅れて付いてくると
+  /// どこまで回したか分からなくなるため。
+  function renderWheel(host, keymap, state, opt) {
+    var doc = host.ownerDocument;
+    var STEP = keymap.jog.detentPx || 18;
+
+    var wrap = doc.createElement("div");
+    wrap.className = "wheelwrap";
+    var up = resolveDisplay(keymap, state, "CCW");
+    var down = resolveDisplay(keymap, state, "CW");
+    var top = doc.createElement("div");
+    top.className = "wheellb";
+    top.textContent = "▲ " + ((up && up.label) || "CCW").split("\n")[0];
+    var drum = doc.createElement("div");
+    drum.className = "wheeldrum";
+    var bottom = doc.createElement("div");
+    bottom.className = "wheellb";
+    bottom.textContent = ((down && down.label) || "CW").split("\n")[0] + " ▼";
+    wrap.appendChild(top);
+    wrap.appendChild(drum);
+    wrap.appendChild(bottom);
+    host.appendChild(wrap);
+
+    if (!opt.interactive) return wrap;
+
+    var dragging = false, lastY = 0, offset = 0, carry = 0;
+    function applyMove(event) {
+      var dy = event.clientY - lastY;
+      lastY = event.clientY;
+      offset += dy;
+      carry += dy;
+      drum.style.backgroundPositionY = offset + "px";
+      var fired = 0;
+      while (carry >= STEP) { carry -= STEP; fired += 1; if (opt.onDetent) opt.onDetent("CW"); }
+      while (carry <= -STEP) { carry += STEP; fired += 1; if (opt.onDetent) opt.onDetent("CCW"); }
+      // 一度に何段も越えたときは1回だけ鳴らす（ダイヤルと同じ）
+      if (fired > 0 && keymap.jog.sound) Click.play(0.5);
+    }
+    drum.addEventListener("pointerdown", function (event) {
+      event.preventDefault();
+      dragging = true;
+      lastY = event.clientY;
+      carry = 0;   // 前回の端数を持ち越さない。触り直した直後に1段飛ぶのを防ぐ
+      drum.classList.add("on");
+      if (keymap.jog.sound) Click.arm();   // 触れた瞬間でないとiOSが音を止める
+      try { drum.setPointerCapture(event.pointerId); } catch (e) { /* 未対応環境 */ }
+    });
+    drum.addEventListener("pointermove", function (event) {
+      if (dragging) applyMove(event);
+    });
+    function end(event, useLast) {
+      if (!dragging) return;
+      if (useLast) applyMove(event);
+      dragging = false;
+      drum.classList.remove("on");
+    }
+    drum.addEventListener("pointerup", function (event) { end(event, true); });
+    drum.addEventListener("pointercancel", function (event) { end(event, false); });
+    return wrap;
+  }
+
+  /// 扇の方向id。上から時計回りに等間隔。**Rust側の RADIAL_DIRS_* と同じ並び**で、
+  /// ここを変えると盤面が要求するキーidが合わなくなる（proto-keymap/src/lib.rs）。
+  var RADIAL_DIRS = {
+    4: ["N", "E", "S", "W"],
+    6: ["N", "NE", "SE", "S", "SW", "NW"],
+    8: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+  };
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  function svgEl(doc, name, attrs) {
+    var el = doc.createElementNS(SVG_NS, name);
+    Object.keys(attrs || {}).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+    return el;
+  }
+
+  /// 上を0°、時計回りに測った角度の点。
+  function polarPt(cx, cy, r, deg) {
+    var a = (deg - 90) * Math.PI / 180;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  }
+
+  /// 輪の一部（扇形）のパス。r0=内側の半径、r1=外側の半径。
+  function ringSector(cx, cy, r0, r1, a0, a1) {
+    var big = (a1 - a0) > 180 ? 1 : 0;
+    var o0 = polarPt(cx, cy, r1, a0), o1 = polarPt(cx, cy, r1, a1);
+    var i1 = polarPt(cx, cy, r0, a1), i0 = polarPt(cx, cy, r0, a0);
+    return "M " + o0[0] + " " + o0[1]
+      + " A " + r1 + " " + r1 + " 0 " + big + " 1 " + o1[0] + " " + o1[1]
+      + " L " + i1[0] + " " + i1[1]
+      + " A " + r0 + " " + r0 + " 0 " + big + " 0 " + i0[0] + " " + i0[1]
+      + " Z";
+  }
+
+  /// 1マスの**二層ラジアルメニュー**（階層型パイメニュー）。
+  ///
+  /// 押すと指の位置を中心に扇形の選択肢が開く。決め方は2つの物差しだけ:
+  ///   角度 … どの扇か（radial.sectors が 4 / 6 / 8）
+  ///   距離 … 中心=取り消し ／ 内側の輪=細かい操作 ／ 外側の輪=大分類（radial.rings が 2 のとき）
+  /// 指を離すと白く光っている扇が決まり、その方向のキーを1回押す（down→up）。
+  /// 中心で離す・指が取られる（pointercancel）と何も送らない。
+  ///
+  /// 内側の輪のキーidは方向のうしろに `2` を付けたもの（`N` の内側は `N2`）。
+  /// **端末が送るのは位置idだけ**で、何が起きるかは layer の action が決める（不変条件1）。
+  ///
+  /// 判定の中心は「指を置いた点」ではなく「メニューを描いた中心」にする。
+  /// 距離で輪を選ぶ以上、見えている絵と判定がずれると、どこで離せばよいか分からなくなるため。
+  function renderRadial(host, keymap, state, opt) {
+    var doc = host.ownerDocument;
+    var cfg = keymap.radial || {};
+    var dirs = RADIAL_DIRS[cfg.sectors] || RADIAL_DIRS[4];
+    var rings = cfg.rings === 2 ? 2 : 1;
+    var STEP = 360 / dirs.length;
+    var GAP = 1.4;     // 扇どうしの隙間（度）
+
+    // 半径（px）。指で狙える 44px の幅を輪ごとに確保する
+    var HUB = 30;                                  // 真ん中の丸（取り消し）
+    var BAND0 = rings === 2 ? [34, 100] : [34, 110];  // 内側の輪（2層のときだけ中身が変わる）
+    var BAND1 = [104, 158];                        // 外側の輪
+    var REACH = rings === 2 ? BAND1[1] : BAND0[1];
+
+    // 各扇の中身。ring 0 = 内側（id に 2 が付く）、ring 1 = 外側（idそのまま）
+    var SLOTS = [];
+    dirs.forEach(function (dir, i) {
+      if (rings === 2) SLOTS.push({ keyId: dir + "2", dir: dir, i: i, ring: 0, band: BAND0 });
+      SLOTS.push({ keyId: dir, dir: dir, i: i, ring: rings === 2 ? 1 : 0, band: rings === 2 ? BAND1 : BAND0 });
+    });
+
+    var btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "radialbtn";
+    var lb = doc.createElement("span");
+    lb.className = "rlabel";
+    lb.textContent = cfg.label || "◎";
+    btn.appendChild(lb);
+    [{ mark: "▲", cls: "n" }, { mark: "▶", cls: "e" }, { mark: "▼", cls: "s" }, { mark: "◀", cls: "w" }]
+      .forEach(function (d) {
+        var a = doc.createElement("span");
+        a.className = "rarrow " + d.cls;
+        a.textContent = d.mark;
+        btn.appendChild(a);
+      });
+    host.appendChild(btn);
+    if (!opt.interactive) { btn.disabled = true; return btn; }
+
+    var menu = null, tip = null, hub = null, active = false;
+    var segs = [], names = [], defs = [];
+    var cx = 0, cy = 0, scale = 1, picked = -1;
+    var startX = 0, startY = 0, moved = false;
+    var GRACE = 12;   // これだけ動くまでは何も選ばない（ただ押しただけで暴発させない）
+
+    function labelOf(def, keyId) {
+      if (!def || def.action.t === "none") return "—";
+      return def.label || keyId;
+    }
+
+    function open(event) {
+      var win = doc.defaultView;
+      // 画面が扇より狭いときは全体を縮める。端で押されたら、中心だけ内側へ寄せる
+      scale = Math.min(1, (win.innerWidth - 10) / (REACH * 2), (win.innerHeight - 10) / (REACH * 2));
+      var reach = REACH * scale;
+      cx = Math.min(Math.max(event.clientX, reach + 4), win.innerWidth - reach - 4);
+      cy = Math.min(Math.max(event.clientY, reach + 4), win.innerHeight - reach - 4);
+
+      menu = doc.createElement("div");
+      menu.className = "kd-radialmenu";
+
+      var size = reach * 2 + 8, half = size / 2;
+      var svg = svgEl(doc, "svg", { class: "rsvg", width: size, height: size, viewBox: "0 0 " + size + " " + size });
+      svg.style.left = (cx - half) + "px";
+      svg.style.top = (cy - half) + "px";
+      // 扇を先に入れる。名前はこのあとに足して、扇の**上**に載せる
+      menu.appendChild(svg);
+
+      segs = []; names = []; defs = [];
+      SLOTS.forEach(function (slot) {
+        var def = resolveDisplay(keymap, state, slot.keyId);
+        var empty = !def || def.action.t === "none";
+        var mid = slot.i * STEP;
+        var path = svgEl(doc, "path", {
+          class: "rseg" + (slot.ring === 0 && rings === 2 ? " inner" : "") + (empty ? " empty" : ""),
+          d: ringSector(half, half, slot.band[0] * scale, slot.band[1] * scale,
+            mid - STEP / 2 + GAP, mid + STEP / 2 - GAP),
+        });
+        svg.appendChild(path);
+
+        // 名前を置く幅は、扇の「厚み」と「弧の幅」の広いほう。
+        // 厚みだけに合わせると内側の輪で縦長になり、弧だけに合わせると外側で切れる
+        var rMid = (slot.band[0] + slot.band[1]) / 2 * scale;
+        var arcW = 2 * rMid * Math.sin(STEP * Math.PI / 360) * 0.86;
+        var pt = polarPt(cx, cy, rMid, mid);
+        var nm = doc.createElement("div");
+        nm.className = "rname" + (slot.ring === 0 && rings === 2 ? " inner" : "") + (empty ? " empty" : "");
+        nm.textContent = labelOf(def, slot.keyId);
+        nm.style.left = pt[0] + "px";
+        nm.style.top = pt[1] + "px";
+        nm.style.maxWidth = Math.max((slot.band[1] - slot.band[0]) * scale - 6, arcW) + "px";
+
+        segs.push(path); names.push(nm); defs.push(empty ? null : def);
+        menu.appendChild(nm);
+      });
+
+      hub = svgEl(doc, "circle", { class: "rhub on", cx: half, cy: half, r: HUB * scale });
+      svg.appendChild(hub);
+
+      var hubLabel = doc.createElement("div");
+      hubLabel.className = "rhub-label";
+      hubLabel.textContent = "取消";
+      hubLabel.style.left = cx + "px";
+      hubLabel.style.top = cy + "px";
+      menu.appendChild(hubLabel);
+
+      // 指はメニューを隠すので、決まる中身は上に出す。上に余白が無ければ下へ
+      tip = doc.createElement("div");
+      tip.className = "rtip cancel";
+      tip.textContent = "取消";
+      var above = cy - reach - 22;
+      tip.style.left = Math.min(Math.max(cx, 90), win.innerWidth - 90) + "px";
+      tip.style.top = (above > 20 ? above : cy + reach + 22) + "px";
+      menu.appendChild(tip);
+
+      doc.body.appendChild(menu);
+    }
+
+    function close() {
+      if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+      menu = null; tip = null; hub = null; segs = []; names = []; defs = [];
+      btn.classList.remove("on");
+      active = false;
+    }
+
+    /// いま指が指しているスロットの番号。中心付近なら -1（取り消し）。
+    ///
+    /// 画面の端のマスに置くと、メニューは全体が見えるよう内側へ寄って開く。
+    /// つまり**押した指は最初からどれかの扇の上に乗っている**。そのまま決めてしまうと
+    /// ただ触っただけで暴発するので、GRACE だけ動かすまでは何も選ばない。
+    /// 動かす向きは常にメニューの中心側＝画面の内側なので、端のマスでも全部に届く。
+    function hit(event) {
+      if (!moved) {
+        if (Math.hypot(event.clientX - startX, event.clientY - startY) < GRACE) return -1;
+        moved = true;
+      }
+      var dx = event.clientX - cx, dy = event.clientY - cy;
+      var dist = Math.hypot(dx, dy);
+      if (dist < HUB * scale) return -1;
+      var ang = Math.atan2(dx, -dy) * 180 / Math.PI;
+      if (ang < 0) ang += 360;
+      var i = Math.round(ang / STEP) % dirs.length;
+      // 外へ出しすぎても外側の輪のまま（「外周外は最後の扇を保つ」）
+      var ring = rings === 2 && dist >= BAND1[0] * scale ? 1 : 0;
+      for (var n = 0; n < SLOTS.length; n += 1) {
+        if (SLOTS[n].i === i && SLOTS[n].ring === ring) return n;
+      }
+      return -1;
+    }
+
+    function paint(idx) {
+      picked = idx;
+      segs.forEach(function (s, i) { s.classList.toggle("on", i === idx); });
+      names.forEach(function (n, i) { n.classList.toggle("on", i === idx); });
+      hub.classList.toggle("on", idx === -1);
+      var cancel = idx === -1;
+      tip.classList.toggle("cancel", cancel || !defs[idx]);
+      tip.textContent = cancel ? "取消"
+        : (defs[idx] ? (defs[idx].label || SLOTS[idx].keyId).replace(/\n/g, " ") : "空き");
+    }
+
+    btn.addEventListener("pointerdown", function (event) {
+      event.preventDefault();
+      if (active) return;
+      active = true;
+      picked = -1;
+      startX = event.clientX; startY = event.clientY; moved = false;
+      btn.classList.add("on");
+      try { btn.setPointerCapture(event.pointerId); } catch (e) { /* 未対応環境 */ }
+      open(event);
+      paint(-1);
+    });
+    btn.addEventListener("pointermove", function (event) {
+      if (!active) return;
+      var idx = hit(event);
+      if (idx !== picked) paint(idx);
+    });
+    btn.addEventListener("pointerup", function (event) {
+      if (!active) return;
+      var idx = hit(event);
+      // 中身が無い扇は、光らせても何も送らない（Hub側で空振りさせない）
+      var chosen = idx >= 0 && defs[idx] ? SLOTS[idx].keyId : null;
+      close();
+      if (chosen) {
+        if (opt.onDown) opt.onDown(chosen);
+        if (opt.onUp) opt.onUp(chosen);
+      }
+    });
+    btn.addEventListener("pointercancel", close);
+    return btn;
+  }
+
   function renderKeyboard(host, keymap, state, options) {
     var opt = options || {};
     injectStyles(host.ownerDocument);
@@ -559,6 +938,9 @@
       oops(host, "キーボードが見つかりません");
       return null;
     }
+    // ラジアルボタン。**キー編集画面（editable）では普通の盤面のまま**にして、
+    // 4方向のキー（N/E/S/W）の中身をいつもどおり差し替えられるようにする
+    if (keymap.radial && !opt.editable) return renderRadial(host, keymap, state, opt);
 
     var doc = host.ownerDocument;
     // 一時レイヤー（mo）が効いているか。効いている間だけ盤面を染める。
@@ -651,10 +1033,17 @@
         btn.dataset.slotId = slot.slotId;
         var isEmpty = slot.action.t === "none";
         if (isEmpty) btn.dataset.empty = "true";
+        // V2.1: タイルの地色。Hub側が `#rrggbb` しか通さないので、ここへ直接入れてよい。
+        // 空きタイルには塗らない（「置ける場所」と「置いてある物」を色で分けるため）
+        if (slot.color && !isEmpty) {
+          btn.style.background = slot.color;
+          btn.classList.add("tinted");
+        }
 
         var ico = doc.createElement("span");
         ico.className = "ico";
         if (slot.icon) {
+          btn.classList.add("has-icon");
           var img = doc.createElement("img");
           img.src = slot.icon;
           img.alt = "";
@@ -721,16 +1110,61 @@
       dept: "PC部門",
       items: [
         { label: "レイアウト編集", path: "/" },
+        // 新View（2026-09-23〜）。置ける部品を探しやすく・中身が見えるように作り替えたもの。
+        // 旧来の「レイアウト編集」は残してあり、どちらでも同じboardを編集・保存できる
+        { label: "レイアウト編集 V2（新View）", path: "/editor_v2" },
         { label: "キー編集", path: "/keys" },
+        { label: "Deck編集", path: "/deckedit" },
         { label: "接続（Gallery）", path: "/connect" },
         { label: "操作カタログ", path: "/catalog" },
         { label: "スキーマ・辞書", path: "/schema" },
         { label: "設定", path: "/settings" },
       ],
     },
+    // ゲーム部門（2026-09-23〜）。道具（編集画面）はPC部門と同じものを使い、
+    // ここからは**ゲーム用の中身**へ直接入る。Loupedeck の Profile と同じ考え方で、
+    // 部門＝自分の持ち物への入口。画面を増やさないので、直す場所も1か所のまま
     {
-      dept: "ゲーム部門（準備中）",
-      items: [],
+      dept: "ゲーム部門",
+      items: [
+        { label: "盤面 iPad", path: "/?id=game_ipad" },
+        { label: "盤面 iPhone 横", path: "/?id=game_iphone7_land" },
+        { label: "盤面 iPhone 縦", path: "/?id=game_iphone7_port" },
+        // ユーザーが自分で作った盤面（空の軌跡・iPhone 7 横 8×4）。
+        // 部門は「自分の持ち物への入口」なので、こちらも並べる
+        { label: "盤面 空の軌跡", path: "/?id=game_soranokiseki" },
+        { label: "アクション編集", path: "/keys?keymap=game_action&layer=0" },
+        { label: "移動キー編集", path: "/keys?keymap=dpad01&layer=0" },
+        { label: "道具Deck編集", path: "/deckedit?deck=game" },
+      ],
+    },
+    // 執筆部門（2026-09-28〜）。Note Story（カンバンNote）で会話劇を書くときの盤面
+    // （REQ-20260928-001）。ゲーム部門と同じく、自分の持ち物への入口だけを並べる
+    {
+      dept: "執筆部門（Note Story）",
+      items: [
+        { label: "盤面 iPad", path: "/?id=note_story" },
+        { label: "話者Deck編集", path: "/deckedit?deck=note_cast" },
+        { label: "定型文Deck編集", path: "/deckedit?deck=note_palette" },
+        { label: "書く道具キー編集", path: "/keys?keymap=note_tools&layer=0" },
+      ],
+    },
+    // 実験（2026-09-29〜）。本番の盤面には入っていない試作。PCへは何も送らない
+    {
+      dept: "実験",
+      items: [
+        { label: "1マス多重操作の判定（REQ-20260929-001）", path: "/lab/multigesture" },
+      ],
+    },
+    // V2.1 へ作り替える前の編集画面。**比べる・戻すためだけ**に残してある。
+    // 描画も同じ日の写し（components_v1_1.js）を使うので、ここを開いても
+    // いまの画面の直しは映らない
+    {
+      dept: "保存版（View_Ver1.1）",
+      items: [
+        { label: "レイアウト編集 Ver1.1", path: "/editor_v1_1" },
+        { label: "キー編集 Ver1.1", path: "/keys_v1_1" },
+      ],
     },
   ];
 
@@ -797,7 +1231,7 @@
     var doc = host.ownerDocument;
     var opt = options || {};
     var crumbList = opt.crumbs || [];
-    var suffix = opt.token ? "?token=" + encodeURIComponent(opt.token) : "";
+    var tokenPart = opt.token ? "token=" + encodeURIComponent(opt.token) : "";
 
     var bar = doc.createElement("div");
     bar.className = "kd-subhead";
@@ -815,7 +1249,10 @@
       // 最後の1つは「いま居る所」なので、自分自身への行き先にはしない
       if (c.path && i < crumbList.length - 1) {
         var a = doc.createElement("a");
-        a.href = c.path + suffix;
+        // pathが既に ?id=... のようなクエリを持つ呼び出し元がある
+        // （どのboardから来たかを戻り先に持ち回るため）ので、? と & を使い分ける。
+        var sep = c.path.indexOf("?") >= 0 ? "&" : "?";
+        a.href = tokenPart ? c.path + sep + tokenPart : c.path;
         a.textContent = c.label;
         crumbs.appendChild(a);
       } else {
@@ -997,6 +1434,123 @@
     d.body.appendChild(box);
   }
 
+  // ================================================================
+  // 中身の見本（部品カタログ）。**押した瞬間にHubへ送るものではなく、
+  // キーやDeckのタイルに入れる中身の見本**。実行できるかどうかは、保存後に
+  // Hubが全JSONから作り直す許可リストが決める。
+  //
+  // ここに置いてあるのは、キー編集（/keys）とDeck編集（/deckedit）が
+  // **同じ一覧を出す**ため。片方にだけ部品が増える状態を作らない。
+  // ================================================================
+  var LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  var DIGITS = "0123456789".split("");
+  /// vk名と表示名。**vk名は proto-keymap の VK_DICTIONARY に在るものだけ**。
+  /// 辞書に無い名前をここに置くと、選んで保存した瞬間に LOAD_VK_UNKNOWN で弾かれる
+  /// （2026-09-23 まで HOME/END/PGUP/PGDN/DELETE がそうなっていた）。
+  var NAMED = [
+    ["ENTER", "Enter"], ["SPACE", "Space"], ["BKSP", "Bksp"], ["TAB", "Tab"],
+    ["ESC", "Esc"], ["SHIFT", "Shift"], ["CTRL", "Ctrl"], ["ALT", "Alt"],
+    ["WIN", "Win"], ["UP", "↑"], ["DOWN", "↓"], ["LEFT", "←"], ["RIGHT", "→"],
+    ["HOME", "Home"], ["END", "End"], ["PGUP", "PgUp"], ["PGDN", "PgDn"],
+    ["DEL", "Del"], ["F1", "F1"], ["F2", "F2"], ["F3", "F3"], ["F4", "F4"],
+    ["F5", "F5"], ["F6", "F6"], ["F7", "F7"], ["F8", "F8"], ["F9", "F9"],
+    ["F10", "F10"], ["F11", "F11"], ["F12", "F12"],
+  ];
+  var SYMBOLS = "、。・ー！？＃＠／＊＋－＝（）「」『』【】％＆＄＾～｜＜＞：；".split("");
+  var COMBOS = [
+    ["コピー", ["CTRL", "C"]],
+    ["貼り付け", ["CTRL", "V"]],
+    ["切り取り", ["CTRL", "X"]],
+    ["元に戻す", ["CTRL", "Z"]],
+    ["やり直し", ["CTRL", "Y"]],
+    ["全選択", ["CTRL", "A"]],
+    ["保存", ["CTRL", "S"]],
+    ["検索", ["CTRL", "F"]],
+    ["閉じる", ["CTRL", "W"]],
+    ["新規", ["CTRL", "N"]],
+    ["窓の切替", ["ALT", "TAB"]],
+    ["戻る", ["ALT", "LEFT"]],
+    ["進む", ["ALT", "RIGHT"]],
+    ["デスクトップ", ["WIN", "D"]],
+    ["エクスプローラ", ["WIN", "E"]],
+    ["切り取り&スケッチ", ["WIN", "SHIFT", "S"]],
+  ];
+
+  var ACTION_TABS = [
+    { id: "recent", label: "最近" },
+    { id: "basic", label: "文字" },
+    { id: "special", label: "特殊キー" },
+    { id: "shortcut", label: "ショートカット" },
+    { id: "symbols", label: "記号" },
+    { id: "layers", label: "レイヤー切替" },
+    { id: "macros", label: "マクロ" },
+  ];
+
+  /// レイヤーの表示名。説明の1行目から「Vol1.3 」などの接頭辞を落として短くする。
+  function layerName(layer) {
+    var first = (layer.description || "").split("\n")[0].trim();
+    if (!first) return "レイヤー" + layer.id;
+    var m = first.match(/^\S+\s+(.+?)[。.]/);
+    return (m ? m[1] : first).slice(0, 12);
+  }
+
+  /// 部品1つ = { label, action, note? }。タブごとに分けて返す。
+  /// keymapId を渡すと、その盤のレイヤー切替キーも作る（Deck編集では省略する）。
+  function buildActionParts(config, keymapId) {
+    var basic = [];
+    LETTERS.forEach(function (c) { basic.push({ label: c, action: { t: "key", vk: c } }); });
+    DIGITS.forEach(function (d) { basic.push({ label: d, action: { t: "key", vk: d } }); });
+
+    // 文字と混ぜると2行に収まらず、下端のものが見切れて掴めなくなるので別のタブにする
+    var special = NAMED.map(function (pair) {
+      return { label: pair[1], action: { t: "key", vk: pair[0] } };
+    });
+
+    var symbols = SYMBOLS.map(function (c) {
+      return { label: c, action: { t: "text", string: c } };
+    });
+
+    // マクロ = すでにDeckに登録されている操作。許可リストに入っているので確実に動く
+    var macros = [];
+    var seen = {};
+    var decks = (config && config.decks) || {};
+    Object.keys(decks).forEach(function (deckId) {
+      (decks[deckId].pages || []).forEach(function (page) {
+        (page.slots || []).forEach(function (slot) {
+          if (!slot.action || slot.action.t === "none") return;
+          var key = JSON.stringify(slot.action);
+          if (seen[key]) return;
+          seen[key] = true;
+          macros.push({ label: slot.label || "?", action: slot.action, note: decks[deckId].deckId });
+        });
+      });
+    });
+
+    // レイヤー切替キー。いま読み込まれているレイヤーの数だけ自動で並ぶ
+    var layers = [];
+    var keymap = keymapId && config && config.keymaps ? config.keymaps[keymapId] : null;
+    ((keymap && keymap.layers) || []).forEach(function (layer) {
+      if (layer.id === 0) return;   // 0は基盤なので切替先にしない
+      var name = layerName(layer);
+      layers.push({ label: name + "\n押す間", action: { t: "mo", layer: layer.id }, note: "mo" });
+      layers.push({ label: name + "\n固定", action: { t: "tg", layer: layer.id }, note: "tg" });
+    });
+
+    // Win+数字は**タスクバーの左から何番目を開くか**。並び順を変えると行き先も変わる
+    var shortcut = [];
+    for (var n = 1; n <= 9; n += 1) {
+      shortcut.push({
+        label: "Win+" + n + "\nタスクバー",
+        action: { t: "chord", keys: ["WIN", String(n)] },
+      });
+    }
+    COMBOS.forEach(function (pair) {
+      shortcut.push({ label: pair[0] + "\n" + pair[1].join("+"), action: { t: "chord", keys: pair[1] } });
+    });
+
+    return { basic: basic, special: special, shortcut: shortcut, symbols: symbols, macros: macros, layers: layers };
+  }
+
   global.KDComponents = {
     applyTheme: applyTheme,
     markDefaultOption: markDefaultOption,
@@ -1011,5 +1565,9 @@
     renderKeyboard: renderKeyboard,
     renderDeck: renderDeck,
     fitDeck: fitDeck,
+    // 中身の見本。キー編集とDeck編集が同じ一覧を出すための唯一の実装
+    buildActionParts: buildActionParts,
+    actionTabs: ACTION_TABS,
+    layerName: layerName,
   };
 })(window);

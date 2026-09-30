@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260928_001",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": null,
+  "phase": "design",
+  "kind": "idea",
+  "date": "2026-09-28",
+  "title": "HUB（PC側編集画面一式）UI向上 — Sample画像フォルダー作成＋コード/導線レビュー",
+  "summary": "PC側編集画面8枚（レイアウト編集/V2/キー編集/Deck編集/接続/カタログ/スキーマ/設定）のコードと操作導線を見直し、既存の未評価資料（30_/31_/32_）と突き合わせて改善点を書き出した。実装・裁定は行っていない。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-sonnet-5",
+  "startedAt": "2026-09-28T00:00:00+09:00",
+  "completedAt": "2026-09-28T00:40:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "00_勉強フォルダー/33_Sample画像_HUB編集画面UI向上/ を新規作成し、README.mdで運用ルール（画像は即テキスト化）を明記",
+    "00_勉強フォルダー/34_HUB編集画面_コードと導線レビュー.md を新規作成。良い点3件・改善点8件（導線5件・見た目3件）を記載",
+    "実装のブレを2件発見: breadcrumbの「ホーム」が画面によって/connectと/を指す不一致（editor.html/editor_v2.html/keys.htmlはdeckedit.htmlと異なる）、settings.htmlの「QRランディングページ→」リンク文言が2026-09-07以降の実態(/はレイアウト編集、QRは/connect)と食い違っている"
+  ],
+  "verification": [
+    "static/{editor,editor_v2,keys,deckedit,catalog,schema,settings,gallery}.html と static/components.js をGrep/Readで直接確認し、breadcrumb不一致・renderSubHeader未使用画面・古いリンク文言を実ファイル上で確認済み",
+    "コードの変更・Hubの起動は行っていない（AGENTS.mdの「開発サーバー自動起動禁止」に従い、検証は静的読み込みのみ）"
+  ],
+  "nextActions": [
+    "breadcrumbの「ホーム」の指し先統一と settings.html のリンク文言修正を、小さな修正として進めてよいかユーザーに確認する",
+    "31_/32_（C案「実機」推奨・状態一覧・CSS変数）の採用可否をユーザーに裁定してもらう",
+    "33_ にサンプル画像が置かれたら次回セッションでテキスト化しレビューへ追記する",
+    "AI_Memory/引継ぎ.md §8-4 の「まだ誰も読んでいない」を、次回の全体更新時に「読了・レビュー済み(34_)」へ反映する"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/33_Sample画像_HUB編集画面UI向上/README.md",
+    "DevApps/APP_KeyDeck01/00_勉強フォルダー/34_HUB編集画面_コードと導線レビュー.md"
+  ],
+  "tags": ["keydeck", "ui", "review", "navigation", "explorer"],
+  "blockedEncountered": [],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": false,
+    "note": "外部チャットへUIデザインを依頼して納品されたまま「誰も読んでいない」資料が眠っているケースがあった。AI_Memory/引継ぎ.mdの§8のような『別系統で止まっている仕事』の棚を見る習慣は他プロジェクトでも有効"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

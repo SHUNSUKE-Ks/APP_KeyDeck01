@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bookmaker-diagram-v1.1.schema.json",
+  "title": "Bookmaker state-change diagram v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "title", "source", "scenario", "screens", "code", "flow", "branches", "detailPage"],
+  "properties": {
+    "schemaVersion": {"const": "bookmaker-diagram/v1.1"},
+    "title": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "function"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "function": {"type": "string", "minLength": 1}, "lineHint": {"type": "string"}}
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "message", "effectKind"],
+      "properties": {
+        "trigger": {"type": "string"},
+        "message": {"type": "string"},
+        "effectKind": {"enum": ["state-only", "input-only", "state-and-input", "hold"]}
+      }
+    },
+    "screens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after"],
+      "properties": {"before": {"$ref": "#/$defs/screen"}, "after": {"$ref": "#/$defs/screen"}}
+    },
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "snippet", "simplified", "highlight", "annotation"],
+      "properties": {
+        "language": {"const": "rust"}, "snippet": {"type": "string", "minLength": 1}, "simplified": {"type": "boolean"},
+        "highlight": {"type": "string", "minLength": 1}, "annotation": {"type": "string", "minLength": 1}
+      }
+    },
+    "flow": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/node"}},
+    "branches": {
+      "type": "object", "additionalProperties": false, "required": ["left", "right"],
+      "properties": {"left": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/node"}}, "right": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/node"}}}
+    },
+    "detailPage": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "screen": {"type": "object", "additionalProperties": false, "required": ["kind", "caption", "focus"], "properties": {"kind": {"enum": ["placeholder", "screenshot"]}, "asset": {"type": "string"}, "caption": {"type": "string"}, "focus": {"type": "string"}}},
+    "node": {"type": "object", "additionalProperties": false, "required": ["label", "kind", "detailAnchor"], "properties": {"label": {"type": "string"}, "kind": {"enum": ["message", "function", "state", "input", "screen"]}, "detailAnchor": {"type": "string"}, "note": {"type": "string"}}}
+  }
+}

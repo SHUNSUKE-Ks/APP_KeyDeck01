@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>状態変化図のレイアウト見本</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101526;
+      --panel: #18213a;
+      --line: #3b496d;
+      --text: #eef2ff;
+      --sub: #b9c4e5;
+      --key: #273557;
+      --accent: #ff6b6b;
+      --state: #78b7ff;
+      --input: #a8e6a2;
+      --code: #0b1020;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    main { max-width: 1420px; margin: 0 auto; }
+    h1 { margin: 0 0 6px; font-size: 26px; }
+    h2 { margin: 0 0 12px; font-size: 17px; }
+    p { margin: 0; color: var(--sub); }
+    .note { margin: 18px 0 24px; padding: 12px 16px; border-left: 4px solid var(--accent); background: #241b2a; }
+    .sequence {
+      display: grid;
+      grid-template-columns: minmax(230px, .9fr) 42px minmax(400px, 1.5fr) 42px minmax(230px, .9fr);
+      align-items: start;
+      gap: 12px;
+    }
+    .arrow {
+      align-self: center;
+      color: var(--sub);
+      font-size: 28px;
+      text-align: center;
+    }
+    .step, .code-step, .flow {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      padding: 16px;
+    }
+    .step-label, .caption {
+      margin-bottom: 10px;
+      color: var(--sub);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .fake-screen {
+      position: relative;
+      min-height: 270px;
+      overflow: hidden;
+      border: 1px solid #54668f;
+      border-radius: 10px;
+      background: #0e1528;
+      padding: 12px;
+    }
+    .screen-title { display: flex; justify-content: space-between; margin-bottom: 14px; font-size: 13px; color: var(--sub); }
+    .badge { padding: 2px 9px; border-radius: 999px; background: #34476f; color: #dce7ff; font-size: 12px; }
+    .badge.changed { background: #255b91; color: #e4f2ff; }
+    .keyboard { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+    .key { min-height: 46px; display: grid; place-items: center; border: 1px solid #4b5f89; border-radius: 8px; background: var(--key); font-weight: 650; }
+    .key.fn { position: relative; border: 3px solid var(--accent); color: #fff4f4; }
+    .key.fn::after { content: "変わるComponent"; position: absolute; top: -27px; left: 50%; transform: translateX(-50%); white-space: nowrap; color: var(--accent); font-size: 11px; font-weight: 700; }
+    .key.active { background: #315a91; border-color: var(--state); }
+    .screen-note { margin-top: 12px; font-size: 12px; color: var(--sub); }
+    .code-wrap { position: relative; overflow: hidden; border: 1px solid #445174; border-radius: 10px; background: var(--code); }
+    pre { margin: 0; padding: 14px 16px; overflow: auto; color: #dce7ff; font: 13px/1.72 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .line { display: block; padding: 0 5px; }
+    .underline-state { border-bottom: 3px solid var(--accent); background: rgba(255,107,107,.12); }
+    .annotation-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .callout {
+      position: absolute;
+      right: 10px;
+      top: 103px;
+      width: 154px;
+      padding: 7px 8px;
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      background: #3a1c29;
+      color: #ffe6e6;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .callout::before { content: ""; position: absolute; width: 84px; border-top: 2px solid var(--accent); right: 100%; top: 20px; }
+    .comment { color: #91a1c9; }
+    .flow { margin-top: 24px; }
+    .flow-grid { display: grid; grid-template-columns: 1fr 34px 1fr 34px 1fr 34px 1fr; gap: 7px; align-items: center; }
+    .flow-node { min-height: 92px; padding: 12px; border: 1px solid #4a5a81; border-radius: 9px; background: #111a30; font-size: 13px; }
+    .flow-node.state { border-color: var(--state); }
+    .flow-node.input { border-color: var(--input); }
+    .flow-arrow { text-align: center; color: var(--sub); font-size: 22px; }
+    .chip { display: inline-block; margin-bottom: 7px; padding: 1px 7px; border-radius: 999px; font-size: 11px; color: #09111f; background: var(--state); font-weight: 700; }
+    .chip.input { background: var(--input); }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; font-size: 13px; color: var(--sub); }
+    .dot { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 50%; }
+    .dot.red { background: var(--accent); } .dot.blue { background: var(--state); } .dot.green { background: var(--input); }
+    .replace-note { margin-top: 24px; padding: 14px 16px; border: 1px dashed #7180aa; border-radius: 10px; color: var(--sub); font-size: 14px; }
+    @media (max-width: 960px) {
+      body { padding: 16px; }
+      .sequence { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); min-height: 24px; }
+      .flow-grid { grid-template-columns: 1fr; }
+      .flow-arrow { transform: rotate(90deg); min-height: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>状態変化図のレイアウト見本</h1>
+    <p>例: Fnを押すと、Windows入力ではなくレイヤー状態と画面表示が変わる。</p>
+    <div class="note">このHTMLでは実スクリーンショットの代わりに仮の画面を置いています。<br>赤丸・赤下線・赤い吹き出しが、あとで人が追加する「書き込みレイヤー」の位置と役割です。</div>
+
+    <section class="sequence" aria-label="状態変化の前後とコードの関係">
+      <article class="step">
+        <div class="step-label">1. 現状（スクリーンショットを置く場所）</div>
+        <div class="fake-screen">
+          <div class="screen-title"><span>KeyDeck / iPad</span><span class="badge">Layer 0</span></div>
+          <div class="keyboard">
+            <div class="key">Q</div><div class="key">W</div><div class="key">E</div><div class="key">R</div>
+            <div class="key fn">Fn</div><div class="key">A</div><div class="key">S</div><div class="key">D</div>
+          </div>
+          <div class="screen-note">赤丸: このFn Componentを押す。</div>
+        </div>
+      </article>
+
+      <div class="arrow" aria-hidden="true">→</div>
+
+      <article class="code-step">
+        <div class="step-label">2. 注釈付きコードblock</div>
+        <div class="code-wrap">
+          <pre><code><span class="line">Action::Mo { layer } =&gt; match edge {</span><span class="line">    Edge::Down =&gt; {</span><span class="line underline-state">        state.momentary.insert(*layer);</span><span class="line comment">        // Hubが「Layer 1を有効」と記録する</span><span class="line">        Resolved::LayerChanged</span><span class="line comment">        // Windows入力ではなく、画面更新を知らせる</span><span class="line">    }</span><span class="line">    Edge::Up =&gt; { /* 離したらLayer 1を外す */ }</span><span class="line">}</span></code></pre>
+          <div class="annotation-layer" aria-hidden="true"><div class="callout">赤下線の1行だけが<br><strong>LayerState</strong>を変える。</div></div>
+        </div>
+        <div class="screen-note">コード上の赤線・吹き出しは、HTMLの透明な注釈レイヤーで上から重ねています。</div>
+      </article>
+
+      <div class="arrow" aria-hidden="true">→</div>
+
+      <article class="step">
+        <div class="step-label">3. 変化後（スクリーンショットを置く場所）</div>
+        <div class="fake-screen">
+          <div class="screen-title"><span>KeyDeck / iPad</span><span class="badge changed">Layer 1</span></div>
+          <div class="keyboard">
+            <div class="key active">F1</div><div class="key active">F2</div><div class="key active">F3</div><div class="key active">F4</div>
+            <div class="key fn">Fn</div><div class="key active">F5</div><div class="key active">F6</div><div class="key active">F7</div>
+          </div>
+          <div class="screen-note">変化: Layer表示と各キーのラベル。Windowsへの文字入力は出ない。</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="flow" aria-label="関数の関係と影響図">
+      <h2>中央のコードblockの下: 関数の関係と影響図</h2>
+      <div class="flow-grid">
+        <div class="flow-node"><strong>ブラウザ</strong><br><code>key.press</code><br>位置IDとDownを送る</div>
+        <div class="flow-arrow" aria-hidden="true">→</div>
+        <div class="flow-node"><strong>handle_key_press</strong><br>Hubがメッセージを受ける</div>
+        <div class="flow-arrow" aria-hidden="true">→</div>
+        <div class="flow-node state"><span class="chip">状態</span><br><strong>resolve</strong><br><code>LayerChanged</code>を返す</div>
+        <div class="flow-arrow" aria-hidden="true">→</div>
+        <div class="flow-node state"><span class="chip">状態</span><br><strong>broadcast_layer_state</strong><br>各画面をLayer 1表示へ</div>
+      </div>
+      <div class="legend"><span><i class="dot red"></i>変化を注目させる書き込み</span><span><i class="dot blue"></i>Hubの状態・画面へ影響</span><span><i class="dot green"></i>Windows入力へ影響（このFn例では無し）</span></div>
+    </section>
+
+    <div class="replace-note">
+      <strong>実スクリーンショットへの置換方法（次の段階）</strong><br>
+      左右の仮画面を、同じ操作の「前」と「後」のスクリーンショットへ置き換えます。赤丸と短い指示文は、
+      画像そのものを加工せずHTMLの注釈レイヤーとして重ねられます。コードの赤下線・吹き出しも同じ方式です。<br>
+      手書き風の矢印・丸を使う見本を人が一度示せば、その線の太さ・赤の色・文章量を以後の全図で統一できます。
+    </div>
+  </main>
+</body>
+</html>

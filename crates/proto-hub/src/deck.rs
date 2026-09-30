@@ -43,6 +43,11 @@ pub struct Slot {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// V2.1: タイルの地色（`#rrggbb`）。省略すると今までどおりの既定の色。
+    /// 見た目だけの項目で、**何が起きるかには一切関わらない**。
+    /// 形を縛るのは、ここが CSS へそのまま入るため（`url(...)` などを入れさせない）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     pub action: Action,
 }
 
@@ -92,6 +97,13 @@ impl DeckSetlist {
     }
 }
 
+/// `#rrggbb` だけを通す。タイルの地色はCSSへそのまま入るので、ここが唯一の関門になる。
+pub fn is_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 pub fn load_deck_from_path(path: impl AsRef<std::path::Path>) -> Result<DeckSetlist, DeckError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|error| {
@@ -138,6 +150,21 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
                     deck.grid.rows
                 ),
             ));
+        }
+    }
+
+    // V2.1: タイルの地色。CSSへそのまま入るので、`#rrggbb` 以外は通さない
+    for slot in deck.pages.iter().flat_map(|page| page.slots.iter()) {
+        if let Some(color) = &slot.color {
+            if !is_hex_color(color) {
+                return Err(DeckError::new(
+                    LOAD_SCHEMA_INVALID,
+                    format!(
+                        "{source}: slot '{}': color must be '#rrggbb' (got '{color}')",
+                        slot.slot_id
+                    ),
+                ));
+            }
         }
     }
 
@@ -251,7 +278,8 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
             | Action::MouseClick { .. }
             | Action::MouseDoubleClick { .. }
             | Action::MouseButton { .. }
-            | Action::MouseScroll { .. } => {}
+            | Action::MouseScroll { .. }
+            | Action::MouseWheel { .. } => {}
         }
     }
 
@@ -261,6 +289,37 @@ pub fn load_deck_str(source: &str, text: &str) -> Result<DeckSetlist, DeckError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// V2.1: タイルの地色。CSSへそのまま入る値なので、形の合わないものは読み込みで止める。
+    /// ここが緩むと、Deck編集画面から端末の画面へ任意のCSSを流し込めてしまう。
+    #[test]
+    fn slot_color_accepts_only_hex_and_is_optional() {
+        // 色の `"#...` が `r#"` を閉じてしまうので、囲みは `r##"` にする
+        let with_color = r##"{
+            "deckId": "t",
+            "grid": { "cols": 1, "rows": 1 },
+            "pages": [ { "id": 1, "slots": [
+                { "slotId": "S01", "label": "A", "color": "#1b8a5a",
+                  "action": { "t": "key", "vk": "A" } }
+            ] } ]
+        }"##;
+        let deck = load_deck_str("test", with_color).expect("hex color must load");
+        assert_eq!(deck.pages[0].slots[0].color.as_deref(), Some("#1b8a5a"));
+
+        for bad in ["red", "#1b8a5", "#1b8a5az", "url(x)", "#12345g"] {
+            let text = with_color.replace("#1b8a5a", bad);
+            assert!(
+                load_deck_str("test", &text).is_err(),
+                "color '{bad}' must be rejected, but it loaded"
+            );
+        }
+
+        // 色を書かない既存のDeckはそのまま読めて、書き出しても欄は増えない
+        let plain = load_deck_str("test", sample_text()).expect("load");
+        assert!(plain.pages[0].slots[0].color.is_none());
+        let round = serde_json::to_string(&plain).expect("serialize");
+        assert!(!round.contains("color"), "{round}");
+    }
 
     fn sample_text() -> &'static str {
         r#"{

@@ -105,6 +105,11 @@ pub struct Layout {
     pub layout_id: String,
     #[serde(default)]
     pub description: String,
+    /// どの端末向けのboardか（例 `iphone7_land`）。**Hubは中身を使わない**。
+    /// エディタが格子の縦横比と部品の最小サイズを測るのに使うだけ。
+    /// 省略時は iPad Pro 12.9 横（これより前のboardはすべてそれ向けに作られている）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
     pub grid: LayoutGrid,
     pub sections: Vec<Section>,
 }
@@ -125,6 +130,19 @@ pub fn load_layout_str(source: &str, text: &str) -> Result<Layout, LayoutError> 
         .map_err(|error| LayoutError::new(LOAD_JSON_SYNTAX, format!("{source}: {error}")))?;
     let layout: Layout = serde_json::from_value(value)
         .map_err(|error| LayoutError::new(LOAD_LAYOUT_INVALID, format!("{source}: {error}")))?;
+
+    // 使い道は表示だけだが、形は layoutId と揃えておく（画面にそのまま出るため）
+    if let Some(device) = &layout.device {
+        let ok = !device.is_empty()
+            && device.len() <= 64
+            && device.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+        if !ok {
+            return Err(LayoutError::new(
+                LOAD_LAYOUT_INVALID,
+                format!("{source}: device '{device}' must be 1-64 chars of [a-z0-9_]"),
+            ));
+        }
+    }
 
     if layout.sections.is_empty() {
         return Err(LayoutError::new(
@@ -257,6 +275,25 @@ mod tests {
         let error = load_layout_str("test", text).unwrap_err();
         assert_eq!(error.code, LOAD_LAYOUT_INVALID);
         assert!(error.cause.contains("both occupy"), "cause: {}", error.cause);
+    }
+
+    /// 端末の指定は省略でき、省略したboardは書き出しても欄が増えない（既存JSONの差分を出さない）
+    #[test]
+    fn device_is_optional_and_not_written_when_absent() {
+        let layout = load_layout_str("test", sample()).unwrap();
+        assert_eq!(layout.device, None);
+        assert!(!serde_json::to_string(&layout).unwrap().contains("device"));
+
+        let text = r#"{ "layoutId": "t", "device": "iphone7_land", "grid": { "cols": 1, "rows": 1 },
+            "sections": [ { "id": "A", "row": 1, "col": 1, "component": { "kind": "deck", "ref": "d" } } ] }"#;
+        assert_eq!(load_layout_str("test", text).unwrap().device.as_deref(), Some("iphone7_land"));
+    }
+
+    #[test]
+    fn rejects_malformed_device() {
+        let text = r#"{ "layoutId": "t", "device": "iPhone 7", "grid": { "cols": 1, "rows": 1 },
+            "sections": [ { "id": "A", "row": 1, "col": 1, "component": { "kind": "deck", "ref": "d" } } ] }"#;
+        assert_eq!(load_layout_str("test", text).unwrap_err().code, LOAD_LAYOUT_INVALID);
     }
 
     #[test]

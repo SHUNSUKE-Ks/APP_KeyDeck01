@@ -1,0 +1,50 @@
+{
+  "layoutId": "game_ipad",
+  "description": "ゲーム部門の盤面（iPad Pro 12.9 横・12×9）。両手で持って、左の親指で移動、右の親指でアクション、真ん中を指でなぞって視点を動かす。\n\n■ 並び\n左上 道具の8ボタン（deck game）／左下 移動の十字キー（矢印キー）\n中央 視点用トラックボール（縦いっぱい）\n右上 武器・道具の切り替えホイール／右下 アクションボタン6つ\n\n■ 1マスの大きさ\n1366×1024 から上の帯44pxを引いた 1366×980 を 12×9 に割るので、1マスは約114×109px。どの部品も指で押せる44pxを大きく上回る。\n\n■ 自分のゲームで使うとき\nキーが合わなければ、キー編集画面で dpad01（移動）と game_action（アクション）の中身を差し替える。区画の並びはそのままでよい。",
+  "grid": {
+    "cols": 12,
+    "rows": 9
+  },
+  "sections": [
+    {
+      "id": "SEC-DECK",
+      "row": 1,
+      "col": 1,
+      "colSpan": 4,
+      "rowSpan": 3,
+      "component": { "kind": "deck", "ref": "game" }
+    },
+    {
+      "id": "SEC-PAD",
+      "row": 4,
+      "col": 1,
+      "colSpan": 4,
+      "rowSpan": 6,
+      "component": { "kind": "keyboard", "ref": "dpad01" }
+    },
+    {
+      "id": "SEC-BALL",
+      "row": 1,
+      "col": 5,
+      "colSpan": 4,
+      "rowSpan": 9,
+      "component": { "kind": "trackball", "ref": "tb01" }
+    },
+    {
+      "id": "SEC-WHEEL",
+      "row": 1,
+      "col": 9,
+      "colSpan": 4,
+      "rowSpan": 3,
+      "component": { "kind": "jog", "ref": "wheel_scroll" }
+    },
+    {
+      "id": "SEC-ACT",
+      "row": 4,
+      "col": 9,
+      "colSpan": 4,
+      "rowSpan": 6,
+      "component": { "kind": "keyboard", "ref": "game_action" }
+    }
+  ]
+}

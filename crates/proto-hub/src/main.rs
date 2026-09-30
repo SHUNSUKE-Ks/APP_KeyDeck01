@@ -7,6 +7,7 @@ mod app_launch;
 mod deck;
 mod layout;
 mod error;
+mod icon;
 mod protocol;
 mod qr;
 mod startup;

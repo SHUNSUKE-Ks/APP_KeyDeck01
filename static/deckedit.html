@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!-- ============================================================
+  deckedit.html — Deck編集（アイコン盤面）。URL: /deckedit?deck=<id>&token=…
+  素のHTML+JSのみ（D2）。PCでもiPadでも同じURLで開ける。
+
+  ■ この画面がやること / やらないこと
+    やる   … タイルの「見た目」と「中身」を変える。ラベル・地色・アイコン・動作
+    やらない … Deckを新しく作る／消す。ページを増やす
+             どちらもファイルの増減を伴うので、JSONを直接置いてから開く
+
+  ■ 触り方（キー編集と揃えてある）
+    ① 盤面のタイルを押して選ぶ（選ぶと枠が光る）
+    ② 右で ラベル・色・アイコン・動作 を変える
+    ③ 保存
+
+  ■ タイルの位置
+    Deckの1ページは「タイルの並び」で、格子の位置は**並び順**で決まる。
+    空きも1枚のタイル（動作が none）として並びに残す。残さないと、
+    後ろのタイルが1つずつ前へ詰まって位置がずれる。
+
+  ■ 保存
+    POST /api/deck/save → decks/deck_<id>.json
+    Hub側が .bak を取り、書いたあと全体を読み直し、通らなければ巻き戻す。
+
+  ■ 部品（動作の見本）
+    components.js の buildActionParts が唯一の実装。キー編集（/keys）と
+    同じ一覧が出る。片方にだけ部品が増える状態を作らないため。
+  ============================================================ -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeyDeck — Deck編集</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#101526; --panel:#1c2338; --panel2:#161c2e; --ink:#f4f7ff;
+      --ink-muted:#b7bfd6; --ink-dim:#6b7590; --empty:#161c30;
+      --accent:#2d67d9; --accent-soft:#24478f; --ok:#35c47a; --err:#e2555a;
+      --warn:#e8b44a; --line:#2d3550; --key-radius:10px; --key-gap:6px;
+      --slot-radius:10px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); font-size: 13px;
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+    .head {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+    }
+    .head .sp { flex: 1 1 auto; }
+    button, select, input[type="text"] {
+      min-height: 32px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel); color: var(--ink); font: inherit; font-size: 12px;
+      padding: 0 12px; cursor: pointer;
+    }
+    input[type="text"] { cursor: text; }
+    button:hover, select:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .45; cursor: default; }
+    .cap { font-size: 10px; color: var(--ink-dim); letter-spacing: .06em; }
+    #conn { font-size: 11px; color: var(--ink-dim); }
+    #conn.bad { color: var(--err); }
+
+    /* ---- 2列。左が盤面、右が「選んだタイル」だけ ---- */
+    .cols {
+      flex: 1 1 auto; min-height: 0; display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px; gap: 0;
+    }
+    .pane { min-width: 0; min-height: 0; overflow: auto; padding: 12px 14px 16px; }
+    .pane.right { border-left: 1px solid var(--line); background: var(--panel2); }
+    .paneTitle {
+      font-size: 10px; color: var(--ink-dim); letter-spacing: .08em;
+      margin: 0 0 8px; text-transform: none;
+    }
+
+    /* 盤面。実機と同じ components.js の見た目をそのまま使い、
+       選択中の枠だけをこの画面で足す */
+    #boardWrap { max-width: 720px; }
+    #board .slot { cursor: pointer; outline: 2px solid transparent; }
+    #board .slot.sel { outline-color: var(--accent); outline-offset: 2px; }
+    .deckhint {
+      font-size: 11px; color: var(--ink-dim); margin: 8px 0 0; max-width: 720px;
+      white-space: pre-wrap;
+    }
+
+    /* ---- 右の設定 ---- */
+    .field { margin-bottom: 14px; }
+    .field > label { display: block; margin-bottom: 5px; }
+    .field input[type="text"] { width: 100%; }
+    .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+    .swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+    .sw {
+      aspect-ratio: 1 / 1; border-radius: 7px; border: 1px solid var(--line);
+      padding: 0; min-height: 0; cursor: pointer;
+    }
+    .sw.on { outline: 2px solid #fff; outline-offset: 1px; }
+    .sw.none { background: var(--empty); border-style: dashed; color: var(--ink-dim); font-size: 10px; }
+
+    .icongrid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+      max-height: 148px; overflow-y: auto; align-content: start;
+    }
+    .ic {
+      aspect-ratio: 1 / 1; border-radius: 7px; border: 1px solid var(--line);
+      background: var(--panel); padding: 4px; min-height: 0; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ic img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .ic.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45,103,217,.45); }
+    .ic.none { border-style: dashed; color: var(--ink-dim); font-size: 10px; }
+
+    /* 動作。キー編集と同じ見た目のタブ＋四角い部品 */
+    .tabs { display: flex; gap: 5px; margin-bottom: 7px; flex-wrap: wrap; }
+    .tab {
+      min-height: 26px; padding: 0 10px; border-radius: 999px; font-size: 11px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink-muted);
+    }
+    .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .partgrid {
+      display: grid; gap: 5px; align-content: start;
+      grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+      height: 150px; overflow-y: auto;
+    }
+    .part {
+      aspect-ratio: 1 / 1; min-height: 42px; padding: 2px;
+      border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+      color: var(--ink); font-size: 12px; line-height: 1.1;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      overflow: hidden; word-break: break-all; white-space: pre-line;
+    }
+    .part.on { border-color: var(--accent); background: var(--accent-soft); }
+    .now {
+      font-size: 11px; color: var(--ink-muted); background: var(--panel);
+      border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px;
+      margin-bottom: 7px; word-break: break-all;
+    }
+    .empty-note { color: var(--ink-dim); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <span id="navHost"></span>
+    <label class="cap" for="deckSel">deck</label>
+    <select id="deckSel" aria-label="編集するDeck"></select>
+    <select id="pageSel" aria-label="編集するページ"></select>
+    <label class="cap" for="colsSel">格子</label>
+    <select id="colsSel" aria-label="列の数"></select>
+    <select id="rowsSel" aria-label="行の数"></select>
+    <button id="importBtn" type="button" title="外のアプリが書き出したファイル（keydeck.deck_import.v1）からDeckとアイコンを取り込む">取り込み</button>
+    <input id="importFile" type="file" accept=".json,application/json" hidden>
+    <button id="revertBtn" type="button">全部戻す</button>
+    <button id="saveBtn" type="button" class="primary">保存</button>
+    <span class="sp"></span>
+    <span id="conn"></span>
+  </div>
+  <div id="subhead"></div>
+
+  <div class="cols">
+    <div class="pane">
+      <p class="paneTitle">盤面（押すと選ぶ）</p>
+      <div id="boardWrap"><div id="board"></div></div>
+      <p class="deckhint" id="hint"></p>
+    </div>
+    <div class="pane right">
+      <p class="paneTitle" id="selTitle">選んだタイル</p>
+      <div id="inspector"><p class="empty-note">タイルを押して選んでください。</p></div>
+    </div>
+  </div>
+
+  <script src="/components.js"></script>
+  <script>
+    "use strict";
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token") || "";
+    let deckId = params.get("deck") || "";
+
+    const navHost = document.getElementById("navHost");
+    const connEl = document.getElementById("conn");
+    const deckSel = document.getElementById("deckSel");
+    const pageSel = document.getElementById("pageSel");
+    const colsSel = document.getElementById("colsSel");
+    const rowsSel = document.getElementById("rowsSel");
+    const boardEl = document.getElementById("board");
+    const hintEl = document.getElementById("hint");
+    const inspector = document.getElementById("inspector");
+    const selTitle = document.getElementById("selTitle");
+
+    let CONFIG = null;
+    let draft = null;        // 編集中のDeck（CONFIG は書き換えない）
+    let pageIdx = 0;
+    let selIdx = -1;
+    let icons = [];
+    let activeTab = "shortcut";
+
+    KDComponents.syncTheme(token);
+    KDComponents.renderNav(navHost, "/deckedit", token);
+
+    const SUB = KDComponents.renderSubHeader(document.getElementById("subhead"), {
+      token,
+      crumbs: [
+        { label: "ホーム", path: "/" },
+        { label: "PC部門" },
+        { label: "Deck編集" },
+      ],
+      actions: [
+        { id: "clearBtn", label: "このタイルを空にする" },
+      ],
+    });
+    function flash(msg) { SUB.toast(msg); }
+
+    function setConn(text, bad) {
+      connEl.textContent = text;
+      connEl.className = bad ? "bad" : "";
+    }
+
+    // 参考にした配信用デッキと同じ考え方で、色は**少数の決め打ち**にする。
+    // 自由に色を作れるようにすると、盤面全体が濁って分類の役に立たなくなる。
+    const COLORS = [
+      "#1f6feb", "#3b2fb5", "#7b2fb5", "#a3236d", "#b03030", "#b5651d", "#8a6d1f",
+      "#1b7f5a", "#2f7d32", "#0f6f78", "#41495e", "#111418", "#6b3fa0", "#c0392b",
+    ];
+
+    // ---------------- 下書きの組み立て ----------------
+
+    /// 1ページのタイルを、格子の枚数ちょうどに揃える。
+    /// 足りない分は空タイル（動作 none）で埋める。**空きも1枚として並びに残す**ので、
+    /// 途中を空にしても後ろが前へ詰まらない。
+    function normalizePage(page, capacity, used) {
+      const slots = page.slots.slice(0, capacity);
+      while (slots.length < capacity) {
+        let n = slots.length + 1;
+        let id = "t" + page.id + "_" + n;
+        while (used.has(id)) { n += 1; id = "t" + page.id + "_" + n; }
+        used.add(id);
+        slots.push({ slotId: id, label: "", action: { t: "none" } });
+      }
+      page.slots = slots;
+      return page;
+    }
+
+    function makeDraft(deck) {
+      const d = JSON.parse(JSON.stringify(deck));
+      const capacity = d.grid.cols * d.grid.rows;
+      const used = new Set();
+      for (const p of d.pages) for (const s of p.slots) used.add(s.slotId);
+      d.pages = d.pages.map((p) => normalizePage(p, capacity, used));
+      return d;
+    }
+
+    /// 保存するときは、**末尾の空タイルを落とす**。
+    /// 途中の空きは位置を決めているので残す。末尾は残しても意味が無く、
+    /// 手で読むJSONが無駄に長くなるだけ。
+    function forSave(d) {
+      const out = JSON.parse(JSON.stringify(d));
+      out.pages = out.pages.map((p) => {
+        const slots = p.slots.slice();
+        while (slots.length && slots[slots.length - 1].action.t === "none"
+               && !slots[slots.length - 1].label && !slots[slots.length - 1].icon) {
+          slots.pop();
+        }
+        return { ...p, slots };
+      });
+      return out;
+    }
+
+    // ---------------- 描画 ----------------
+
+    function currentPage() { return draft ? draft.pages[pageIdx] : null; }
+    function currentSlot() {
+      const p = currentPage();
+      return p && selIdx >= 0 ? p.slots[selIdx] : null;
+    }
+
+    function renderBoard() {
+      boardEl.textContent = "";
+      if (!draft) return;
+      // 実機と同じ描画を使う。**プレビューと実機の絵がズレないのはこのため**
+      const view = { ...draft, pages: [currentPage()] };
+      KDComponents.renderDeck(boardEl, view, { editable: true });
+      const tiles = boardEl.querySelectorAll(".slot");
+      tiles.forEach((btn, i) => {
+        btn.disabled = false;
+        btn.classList.toggle("sel", i === selIdx);
+        btn.addEventListener("click", () => { selIdx = i; renderBoard(); renderInspector(); });
+      });
+      hintEl.textContent = (draft.description || "").split("\n")[0];
+    }
+
+    function partsForTab() {
+      const all = KDComponents.buildActionParts(CONFIG, "");
+      if (activeTab === "recent") {
+        try { return JSON.parse(localStorage.getItem("keydeck.recentParts") || "[]"); }
+        catch { return []; }
+      }
+      return all[activeTab] || [];
+    }
+
+    function describeAction(a) {
+      if (!a || a.t === "none") return "（空き）";
+      if (a.t === "key") return "キー " + a.vk;
+      if (a.t === "chord") return "同時押し " + a.keys.join("+");
+      if (a.t === "text") return "文字 " + a.string;
+      if (a.t === "keymap.switch") return "盤を切り替え " + a.id;
+      return a.t;
+    }
+
+    function el(tag, cls, text) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    }
+
+    function renderInspector() {
+      inspector.textContent = "";
+      const slot = currentSlot();
+      if (!slot) {
+        selTitle.textContent = "選んだタイル";
+        inspector.appendChild(el("p", "empty-note", "タイルを押して選んでください。"));
+        return;
+      }
+      selTitle.textContent = "選んだタイル（" + (selIdx + 1) + "枚目）";
+
+      // ---- ラベル ----
+      const f1 = el("div", "field");
+      f1.appendChild(el("label", "cap", "ラベル"));
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = slot.label || "";
+      input.addEventListener("input", () => {
+        slot.label = input.value;
+        renderBoard();
+      });
+      f1.appendChild(input);
+      inspector.appendChild(f1);
+
+      // ---- 地色 ----
+      const f2 = el("div", "field");
+      f2.appendChild(el("label", "cap", "地色"));
+      const sw = el("div", "swatches");
+      const none = el("button", "sw none" + (slot.color ? "" : " on"), "なし");
+      none.type = "button";
+      none.addEventListener("click", () => { delete slot.color; renderBoard(); renderInspector(); });
+      sw.appendChild(none);
+      for (const c of COLORS) {
+        const b = el("button", "sw" + (slot.color === c ? " on" : ""));
+        b.type = "button";
+        b.style.background = c;
+        b.title = c;
+        b.addEventListener("click", () => { slot.color = c; renderBoard(); renderInspector(); });
+        sw.appendChild(b);
+      }
+      f2.appendChild(sw);
+      inspector.appendChild(f2);
+
+      // ---- アイコン ----
+      const f3 = el("div", "field");
+      f3.appendChild(el("label", "cap", "アイコン（static/icons）"));
+      const ig = el("div", "icongrid");
+      const inone = el("button", "ic none" + (slot.icon ? "" : " on"), "なし");
+      inone.type = "button";
+      inone.addEventListener("click", () => { delete slot.icon; renderBoard(); renderInspector(); });
+      ig.appendChild(inone);
+      for (const src of icons) {
+        const b = el("button", "ic" + (slot.icon === src ? " on" : ""));
+        b.type = "button";
+        b.title = src;
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = "";
+        b.appendChild(img);
+        b.addEventListener("click", () => { slot.icon = src; renderBoard(); renderInspector(); });
+        ig.appendChild(b);
+      }
+      f3.appendChild(ig);
+      inspector.appendChild(f3);
+
+      // ---- 動作 ----
+      const f4 = el("div", "field");
+      f4.appendChild(el("label", "cap", "動作"));
+      f4.appendChild(el("div", "now", "いま: " + describeAction(slot.action)));
+      const tabs = el("div", "tabs");
+      for (const t of KDComponents.actionTabs) {
+        // レイヤー切替はキーボード専用。Deckにはレイヤーの概念が無いので出さない
+        if (t.id === "layers") continue;
+        const b = el("button", "tab" + (activeTab === t.id ? " on" : ""), t.label);
+        b.type = "button";
+        b.addEventListener("click", () => { activeTab = t.id; renderInspector(); });
+        tabs.appendChild(b);
+      }
+      f4.appendChild(tabs);
+      const pg = el("div", "partgrid");
+      const now = JSON.stringify(slot.action);
+      for (const part of partsForTab()) {
+        const b = el("button", "part" + (JSON.stringify(part.action) === now ? " on" : ""), part.label);
+        b.type = "button";
+        b.title = JSON.stringify(part.action);
+        b.addEventListener("click", () => {
+          slot.action = JSON.parse(JSON.stringify(part.action));
+          if (!slot.label) slot.label = String(part.label).split("\n")[0];
+          pushRecent(part);
+          renderBoard();
+          renderInspector();
+        });
+        pg.appendChild(b);
+      }
+      f4.appendChild(pg);
+      inspector.appendChild(f4);
+    }
+
+    function pushRecent(part) {
+      try {
+        const list = JSON.parse(localStorage.getItem("keydeck.recentParts") || "[]")
+          .filter((p) => JSON.stringify(p.action) !== JSON.stringify(part.action));
+        list.unshift({ label: part.label, action: part.action });
+        localStorage.setItem("keydeck.recentParts", JSON.stringify(list.slice(0, 24)));
+      } catch { /* 保存できなくても動く */ }
+    }
+
+    // ---------------- 上の選択 ----------------
+
+    function fillSelectors() {
+      const ids = Object.keys(CONFIG.decks || {}).sort();
+      if (!deckId || !CONFIG.decks[deckId]) deckId = ids[0] || "";
+      deckSel.textContent = "";
+      for (const id of ids) {
+        const o = document.createElement("option");
+        o.value = id;
+        o.textContent = id;
+        o.selected = id === deckId;
+        deckSel.appendChild(o);
+      }
+      pageSel.textContent = "";
+      (draft ? draft.pages : []).forEach((p, i) => {
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = "ページ" + p.id;
+        o.selected = i === pageIdx;
+        pageSel.appendChild(o);
+      });
+      pageSel.disabled = !draft || draft.pages.length < 2;
+      fillGridSelect(colsSel, draft ? draft.grid.cols : 1);
+      fillGridSelect(rowsSel, draft ? draft.grid.rows : 1);
+    }
+
+    function fillGridSelect(sel, value) {
+      sel.textContent = "";
+      for (let n = 1; n <= 12; n += 1) {
+        const o = document.createElement("option");
+        o.value = String(n);
+        o.textContent = String(n);
+        o.selected = n === value;
+        sel.appendChild(o);
+      }
+    }
+
+    function loadDeck(id) {
+      deckId = id;
+      draft = makeDraft(CONFIG.decks[id]);
+      pageIdx = 0;
+      selIdx = -1;
+      const url = new URL(location.href);
+      url.searchParams.set("deck", id);
+      history.replaceState(null, "", url);
+      fillSelectors();
+      renderBoard();
+      renderInspector();
+    }
+
+    deckSel.addEventListener("change", () => loadDeck(deckSel.value));
+    pageSel.addEventListener("change", () => {
+      pageIdx = Number(pageSel.value);
+      selIdx = -1;
+      renderBoard();
+      renderInspector();
+    });
+
+    function changeGrid() {
+      const cols = Number(colsSel.value);
+      const rows = Number(rowsSel.value);
+      const capacity = cols * rows;
+      // **減らすときに中身が消えないか先に見る。** 消える枚数を伝えてから縮める
+      const lost = draft.pages.reduce((n, p) => n
+        + p.slots.slice(capacity).filter((s) => s.action.t !== "none").length, 0);
+      if (lost > 0) {
+        flash("その格子だと、置いてあるタイルが " + lost + " 枚あふれます。先に中身を空にしてください。");
+        fillSelectors();
+        return;
+      }
+      draft.grid = { cols, rows };
+      const used = new Set();
+      for (const p of draft.pages) for (const s of p.slots) used.add(s.slotId);
+      draft.pages = draft.pages.map((p) => normalizePage(p, capacity, used));
+      if (selIdx >= capacity) selIdx = -1;
+      fillSelectors();
+      renderBoard();
+      renderInspector();
+    }
+    colsSel.addEventListener("change", changeGrid);
+    rowsSel.addEventListener("change", changeGrid);
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      const slot = currentSlot();
+      if (!slot) { flash("先にタイルを選んでください。"); return; }
+      slot.label = "";
+      slot.action = { t: "none" };
+      delete slot.icon;
+      delete slot.color;
+      renderBoard();
+      renderInspector();
+    });
+
+    document.getElementById("revertBtn").addEventListener("click", () => {
+      if (!CONFIG || !CONFIG.decks[deckId]) return;
+      loadDeck(deckId);
+      flash("読み込んだ内容に戻しました。");
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      if (!draft) return;
+      const btn = document.getElementById("saveBtn");
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/deck/save?token=" + encodeURIComponent(token), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(forSave(draft)),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          flash("保存しました（" + (body.path || deckId) + "）");
+        } else {
+          flash("保存できません: " + (body.code || res.status) + " — " + (body.cause || ""));
+        }
+      } catch (e) {
+        flash("保存できません: " + e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ---------------- 取り込み（2026-09-25） ----------------
+    // 外のアプリ（kanban-note01 など）が書き出した1ファイルを受け取る。
+    //   { "format": "keydeck.deck_import.v1",
+    //     "deck":  { …/api/deck/save が受ける形。slot に "iconRef": "<名前>" を書くと、下の icons の画像を差し込む },
+    //     "icons": { "<名前>": "data:image/png;base64,…" } }
+    // 画像は /api/icon/save、Deckは既存の /api/deck/save へ渡す。検査はどちらもHub側。
+    let pendingDeckId = "";
+
+    function dataUrlToBytes(url) {
+      const m = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(url || "");
+      if (!m) throw new Error("画像は PNG / JPEG / WebP の data URL で書いてください");
+      const bin = atob(m[1].replace(/\s/g, ""));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+
+    async function importPackage(pkg) {
+      if (!pkg || pkg.format !== "keydeck.deck_import.v1" || !pkg.deck || !pkg.deck.deckId) {
+        throw new Error("形式が違います（keydeck.deck_import.v1 ではありません）");
+      }
+      const deck = JSON.parse(JSON.stringify(pkg.deck));
+      const icons = pkg.icons || {};
+
+      // 参照先の無い iconRef は、画像を1枚も書く前に見つける（途中で止まって画像だけ残さない）
+      for (const page of deck.pages || []) {
+        for (const slot of page.slots || []) {
+          if (slot.iconRef !== undefined && !(slot.iconRef in icons)) {
+            throw new Error("iconRef「" + slot.iconRef + "」に対応する画像がファイルにありません");
+          }
+        }
+      }
+      if (CONFIG && CONFIG.decks && CONFIG.decks[deck.deckId]
+          && !confirm("deck「" + deck.deckId + "」は既にあります。上書きしますか？（前の内容は .bak に残ります）")) {
+        return null;
+      }
+
+      const urls = {};
+      for (const [name, dataUrl] of Object.entries(icons)) {
+        const res = await fetch("/api/icon/save?token=" + encodeURIComponent(token)
+          + "&name=" + encodeURIComponent(name), {
+          method: "POST",
+          headers: { "content-type": "application/octet-stream" },
+          body: dataUrlToBytes(dataUrl),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error("アイコン " + name + ": " + (body.code || res.status) + " — " + (body.cause || ""));
+        urls[name] = body.url;
+      }
+      for (const page of deck.pages || []) {
+        for (const slot of page.slots || []) {
+          if (slot.iconRef !== undefined) {
+            slot.icon = urls[slot.iconRef];
+            delete slot.iconRef;
+          }
+        }
+      }
+
+      // 保存するとHubが surface.config を配り直し、それが fetch の応答より先に届くことがある。
+      // 先に印を付けておき、届いたらそのDeckを開く
+      pendingDeckId = deck.deckId;
+      const res = await fetch("/api/deck/save?token=" + encodeURIComponent(token), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(deck),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        pendingDeckId = "";
+        throw new Error("Deck: " + (body.code || res.status) + " — " + (body.cause || ""));
+      }
+      return { deckId: deck.deckId, icons: Object.keys(urls).length };
+    }
+
+    const importFile = document.getElementById("importFile");
+    document.getElementById("importBtn").addEventListener("click", () => importFile.click());
+    importFile.addEventListener("change", async () => {
+      const file = importFile.files && importFile.files[0];
+      importFile.value = "";
+      if (!file) return;
+      try {
+        const done = await importPackage(JSON.parse(await file.text()));
+        if (!done) return;
+        await loadIcons();
+        if (currentSlot()) renderInspector();
+        flash("取り込みました（deck " + done.deckId + "・アイコン " + done.icons + " 枚）");
+      } catch (e) {
+        console.error("[KD][ERR][DECK_IMPORT] " + (e && e.message ? e.message : e));
+        flash("取り込めません: " + (e && e.message ? e.message : e));
+      }
+    });
+
+    // ---------------- 繋ぐ ----------------
+
+    async function loadIcons() {
+      try {
+        const res = await fetch("/api/icons?token=" + encodeURIComponent(token));
+        const body = await res.json();
+        icons = body.icons || [];
+      } catch { icons = []; }
+    }
+
+    let socket = null;
+    function connect() {
+      if (!token) {
+        setConn("トークンがありません", true);
+        KDComponents.showTokenNotice();
+        return;
+      }
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      socket = new WebSocket(scheme + "://" + location.host
+        + "/ws?surface=layout&token=" + encodeURIComponent(token));
+      socket.addEventListener("open", () => setConn("接続中"));
+      socket.addEventListener("message", (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        if (msg.type !== "surface.config") return;
+        const first = CONFIG === null;
+        CONFIG = msg;
+        // **編集中の内容を上書きしない。** 保存するとHubが再配信するため、
+        // 毎回読み直すと、直前の編集が消える（キー編集と同じ理由）
+        if (first) {
+          loadDeck(deckId || Object.keys(CONFIG.decks || {})[0] || "");
+        } else if (pendingDeckId && CONFIG.decks && CONFIG.decks[pendingDeckId]) {
+          const id = pendingDeckId;
+          pendingDeckId = "";
+          loadDeck(id);
+        } else {
+          fillSelectors();
+        }
+      });
+      socket.addEventListener("close", () => {
+        setConn("切断。再接続します…", true);
+        setTimeout(connect, 2000);
+      });
+    }
+
+    loadIcons().then(connect);
+  </script>
+</body>
+</html>

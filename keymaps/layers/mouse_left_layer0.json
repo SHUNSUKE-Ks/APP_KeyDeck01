@@ -2,6 +2,8 @@
   "layer": 0,
   "description": "左クリック1つ。mouse.click は押した瞬間に1回だけ発火する。",
   "keys": {
-    "ML": { "label": "左\nクリック", "action": {"t": "mouse.click", "button": "left"} }
+    "K201": { "label": "Win+2", "action": { "keys": ["WIN", "2"], "t": "chord" } },
+    "K301": { "label": "Win+3", "action": { "keys": ["WIN", "3"], "t": "chord" } },
+    "ML": { "label": "Win+1", "action": { "keys": ["WIN", "1"], "t": "chord" } }
   }
 }

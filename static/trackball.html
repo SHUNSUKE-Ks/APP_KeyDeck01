@@ -1,8 +1,34 @@
 <!DOCTYPE html>
 <html lang="ja">
 <!-- ============================================================
-  trackball.html — トラックボール面（T13。D2準拠・State駆動）
-  URL: /trackball?token=…
+  trackball.html — トラックボール面 **Vol2（シンプル版・2026-09-22）**
+  URL: /trackball?token=…   （Vol1.1 は static/trackball_v1_1.html に凍結して残してある）
+
+  ■ Vol2 でできること（1本指だけ。2本目の指は無視する）
+      動かす                    … カーソル移動
+      タップ                    … 左クリック
+      ダブルタップ              … ダブルクリック
+      タップ → すぐ触れて置く   … 0.2秒後（または動かし始めたら）左ボタンを押しっぱなし。
+                                  離すまで選択中。範囲スクショの囲みもこれで行う
+      R（右端の真ん中）          … 右クリック（tap1-right）。2026-09-22 追加
+      ✋つかむ（右下）           … 押すと左ボタンを押したまま（つかみ中）、もう一度押すと離す。
+                                  つかみ中は球で動かすだけ（タップはクリックにしない）。
+                                  指を離して持ち直しても押されたまま。範囲スクショの囲みはこれが確実
+                                  （2026-09-22。タップ→押しっぱなしは間合い頼みで実機で成功しなかった）
+                                  画面を閉じる/切り替える → 離す。通信が切れる → Hub が離す（release_held_keys）
+  球は面いっぱい・中心に描く。設定アイコンは球の画面の右上に重ねるだけ（帯・外枠は置かない）。
+
+  ■ Vol1.1 から抜いたもの
+      右クリック（右の帯のタップ）・Ctrl+C（2本長押しのコピー）・Ctrl+V（2本タップ）・
+      右の帯の2本スクロール・領域の案内表示
+    Hub 側の surfaces/trackball.json は変えていない（Vol1.1 がそのまま使えるように）。
+    Vol2 が送るのは tap1-left / dtap1 / tapdrag1 と surface.state だけ。
+
+  ■ 見た目
+    青い球＋十字ライン。模様の点は既定で0（設定で増やせる）。
+    設定値の保存先は Vol1.1 と分けた（trackball02）。Vol1.1 の赤用の設定を引き継がない。
+
+  （以下は Vol1.1 から引き継いだ構造の説明。Core / View / Sink の3層は変えていない）
 
   ■ 移植元
     （scratchpad）trackball_canvas2d.html が見た目・挙動の正（brief/keydeck_trackball_design_v0.6.md）。
@@ -82,55 +108,21 @@
       background: var(--accent); color: #fff; font: inherit; font-size: 13px; padding: 0 12px;
     }
 
-    /* ===== ステージ（上半分: トラックボール／下半分: 将来のキーボード面） =====
-       ヘッダがflowを占める分、ball/lower-halfは「viewport」ではなく
-       「ヘッダを除いた残り(#stage)」を基準に50/50分割する（ヘッダ追加に伴う構造上必要な変更）。 */
+    /* ===== ステージ =====
+       Vol2: 球が面いっぱいを使い、設定アイコンは右上に**重ねる**だけ。
+       帯（外枠）を置くと、その幅だけ球の描画域が狭まり、球が面の中心から左へずれる
+       （実際にずれた）。 */
     #stage { position: relative; flex: 1 1 auto; min-height: 0; }
 
     #ball {
-      position: absolute; top: 0; left: 0;
-      width: 100%; height: 50%; display: block;
+      position: absolute; inset: 0; width: 100%; height: 100%; display: block;
       touch-action: none; /* ドラッグ中にページがスクロールしないように */
     }
 
-    /* タップ領域の見取り図。**球の操作は一切邪魔しない**ので pointer-events は殺す。
-       どちらを叩けば何が出るかは、触る前に見えていないと分からない。 */
-    #tapzones {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      pointer-events: none; z-index: 5;
-    }
-    #tapzones .line {
-      position: absolute; left: 80%; top: 6%; bottom: 6%; width: 1px;
-      background: linear-gradient(transparent, rgba(255,255,255,.22) 20%, rgba(255,255,255,.22) 80%, transparent);
-    }
-    /* 右の帯は狭い（全体の1/5）ので、薄く塗って境目が触る前に分かるようにする */
-    #tapzones .rzone {
-      position: absolute; left: 80%; right: 0; top: 0; bottom: 0;
-      background: rgba(255,255,255,.035);
-    }
-    #tapzones .zlabel {
-      position: absolute; bottom: 6px; font-size: 10px; color: rgba(255,255,255,.42);
-      white-space: nowrap;
-    }
-    #tapzones .zlabel.l { left: 10px; }
-    /* 右の帯は狭いので、ラベルは縦書きにして帯の中へ収める */
-    #tapzones .zlabel.r {
-      right: 4px; top: 8px; bottom: auto;
-      writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1px;
-    }
-    body.embed #tapzones .zlabel { font-size: 9px; }
-
-    #lower-half {
-      position: absolute; top: 50%; left: 0;
-      width: 100%; height: 50%; background: #0c1120;
-      border-top: 1px solid var(--line);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; color: #5a6480;
-    }
-
-    /* ===== 右上のアイコンボタン（パラメータ表示/非表示） ===== */
+    /* ===== 設定アイコン（球の画面の右上に重ねる） =====
+       ボタン自身が指を受けるので、歯車の上を触っても球は動かない。 */
     #paramToggle {
-      position: absolute; top: 10px; right: 10px; z-index: 30;
+      position: absolute; top: 8px; right: 8px; z-index: 30;
       min-width: 44px; min-height: 44px;
       border: 1px solid var(--line); border-radius: 10px;
       background: var(--panel); color: var(--ink);
@@ -141,11 +133,46 @@
     #paramToggle:active { background: var(--accent); }
     #paramToggle.on { background: var(--accent); border-color: var(--accent); }
 
+    /* ===== つかむ（左ボタンを押したままにするトグル） =====
+       画面の右下に重ねる（ユーザー指定）。押すたびに「つかむ ⇄ 離す」。つかんでいる間は
+       ボタンを赤くし、面のふちも赤く光らせる（押されたままなのが一目で分かるように。
+       気づかずに放置すると、PC側で左ボタンが押されっぱなしになる）。 */
+    #grabToggle {
+      position: absolute; bottom: 8px; right: 8px; z-index: 30;
+      min-width: 44px; min-height: 44px; padding: 2px 4px;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: var(--panel); color: var(--ink);
+      font: inherit; font-size: 10px; line-height: 1.1;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+      cursor: pointer;
+    }
+    #grabToggle .ico { font-size: 18px; }
+
+    /* ===== 右クリック（R）。右端の真ん中＝歯車（右上）と つかむ（右下）の間 ===== */
+    #rclickBtn {
+      position: absolute; top: 50%; right: 8px; transform: translateY(-50%); z-index: 30;
+      min-width: 44px; min-height: 44px;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: var(--panel); color: var(--ink);
+      font: inherit; font-size: 18px; font-weight: 700; line-height: 1;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    #rclickBtn:active { background: var(--accent); border-color: var(--accent); }
+    #grabToggle.on { background: var(--err); border-color: var(--err); color: #fff; }
+    #stage.grabbed { box-shadow: inset 0 0 0 3px var(--err); }
+    #grabBadge {
+      position: absolute; top: 8px; left: 8px; z-index: 25; pointer-events: none;
+      padding: 3px 10px; border-radius: 999px; font-size: 11px;
+      background: var(--err); color: #fff;
+    }
+    #grabBadge[hidden] { display: none; }
+
     /* ===== 調整パラメータ パネル ===== */
+    /* 設定パネルは歯車の左隣に開く（歯車を隠さない＝もう一度押して閉じられる） */
     .ui-panel {
-      position: absolute; top: 62px; right: 10px; z-index: 20;
-      width: clamp(240px, 66vw, 320px);
-      max-height: calc(50% - 74px); overflow-y: auto;
+      position: absolute; top: 8px; right: 60px; z-index: 20;
+      width: clamp(220px, 66vw, 320px);
+      max-height: calc(100% - 16px); overflow-y: auto;
       background: rgba(28, 35, 56, 0.92);
       backdrop-filter: blur(8px);
       border: 1px solid var(--line); border-radius: 12px;
@@ -177,8 +204,10 @@
     #jsonOut[hidden] { display: none; }
 
     /* ===== State表示（出口に何が流れているか） ===== */
+    /* Vol2 では出さない（シンプル版）。数値を見たいときは display を外す */
     #stateOut {
-      position: absolute; bottom: calc(50% + 8px); left: 10px; z-index: 15;
+      display: none;
+      position: absolute; bottom: 8px; left: 10px; z-index: 15;
       font-family: ui-monospace, monospace; font-size: 11px; color: #6ee7a0;
       line-height: 1.5;
     }
@@ -193,18 +222,10 @@
     /* 区画に埋め込むとき隠すのは、見出し・状態表示・下半分の帯だけ。
        **歯車と調整パネルは残す。** ここまで隠していたため、レイアウトに置いた
        トラックボールは感度も慣性も変えられない飾りになっていた。 */
-    body.embed .tb-head,
-    body.embed #stateOut,
-    body.embed #lower-half { display: none !important; }
+    body.embed .tb-head { display: none !important; }
     /* 区画は単独ページより狭いので、パネルの寸法をそれに合わせる */
-    body.embed .ui-panel {
-      max-height: calc(100% - 72px); width: clamp(190px, 92%, 300px);
-    }
+    body.embed .ui-panel { width: clamp(180px, calc(100% - 76px), 300px); }
     body.embed #stage { height: 100%; }
-    /* 単独ページでは下半分に説明帯（#lower-half）が居るため #ball は height:50%。
-       埋め込みではその帯を隠すので、**そのままだと球が上半分に寄ったまま**になる。
-       区画いっぱいに広げて、縦横とも中心に来るようにする。 */
-    body.embed #ball { height: 100%; }
 
     /* ===== QRモーダル（D25。ipad.htmlと同一構造・値。z-indexのみ本ページの
        既存オーバーレイ(#paramToggle:30/.ui-panel:20)より上に出るよう引き上げてある） ===== */
@@ -220,7 +241,7 @@
   <!-- パラメータの正。ここを編集すればUIが変わる（HTML/JSは触らない） -->
   <script type="application/json" id="paramSpec">
   {
-    "id": "trackball01",
+    "id": "trackball02",
     "title": "トラックボール調整",
     "fields": [
       {
@@ -260,7 +281,7 @@
       },
       {
         "id": "dots", "label": "模様の密度", "type": "slider",
-        "min": 0, "max": 400, "step": 20, "value": 60,
+        "min": 0, "max": 400, "step": 20, "value": 0,
         "hint": "球面に置く点の数。0で点をすべて消して十字ラインだけにできる"
       },
       {
@@ -280,6 +301,11 @@
   </header>
 
   <div id="stage">
+    <canvas id="ball"></canvas>
+    <button id="rclickBtn" type="button" aria-label="右クリック" title="右クリック">R</button>
+    <button id="grabToggle" type="button" aria-pressed="false"
+            title="左ボタンを押したままにする（もう一度押すと離す）"><span class="ico">✋</span><span id="grabLabel">つかむ</span></button>
+    <div id="grabBadge" hidden>つかみ中 — 球で動かすと範囲が広がる</div>
     <button id="paramToggle" type="button" class="on"
             aria-label="調整パラメータの表示切替" aria-expanded="true" title="調整パラメータ">⚙</button>
 
@@ -294,15 +320,6 @@
     </section>
 
     <div id="stateOut"></div>
-
-    <canvas id="ball"></canvas>
-    <div id="tapzones" aria-hidden="true">
-      <div class="rzone"></div>
-      <div class="line"></div>
-      <div class="zlabel l">左: 1本=左クリック / 2本タップ=貼り付け / 2本長押し=コピー</div>
-      <div class="zlabel r">右: 右クリック・スクロール</div>
-    </div>
-    <div id="lower-half">（下半分：将来ここにキーボード面）</div>
   </div>
 
   <div id="qrModal">
@@ -340,9 +357,6 @@
     // この面は surface.config を受け取らない（keymapを持たないため）ので、
     // 開いた時にHubへテーマを聞きに行く。
     if (window.KDComponents) KDComponents.syncTheme(token);
-    // T19（brief/keydeck_trackball_gestures_v0.7.md §3）: 2本上下スクロール専用の面id。
-    // binding.tはHub側JSON(surfaces/trackball.json)だけが知る。このHTMLはbindingを知らない。
-    const SCROLL_SURFACE_ID = "tb01-scroll";
 
     // D9: 全面共通のログ書式。[KD][ERR][コード] cause=… の1行（ipad.htmlのlog()を流用）。
     function log(kind, code, message, context) {
@@ -456,6 +470,10 @@
       if (uiState !== UI_SETTINGS) return;
       // パネル自身と⚙ボタンの上は「外」ではない（⚙は自前のclickで開閉する）
       if (panel.contains(e.target) || toggle.contains(e.target)) return;
+      // つかむボタンは「外」でも押せるようにする（範囲選択の途中で離したいときに、
+      // パネルを閉じる1タップを挟ませない）
+      if (document.getElementById("grabToggle").contains(e.target)) return;
+      if (document.getElementById("rclickBtn").contains(e.target)) return;
       setUiState(UI_TRACKBALL);
       // このタップはボール操作へ渡さない（閉じるだけで終わらせる）
       e.stopPropagation();
@@ -598,7 +616,9 @@
         canvas.style.height = H + "px";
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // 以後はCSSピクセルで描ける
         cx = W / 2; cy = H / 2;
-        radius = Math.min(W, H) * 0.28;
+        // Vol2 は下半分の帯が無く球が面いっぱいを使えるので、Vol1.1（0.28）より大きく描く。
+        // 台座（radius×1.46）が面からはみ出さない上限が 0.34
+        radius = Math.min(W, H) * 0.32;
       }
 
       // 単位球面へ等間隔に点を置く（フィボナッチ球）
@@ -657,9 +677,10 @@
         // 球本体。左上から光が当たっているように見せる
         const grad = ctx.createRadialGradient(
           cx - radius * 0.35, cy - radius * 0.4, radius * 0.05, cx, cy, radius);
-        grad.addColorStop(0, "#ff5a4a");
-        grad.addColorStop(0.45, "#e01414");
-        grad.addColorStop(1, "#6b0505");
+        // Vol2: 青い球（Vol1.1 は赤）
+        grad.addColorStop(0, "#7fb4ff");
+        grad.addColorStop(0.45, "#2d67d9");
+        grad.addColorStop(1, "#0b2a6b");
         ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.fillStyle = grad; ctx.fill();
 
@@ -742,6 +763,7 @@
       let sent = 0;
       let dropped = 0;
       let reconnectTimer = null;
+      let closeHandler = null;
       let lastSendAt = 0;
       const MIN_INTERVAL = 8;      // 125Hz相当。これより速い分は捨てる
       const CLAMP = 200;           // surfaces/trackball.jsonのclampと同じ既定値（クライアント側の先読みクランプ）
@@ -794,6 +816,9 @@
         socket.addEventListener("close", () => {
           status = "切断"; cls = "bad";
           log("ERR", "WS_CLOSE", "disconnected; retrying");
+          // 切れた時点で Hub が押しっぱなしのボタンを離している（release_held_keys）。
+          // 画面側の「つかみ中」も解いて、表示とPCの状態を食い違わせない
+          if (closeHandler) closeHandler();
           setConnectionBadge(false);
           readoutSink.refresh();
           scheduleReconnect();
@@ -815,11 +840,6 @@
 
       function clamp(v) { return Math.max(-CLAMP, Math.min(CLAMP, Math.round(v))); }
 
-      // T19（brief/keydeck_trackball_gestures_v0.7.md §3）: tb01-scroll用の先読みクランプ。
-      // surfaces/trackball.jsonのtb01-scrollエントリのclamp(100)と同じ既定値。
-      const CLAMP_SCROLL = 100;
-      let lastScrollSendAt = 0;
-      function clampScroll(v) { return Math.max(-CLAMP_SCROLL, Math.min(CLAMP_SCROLL, Math.round(v))); }
 
       // D26: 状態ボタンをタップすると即時再接続を試みる（すでに接続中なら何もしない）。
       document.getElementById("statusBtn").addEventListener("click", () => {
@@ -864,21 +884,8 @@
           socket.send(JSON.stringify(msg));
           log("T19", "OK", "surface.gesture sent", msg);
         },
-        // T19（§3）: 2本上下スクロール。既存surface.stateをsurfaceIdだけ変えて再利用する
-        // （新しいWSメッセージ型は不要。同じsocketインスタンスを共有する）。
-        sendScrollDelta: function (dy) {
-          if (!socket || socket.readyState !== WebSocket.OPEN) return;
-          const now = performance.now();
-          if (now - lastScrollSendAt < MIN_INTERVAL) return;
-          lastScrollSendAt = now;
-          socket.send(JSON.stringify({
-            type: "surface.state",
-            surfaceId: SCROLL_SURFACE_ID,
-            delta: { dx: 0, dy: clampScroll(dy) },
-            spin: { x: 0, y: 0, z: 0, w: 1 },  // Hubは読み捨てる（tb01と同じダミー値）
-            active: true
-          }));
-        },
+        /// 切断したときに呼ぶ処理を1つ登録する（つかみ中の表示を解くため）
+        onClose: function (fn) { closeHandler = fn; },
         statusHtml: function () {
           return '<span class="sink ' + cls + '">sink: ' + status +
                  ' / 送信 ' + sent + ' 件・間引き ' + dropped + ' 件</span>';
@@ -891,235 +898,197 @@
     Core.onState(hubSink.sink);
 
     // ================================================================
-    // 4. Gesture — 生のポインタ事象を解釈し、Core（1本ドラッグ）とhubSink
-    //    （discrete/continuousジェスチャー送信）へ振り分ける（T19。
-    //    brief/keydeck_trackball_gestures_v0.7.md §6）。
-    //    Core/Viewはこのモジュールの存在を知らない（①②は無変更のまま）。
-    //    既存の1本ドラッグ（ボールの見た目・慣性）はpointerが1本だけの間のみ有効にする。
-    //    2本目が触れた瞬間、進行中のCore dragは打ち切る（1本ドラッグと2本操作の混線防止）。
+    // 4. Gesture（Vol2）— 1本指だけを見る。2本目以降の指は無視する。
+    //    状態は4つだけ:
+    //      idle      … 触れていない
+    //      move      … 1本指でカーソルを動かしている
+    //      candidate … タップ直後に2回目が触れた。まだ決めていない
+    //                  （すぐ離せばダブルクリック、置いたまま/動かせば押しっぱなし）
+    //      hold      … 左ボタンを押している（離すまで選択中）
+    //    何を押すかは surfaces/trackball.json の gestures が決める。ここは名前を送るだけ。
     // ================================================================
     const Gesture = (function () {
-      // 閾値は仮決め（実機テストで調整する前提。P同様のJSONパラメータ化はしない＝§6）。
-      const T_TAP_MAX = 250;      // ms: down→upがこれ以内ならタップ候補
-      const T_DTAP_MAX = 300;     // ms: 直前のタップ完了からこれ以内の2回目でダブルタップ
-      const T_HOLD = 500;         // ms: down継続がこれを超えたら長押し候補
-      const MOVE_THRESHOLD = 10;  // px: これを超えたら「タップ未遂」（通常drag扱いに委ねる）
+      const T_TAP_MAX = 250;       // ms: down→up がこれ以内で、動いていなければタップ
+      const T_DTAP_MAX = 300;      // ms: 1回目のタップからこれ以内に触れれば「2回目」
+      const T_TAPDRAG_HOLD = 200;  // ms: 2回目をこれだけ置いたら押しっぱなし
+      const MOVE_THRESHOLD = 10;   // px: これを超えて動いたら「タップではない」
 
-      // pointerId -> { startX, startY, downAt, lastX, lastY, lastDy, moved }
-      const pointers = new Map();
-
-      let dragging = false;
-      let primaryPointerId = null;
-      let prev = { x: 0, y: 0 };
-
+      let finger = null;           // 追っている1本 { id, startX, startY, lastX, lastY, downAt, moved, tainted }
+      let mode = "idle";
       let holdTimer = null;
-      let holdActivePointerId = null;
-
-      // このタッチセッション（全指が離れるまでの一続き）の集計。
-      let sessionMaxCount = 0;
-      let sessionTapEligible = true;
-      let sessionHoldFired = false;
-
-      let pendingTapTimer = null;
+      let buf = { x: 0, y: 0 };    // candidate の間に溜めた動き。押した後に流す
+      let pendingTapTimer = null;  // 1回目のタップを「ダブルか？」と待つ間のタイマー
       let awaitingSecondTap = false;
+      /// 「つかむ」で左ボタンを押している間 true。この間は**動かすだけ**にする
+      /// （タップ・ダブルタップ・タップ→押しっぱなしを出さない。押したままクリックが
+      /// 飛ぶと、範囲選択の途中で確定・解除されてしまう）
+      let grabbed = false;
 
-      function dist(record, x, y) {
-        return Math.hypot(x - record.startX, y - record.startY);
-      }
-
-      function beginDrag(e) {
-        dragging = true;
-        primaryPointerId = e.pointerId;
-        prev = { x: e.clientX, y: e.clientY };
-        Core.begin();
-      }
-
-      function endDrag() {
-        if (!dragging) return;
-        dragging = false;
-        primaryPointerId = null;
-        Core.end();
+      function cancelPendingTap() {
+        if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
+        awaitingSecondTap = false;
       }
 
       function clearHoldTimer() {
         if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
       }
 
-      // 長押し（hold1）: down→edge:"down"、finger up/cancel→edge:"up"。
-      // 触れた場所が左右どちらの領域か。**判定に使うのは最初に触れた指の位置だけ**。
-      // 途中で指が反対側へ動いても、始めた側の意味のままにする（動かすたびに
-      // 意味が変わると、なぞっている最中に別の操作へ化けてしまう）。
-      // 左:右 = 4:1。右は「右クリックとスクロールだけの細い帯」で、
-      // 広い左側をカーソル操作に使う。
-      const SPLIT = 0.8;
-      function sideOf(clientX) {
-        const r = View.canvas.getBoundingClientRect();
-        return (clientX - r.left) < r.width * SPLIT ? "left" : "right";
-      }
-      /// セッション（全部の指が離れるまで）で最初に触れた側
-      let sessionSide = "left";
-
-      /// コピー開始。左ボタンを押したままにして、以後の指の動きで範囲を選ぶ。
-      /// 動かす基準は**1本だけ**にする（2本ぶん足すと倍の速さで飛ぶ）。
-      let copyDriverId = null;
-      function fireHoldDown(pointerId) {
-        holdActivePointerId = pointerId;
-        sessionHoldFired = true;
-        sessionTapEligible = false;   // 長押しは「2本タップ＝戻る」に数えない
-        copyDriverId = pointerId;
-        dragging = true;
-        primaryPointerId = null;      // 1本用の経路とは別物として扱う
+      /// 押しっぱなしにする。**押してから**溜めた動きを流す（先に流すと囲み始めがずれる）
+      function startHold() {
+        if (mode !== "candidate") return;
+        clearHoldTimer();
+        mode = "hold";
+        awaitingSecondTap = false;
         Core.begin();
-        hubSink.sendGesture("hold1", "down");
+        hubSink.sendGesture("tapdrag1", "down");
+        if (buf.x || buf.y) Core.move(buf.x, buf.y);
       }
 
-      /// 長押しで左ボタンを押し、なぞった範囲を選び、離すとコピーまで済ませる。
-      /// 離すときに送るのは2つ。**先にボタンを離し**（選択を確定させ）、
-      /// そのあとコピーを送る。順番が逆だと、選択が確定する前にコピーが走る。
-      function fireHoldUp() {
-        if (holdActivePointerId === null) return;
-        holdActivePointerId = null;
-        copyDriverId = null;
-        hubSink.sendGesture("hold1", "up");
-        hubSink.sendGesture("copy1");
-      }
-
-      // 1本タップ/ダブルタップ: タップ完了をT_DTAP_MAX待ってから確定する
-      // （2回目のタップが間に合えばdtap1、間に合わなければtap1）。
-      function completeSingleTap() {
-        if (awaitingSecondTap) {
-          awaitingSecondTap = false;
-          if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
-          hubSink.sendGesture("dtap1");
-          return;
-        }
-        awaitingSecondTap = true;
-        pendingTapTimer = setTimeout(() => {
-          pendingTapTimer = null;
-          awaitingSecondTap = false;
-          hubSink.sendGesture(sessionSide === "left" ? "tap1-left" : "tap1-right");
-        }, T_DTAP_MAX);
-      }
-
-      // 全指が離れた時点でセッションを評価する（2本タップ=tap2、3本タップ=tap3、
-      // 1本のみ＝タップ/ダブルタップ判定）。長押しが発火済みの場合はタップを重複発火しない。
-      function finalizeSessionIfEmpty() {
-        if (pointers.size > 0) return;
-        if (!sessionHoldFired) {
-          if (sessionMaxCount === 1 && sessionTapEligible) completeSingleTap();
-          // 2本タップは左側だけに意味がある（戻る）。右側は割り当てが無いので
-          // **何も送らない**。送るとHubに「知らないジェスチャー」のエラーが並ぶ。
-          else if (sessionMaxCount === 2 && sessionTapEligible && sessionSide === "left") {
-            hubSink.sendGesture("tap2-left");
-          }
-        }
-        sessionMaxCount = 0;
-        sessionTapEligible = true;
-        sessionHoldFired = false;
+      /// いまの操作を終わらせる。押していればボタンを離す
+      function finish() {
+        clearHoldTimer();
+        if (mode === "hold") hubSink.sendGesture("tapdrag1", "up");
+        if (mode === "move" || mode === "hold") Core.end();
+        mode = "idle";
       }
 
       function onPointerDown(e) {
         View.canvas.setPointerCapture(e.pointerId);
-        pointers.set(e.pointerId, {
-          startX: e.clientX, startY: e.clientY, downAt: performance.now(),
-          lastX: e.clientX, lastY: e.clientY, lastDy: 0, moved: false
-        });
-        if (pointers.size === 1) sessionSide = sideOf(e.clientX);
-        sessionMaxCount = Math.max(sessionMaxCount, pointers.size);
-
-        if (pointers.size === 1) {
-          // **1本指はカーソル操作だけ。** 以前はここで長押しの計測も始めていたが、
-          // 「指を置いて一呼吸おく」だけで左ボタンが押され、そのあとの移動が
-          // カーソル移動ではなく範囲選択に化けていた。責務を分けるため廃止した。
-          beginDrag(e);
-        } else if (pointers.size === 2) {
-          // 2本目が乗った瞬間、1本ドラッグ用のCoreは打ち切る（§6）。
-          clearHoldTimer();
-          endDrag();
-          // 左側の2本長押し = コピー開始。右側は右クリックとスクロール専用なので測らない。
-          if (sessionSide === "left") {
-            holdTimer = setTimeout(() => {
-              holdTimer = null;
-              if (pointers.size !== 2) return;
-              for (const rec of pointers.values()) if (rec.moved) return;
-              fireHoldDown(e.pointerId);
-            }, T_HOLD);
-          }
+        if (finger) {
+          // 2本目以降は操作に使わない。ただしタップの判定からは外す
+          // （2本で叩いたものをクリックとして送らない）
+          finger.tainted = true;
+          return;
         }
-        // 3本目以降は追加のCore操作なし（tapのみ対象。§0のVer1範囲）。
+        finger = {
+          id: e.pointerId, startX: e.clientX, startY: e.clientY,
+          lastX: e.clientX, lastY: e.clientY, downAt: performance.now(),
+          moved: false, tainted: false,
+        };
+        if (grabbed) {
+          mode = "move";      // つかみ中は、触れたら動かすだけ
+          Core.begin();
+        } else if (awaitingSecondTap) {
+          // 1回目のクリックはまだ送らない（ダブルクリックか押しっぱなしになるかもしれない）
+          if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
+          mode = "candidate";
+          buf = { x: 0, y: 0 };
+          holdTimer = setTimeout(startHold, T_TAPDRAG_HOLD);
+        } else {
+          mode = "move";
+          Core.begin();
+        }
       }
 
       function onPointerMove(e) {
-        const record = pointers.get(e.pointerId);
-        if (!record) return;
-
-        if (!record.moved && dist(record, e.clientX, e.clientY) >= MOVE_THRESHOLD) {
-          record.moved = true;
-          sessionTapEligible = false;
-          if (e.pointerId === primaryPointerId) clearHoldTimer();
+        if (!finger || e.pointerId !== finger.id) return;
+        const dx = e.clientX - finger.lastX;
+        const dy = e.clientY - finger.lastY;
+        finger.lastX = e.clientX; finger.lastY = e.clientY;
+        if (!finger.moved &&
+            Math.hypot(e.clientX - finger.startX, e.clientY - finger.startY) >= MOVE_THRESHOLD) {
+          finger.moved = true;
         }
-
-        // コピー中は、基準の指の動きでカーソルを動かして範囲を選ぶ。
-        // スクロールにも1本ドラッグにも渡さない（同時に走ると選択が飛ぶ）。
-        if (holdActivePointerId !== null) {
-          if (e.pointerId === copyDriverId) {
-            Core.move(e.clientX - record.lastX, e.clientY - record.lastY);
-          }
-          record.lastX = e.clientX; record.lastY = e.clientY;
+        if (mode === "candidate") {
+          buf.x += dx; buf.y += dy;
+          if (finger.moved) startHold();   // 動かし始めたら待たずに押す
           return;
         }
-
-        if (pointers.size === 1 && e.pointerId === primaryPointerId && dragging) {
-          // 既存の1本ドラッグ（ボールの見た目・慣性）は無変更のまま。
-          const rawX = e.clientX - prev.x;
-          const rawY = e.clientY - prev.y;
-          prev = { x: e.clientX, y: e.clientY };
-          readoutSink.setRaw(rawX, rawY);
-          Core.move(rawX, rawY);
-        } else if (pointers.size === 2 && sessionSide === "right") {
-          // 2本上下スクロールは**右側で始めたときだけ**。左側の2本上下は未割り当て。
-          const thisDy = e.clientY - record.lastY;
-          record.lastX = e.clientX; record.lastY = e.clientY;
-          let otherDy = 0;
-          for (const [id, other] of pointers) {
-            if (id !== e.pointerId) { otherDy = other.lastDy; break; }
-          }
-          record.lastDy = thisDy;
-          hubSink.sendScrollDelta((thisDy + otherDy) / 2);
-        } else {
-          record.lastX = e.clientX; record.lastY = e.clientY;
+        if (mode === "move" || mode === "hold") {
+          readoutSink.setRaw(dx, dy);
+          Core.move(dx, dy);
         }
       }
 
-      function onPointerUp(e) {
-        const record = pointers.get(e.pointerId);
-        if (!record) return;
-
-        const now = performance.now();
-        if (now - record.downAt > T_TAP_MAX) sessionTapEligible = false;
-
-        // コピー中はどちらの指が離れても終わり。離した時点で選択を確定させる。
-        if (holdActivePointerId !== null) {
-          fireHoldUp();
-          endDrag();
-        }
-        if (e.pointerId === primaryPointerId) {
-          endDrag();
-        }
-        clearHoldTimer();
+      function onPointerUp(e, cancelled) {
         try { View.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 既に解放済み */ }
+        if (!finger || e.pointerId !== finger.id) return;   // 2本目以降の指
+        const wasTap = !cancelled && !finger.moved && !finger.tainted &&
+          performance.now() - finger.downAt <= T_TAP_MAX;
+        const was = mode;
+        finish();
+        finger = null;
 
-        pointers.delete(e.pointerId);
-        finalizeSessionIfEmpty();
+        if (grabbed) return;   // つかみ中はタップを数えない
+        if (was === "hold" || !wasTap) { awaitingSecondTap = false; return; }
+        if (was === "candidate") {
+          // 2回目をすぐ離した＝ダブルクリック
+          awaitingSecondTap = false;
+          hubSink.sendGesture("dtap1");
+          return;
+        }
+        // 1回目のタップ。ダブルタップ／押しっぱなしにならないと分かってからクリックを送る
+        awaitingSecondTap = true;
+        pendingTapTimer = setTimeout(() => {
+          pendingTapTimer = null;
+          awaitingSecondTap = false;
+          hubSink.sendGesture("tap1-left");
+        }, T_DTAP_MAX);
       }
 
-      return { onPointerDown, onPointerMove, onPointerUp };
+      /// つかむ／離す。on=true で左ボタンを押す、false で離す。
+      /// sendUp=false は「Hub がもう離した（切断）」ときで、画面の状態だけを戻す。
+      function setGrabbed(on, sendUp = true) {
+        if (on === grabbed) return;
+        cancelPendingTap();
+        // タップ→押しっぱなしの途中なら、それを先に終わらせる（押す操作が二重にならない）
+        if (mode === "hold" || mode === "candidate") finish();
+        grabbed = on;
+        if (on) hubSink.sendGesture("grab1", "down");
+        else if (sendUp) hubSink.sendGesture("grab1", "up");
+      }
+
+      return {
+        onPointerDown,
+        onPointerMove,
+        onPointerUp: (e) => onPointerUp(e, false),
+        onPointerCancel: (e) => onPointerUp(e, true),
+        setGrabbed,
+        isGrabbed: () => grabbed,
+      };
     })();
+
+    // ---- 右クリック（R） --------------------------------------------------
+    // 押した瞬間に右クリックを1回。何を押すかは surfaces/trackball.json の tap1-right が決める
+    // （Vol1.1 の「右の帯のタップ」と同じジェスチャー名を使う。Hub の設定は変えない）。
+    document.getElementById("rclickBtn").addEventListener("click", () => {
+      hubSink.sendGesture("tap1-right");
+    });
+
+    // ---- つかむボタン ------------------------------------------------------
+    // 1回押すと左ボタンを押したまま（つかみ中）、もう一度押すと離す。
+    // 指を球から離して持ち直しても、ボタンは押されたまま＝範囲選択が続く。
+    const grabBtn = document.getElementById("grabToggle");
+    function renderGrab() {
+      const on = Gesture.isGrabbed();
+      grabBtn.classList.toggle("on", on);
+      grabBtn.setAttribute("aria-pressed", String(on));
+      document.getElementById("grabLabel").textContent = on ? "離す" : "つかむ";
+      document.getElementById("grabBadge").hidden = !on;
+      document.getElementById("stage").classList.toggle("grabbed", on);
+    }
+    grabBtn.addEventListener("click", () => {
+      Gesture.setGrabbed(!Gesture.isGrabbed());
+      renderGrab();
+    });
+    // 通信が切れたら Hub が離している。表示だけ戻す（離す合図は送れないので送らない）
+    hubSink.onClose(() => { Gesture.setGrabbed(false, false); renderGrab(); });
+    // 画面を閉じる・別のアプリへ切り替える・区画が消えるときは、つかんだままにしない。
+    // pagehide で送れなかった場合も、そのあと接続が切れた時点で Hub が離す
+    function releaseOnLeave() {
+      if (!Gesture.isGrabbed()) return;
+      Gesture.setGrabbed(false);
+      renderGrab();
+    }
+    window.addEventListener("pagehide", releaseOnLeave);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") releaseOnLeave();
+    });
 
     View.canvas.addEventListener("pointerdown", e => Gesture.onPointerDown(e));
     View.canvas.addEventListener("pointermove", e => Gesture.onPointerMove(e));
     View.canvas.addEventListener("pointerup", e => Gesture.onPointerUp(e));
-    View.canvas.addEventListener("pointercancel", e => Gesture.onPointerUp(e));
+    View.canvas.addEventListener("pointercancel", e => Gesture.onPointerCancel(e));
 
     function frame() {
       requestAnimationFrame(frame);

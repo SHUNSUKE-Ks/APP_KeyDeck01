@@ -1,0 +1,61 @@
+{
+  "layoutId": "iphone7_portrait",
+  "description": "iPhone 7 を縦向きで片手持ちするときのboard。マウス操作とアプリ切り替えだけに絞った。\n\n■ 並び（上から）\n1. 範囲スクショ（WIN+SHIFT+S、クリップボードへ）・右クリック・二層ラジアル（右端。押したまま指を倒すと8方向×2輪＝16項目が開く。外側がよく使う操作、内側が細かい操作、真ん中で離すと取り消し）\n2. トラックボール（横いっぱい・5行。タップ＝左クリック、ダブルタップ＝ダブルクリック、右下の✋つかむ、右端の R＝右クリック）\n3. アプリ切り替え4ボタン（フォルダー・Chrome・Codex・Claude＝Win+1/5/6/8。縦2マスぶん）・スクロール用ホイール（右端・縦2マス）\n\n■ 格子を 5×8 にした理由\n縦で格子に使えるのはおよそ 375×497px。5×8 なら1マスが約75×62pxで、指で押せる44pxを縦横とも上回る（2026-09-22 に 4×8 から広げた）。\n\n■ 範囲スクショの囲み方\n範囲スクショを押すと画面が暗くなるので、トラックボール右下の「✋つかむ」を押し、球で動かして囲み、「離す」で確定する。",
+  "device": "iphone7_port",
+  "grid": {
+    "cols": 5,
+    "rows": 8
+  },
+  "sections": [
+    {
+      "id": "SEC-SHOT-REGION",
+      "row": 1,
+      "col": 1,
+      "component": {
+        "kind": "keyboard",
+        "ref": "screenshot_region"
+      }
+    },
+    {
+      "id": "SEC-RADIAL",
+      "row": 1,
+      "col": 3,
+      "component": {
+        "kind": "keyboard",
+        "ref": "radial_edit2"
+      }
+    },
+    {
+      "id": "SEC-BALL",
+      "row": 2,
+      "col": 2,
+      "colSpan": 4,
+      "rowSpan": 5,
+      "component": {
+        "kind": "trackball",
+        "ref": "tb01"
+      }
+    },
+    {
+      "id": "SEC-APPS",
+      "row": 7,
+      "col": 2,
+      "colSpan": 4,
+      "rowSpan": 2,
+      "component": {
+        "kind": "deck",
+        "ref": "apps"
+      }
+    },
+    {
+      "id": "SEC-WHEEL",
+      "row": 2,
+      "col": 1,
+      "rowSpan": 3,
+      "component": {
+        "kind": "jog",
+        "ref": "wheel_scroll"
+      }
+    }
+  ]
+}

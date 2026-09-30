@@ -1,0 +1,53 @@
+{
+  "layer": 0,
+  "description": "ふちの操作。E5 は apps/apps.json の note_story（chrome.exe --app=https://kanban-note01.vercel.app）を起動するだけ。E6 は id を省いた layout.switch（Hub が決めた既定の board へ戻る）。",
+  "keys": {
+    "E1": {
+      "label": "?",
+      "action": {
+        "t": "chord",
+        "keys": [
+          "CTRL",
+          "SLASH"
+        ]
+      }
+    },
+    "E2": {
+      "label": "戻る",
+      "action": {
+        "t": "chord",
+        "keys": [
+          "CTRL",
+          "Z"
+        ]
+      }
+    },
+    "E3": {
+      "label": "Esc",
+      "action": {
+        "t": "key",
+        "vk": "ESC"
+      }
+    },
+    "E4": {
+      "label": "キー確認",
+      "action": {
+        "t": "key",
+        "vk": "F17"
+      }
+    },
+    "E5": {
+      "label": "Note Story\n開く",
+      "action": {
+        "t": "app.launch",
+        "id": "note_story"
+      }
+    },
+    "E6": {
+      "label": "既定へ\n戻る",
+      "action": {
+        "t": "layout.switch"
+      }
+    }
+  }
+}

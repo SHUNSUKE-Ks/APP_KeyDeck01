@@ -1,0 +1,28 @@
+{
+  "keymapId": "note_move",
+  "kind": "single",
+  "description": "Note Story の会話ログで行を移る3ボタン（縦1列）。上から 前のセリフ（ALT+↑）／同じ人物で続ける（CTRL+ENTER）／次のセリフ（ALT+↓）。",
+  "board": {
+    "cols": 1,
+    "keys": [
+      {
+        "id": "M1",
+        "row": 1,
+        "col": 1
+      },
+      {
+        "id": "M2",
+        "row": 2,
+        "col": 1
+      },
+      {
+        "id": "M3",
+        "row": 3,
+        "col": 1
+      }
+    ]
+  },
+  "layerFiles": [
+    "layers/note_move_layer0.json"
+  ]
+}

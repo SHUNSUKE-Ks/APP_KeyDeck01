@@ -1,0 +1,33 @@
+{
+  "layoutId": "game_soranokiseki",
+  "description": "",
+  "device": "iphone7_land",
+  "grid": {
+    "cols": 8,
+    "rows": 4
+  },
+  "sections": [
+    {
+      "id": "SEC-NEW1",
+      "row": 1,
+      "col": 5,
+      "colSpan": 4,
+      "rowSpan": 4,
+      "component": {
+        "kind": "keyboard",
+        "ref": "dpad01"
+      }
+    },
+    {
+      "id": "SEC-NEW2",
+      "row": 1,
+      "col": 1,
+      "colSpan": 4,
+      "rowSpan": 4,
+      "component": {
+        "kind": "keyboard",
+        "ref": "youtube01"
+      }
+    }
+  ]
+}

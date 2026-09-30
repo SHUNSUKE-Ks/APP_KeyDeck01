@@ -1,0 +1,8 @@
+{
+  "layer": 0,
+  "description": "スクロール用ホイール。指を上へこする＝CCW＝画面を上へ、下へこする＝CW＝画面を下へ。どちらもホイール1段。",
+  "keys": {
+    "CCW": { "label": "上へ", "action": {"t": "mouse.wheel", "dir": "up"} },
+    "CW":  { "label": "下へ", "action": {"t": "mouse.wheel", "dir": "down"} }
+  }
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fn状態変化の詳細</title>
+  <style>
+    :root { color-scheme:dark; --bg:#101526; --panel:#18213a; --line:#40527b; --text:#eef2ff; --sub:#b9c4e5; --blue:#78b7ff; --green:#a8e6a2; }
+    * { box-sizing:border-box; } body { margin:0; padding:28px; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; line-height:1.7; } main { max-width:880px; margin:auto; } h1 { margin-top:0; } h2 { margin-top:32px; padding-top:12px; border-top:1px solid var(--line); } p,li { color:var(--sub); } .back { display:inline-block; margin-bottom:18px; color:#dbe7ff; } .box { padding:15px; border:1px solid var(--line); border-radius:10px; background:var(--panel); } code,pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; } pre { overflow:auto; padding:14px; border-radius:8px; background:#0b1020; color:#dce7ff; } .state { border-left:4px solid var(--blue); } .input { border-left:4px solid var(--green); }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="08_状態変化図_縦フロー見本.html">← 図へ戻る</a>
+    <h1>Fnを押したときの状態変化 — 詳細ページ</h1>
+    <p>図を軽く保つための詳細置き場です。図のボタンから、該当する見出しへ移動します。</p>
+
+    <h2 id="before">現状の画面</h2>
+    <div class="box"><p>Layer 0が有効です。Fnは「押している間だけLayer 1を有効にする」`Mo { layer: 1 }`としてJSONに定義されています。まだWindowsへの入力はありません。</p></div>
+
+    <h2 id="code">コードblock</h2>
+    <div class="box"><pre><code>state.momentary.insert(*layer);
+Resolved::LayerChanged</code></pre><p>1行目がHubの状態を変え、2行目が「画面へその状態を知らせる必要がある」と呼び出し元へ返します。ここに`SendInput`はありません。</p></div>
+
+    <h2 id="handle">handle_key_press</h2>
+    <div class="box"><p>WebSocketから位置IDとDownを受け取り、正しいkeymapとLayerStateを選び、`resolve`を呼びます。Hubの交通整理役です。</p></div>
+
+    <h2 id="resolve">resolve</h2>
+    <div class="box"><p>有効なレイヤーを番号の大きい順に探し、`trans`は通過します。FnのActionが`Mo`なら、momentary集合を更新して`LayerChanged`を返します。</p></div>
+
+    <h2 id="state">Hubの状態</h2>
+    <div class="box state"><p>操作前: `momentary = {}`。FnをDownした後: `momentary = {1}`。常に有効な0と合わせて、有効レイヤーは`{0, 1}`になります。</p></div>
+
+    <h2 id="broadcast">画面への影響</h2>
+    <div class="box state"><p>Hubは確定したLayerStateを同じ盤面を開くブラウザへ配ります。画面は「Fnを押したから」ではなく、Hubから受けた状態を正として描きます。</p></div>
+
+    <h2 id="no-input">なぜWindows入力が出ないか</h2>
+    <div class="box input"><p>`Mo`の出力は`LayerChanged`です。`Fire`ではないのでadapterへ進まず、SendInputも呼ばれません。これは失敗ではなく、レイヤー切替だけを行う正しい経路です。</p></div>
+
+    <h2 id="key">普通のKeyとの比較</h2>
+    <div class="box input"><p>通常の`Key`はLayerStateを変えず、`Resolved::Fire`を返します。HubはそのActionをadapterへ渡し、Windowsの前面アプリへキー入力を送ります。</p></div>
+
+    <h2 id="after">変化後の画面</h2>
+    <div class="box"><p>Layer 1の定義がLayer 0より優先され、キーラベルがF1〜F7などへ変わります。Fnを離すとmomentaryから1が消え、画面はLayer 0へ戻ります。</p></div>
+  </main>
+</body>
+</html>

@@ -6,6 +6,15 @@
       "label": "メモ帳",
       "exe": "C:\\Windows\\System32\\notepad.exe",
       "description": "動作確認用の見本。Windowsに必ず在るので、この仕組みが生きているかを試せる。要らなければこの項目ごと消してよい。"
+    },
+    {
+      "id": "note_story",
+      "label": "Note Story",
+      "exe": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "args": [
+        "--app=https://kanban-note01.vercel.app"
+      ],
+      "description": "Note Story（カンバンNote V2.1）を Chrome のアプリ窓で開く。普通のタブだと Alt+数字 を Chrome がタブ切り替えに取るため、アプリ窓で開く（REQ-20260928-001）。"
     }
   ]
 }

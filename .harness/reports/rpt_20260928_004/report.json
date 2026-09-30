@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "2.0",
+  "reportId": "rpt_20260928_004",
+  "projectId": "APP_KeyDeck01",
+  "milestoneId": null,
+  "taskId": "REQ-20260928-001",
+  "phase": "implementation",
+  "kind": "task_completion",
+  "date": "2026-09-28",
+  "title": "Note Story 用の盤面 note_story（REQ-20260928-001）",
+  "summary": "Note Story（カンバンNote V2.1）の会話ログ・下書き用の iPad 横 12×9 盤面を、JSON データの追加だけで作成。話者Deck（取り込みで人物名・アイコンに上書きできる置き場所）、行の移動、ホイール、書く道具（F13〜F16・柱：・備考：）、定型文リスト、ふち（ヘルプ・戻る・Esc・キー確認・Note Story起動・既定へ）。本物の Hub で読み込みと描画まで確認、実機と実際の Note Story では未確認。",
+  "agentId": "claude-code",
+  "modelProfileId": "claude-opus-5-5",
+  "startedAt": "2026-09-28T23:30:00+09:00",
+  "completedAt": "2026-09-28T23:59:00+09:00",
+  "durationMin": null,
+  "tokensUsed": null,
+  "outcomes": [
+    "layouts/layout_note_story.json（12×9・108マス全部使用）",
+    "keymaps: note_move / note_tools / note_edge（各 layer0 つき）",
+    "decks: note_cast（5×2・Note Story の書き出しと同じ並び）/ note_palette（list・定型文10件）",
+    "apps/apps.json に note_story（chrome.exe --app=https://kanban-note01.vercel.app）",
+    "components.js NAV_TREE に「執筆部門（Note Story）」",
+    "startup の実データテストに note_story の部品と許可リスト掲載の検査を追加"
+  ],
+  "verification": [
+    "cargo test --workspace = 158 passed, 0 failed",
+    "本物の Hub を再起動して読み込み成功（keymaps=22 decks=6 layouts=10 apps=2・許可リスト188）",
+    "レイアウト編集で「✓ 重なり・はみ出しなし」",
+    "端末画面 /layout?id=note_story を 1366×1024 で描画し目視（押していない）",
+    "未確認: iPad 実機・Chrome アプリ窓の Note Story での通し・取り込みの実機通し"
+  ],
+  "nextActions": [
+    "Note Story で Deck名 note_cast として書き出し → /deckedit の取り込み → 盤面の話者に名前とアイコンが出ることを確認",
+    "iPad で /layout?id=note_story を開き、Chrome アプリ窓の Note Story に対して依頼の受け入れ基準7項目を実機で確認",
+    "REQ-20260928-002（テンキー・B-002）を別タスクとして進める。終わったら盤面に 3×3 と −・＋・0 を足す"
+  ],
+  "deliverables": [
+    "DevApps/APP_KeyDeck01/layouts/layout_note_story.json",
+    "DevApps/APP_KeyDeck01/keymaps/keymap_note_move.json",
+    "DevApps/APP_KeyDeck01/keymaps/keymap_note_tools.json",
+    "DevApps/APP_KeyDeck01/keymaps/keymap_note_edge.json",
+    "DevApps/APP_KeyDeck01/decks/deck_note_cast.json",
+    "DevApps/APP_KeyDeck01/decks/deck_note_palette.json",
+    "C:/00_CreatorCompass/KeyDeck/依頼/REQ-20260928-001.reply.md",
+    "C:/00_CreatorCompass/KeyDeck/できること.md（版2.3）"
+  ],
+  "tags": ["keydeck", "board", "note-story", "request"],
+  "blockedEncountered": [
+    "B-002 のため layout.switch / app.launch に fire を付けられず、起動と盤面移動を別ボタンにした"
+  ],
+  "reflection": {
+    "reusable": true,
+    "skillCandidate": false,
+    "templateCandidate": false,
+    "note": "外のアプリの書き出しと同じ deckId・同じ格子で置き場所の Deck を先に置いておくと、取り込みで上書きするだけで盤面を書き換えずに中身が差し替わる"
+  },
+  "evaluationId": null,
+  "bodyFile": "report_body.md"
+}

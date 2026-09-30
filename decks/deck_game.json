@@ -1,0 +1,20 @@
+{
+  "deckId": "game",
+  "description": "ゲーム中に使う道具の8ボタン（4列×2行）。遊ぶときにも、自分のゲームを動かして確かめるときにも使う。\n\n■ 中身\n上段 スクショ（WIN+SHIFT+S）／録画（WIN+ALT+R＝Xbox Game Bar）／全画面（F11）／窓の切替（ALT+TAB）\n下段 ミュート／音量＋／音量−／メニュー（ESC）\n\n■ 地色（V2.1〜）\n役目ごとに色を分けてある。撮る＝緑、録る＝赤、画面＝青、音＝灰、抜ける＝黄。\n押し間違えると困るもの（録画）だけ色を強くしてある。色は Deck編集画面 /deckedit から変えられる。\n\n■ 録画について\nWIN+ALT+R は Windows の Xbox Game Bar の録画開始／停止。Game Bar が無効だと何も起きない。\n設定 › ゲーム › Xbox Game Bar で有効にしてから使う。",
+  "grid": { "cols": 4, "rows": 2 },
+  "pages": [
+    {
+      "id": 1,
+      "slots": [
+        { "slotId": "G1", "label": "スクショ",   "color": "#1b7f5a", "action": { "t": "chord", "keys": ["WIN", "SHIFT", "S"] } },
+        { "slotId": "G2", "label": "録画",       "color": "#c0392b", "action": { "t": "chord", "keys": ["WIN", "ALT", "R"] } },
+        { "slotId": "G3", "label": "全画面",     "color": "#1f6feb", "action": { "t": "key", "vk": "F11" } },
+        { "slotId": "G4", "label": "窓の切替",   "color": "#6b3fa0", "action": { "t": "chord", "keys": ["ALT", "TAB"] } },
+        { "slotId": "G5", "label": "ミュート",   "color": "#41495e", "action": { "t": "key", "vk": "MUTE" } },
+        { "slotId": "G6", "label": "音量＋",     "color": "#41495e", "action": { "t": "key", "vk": "VOL_UP" } },
+        { "slotId": "G7", "label": "音量−",     "color": "#41495e", "action": { "t": "key", "vk": "VOL_DOWN" } },
+        { "slotId": "G8", "label": "メニュー",   "color": "#8a6d1f", "action": { "t": "key", "vk": "ESC" } }
+      ]
+    }
+  ]
+}

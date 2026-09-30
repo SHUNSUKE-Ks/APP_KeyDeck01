@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::Message;
-use proto_keymap::{Action, Keymap, LayerState};
+use proto_keymap::{Action, Keymap, LayerState, MouseButtonKind};
 use subtle::ConstantTimeEq;
 use tokio::sync::{mpsc, oneshot};
 
@@ -118,6 +118,14 @@ pub fn canonical_command_id(action: &Action) -> Option<String> {
         // トラックボール面のジェスチャーは別経路（handle_surface_gesture）で
         // surfaces/*.json の検証を通っており、ここは通らない。
         Action::MouseClick { button } => Some(format!("mouse.click:{}", button_id(button))),
+        // ホイールも許可リストに載せる（クリックと同じ理由）。向きだけで量は固定
+        Action::MouseWheel { dir } => Some(format!(
+            "mouse.wheel:{}",
+            match dir {
+                proto_keymap::WheelDir::Up => "up",
+                proto_keymap::WheelDir::Down => "down",
+            }
+        )),
         Action::MouseDoubleClick { button } => {
             Some(format!("mouse.dblclick:{}", button_id(button)))
         }
@@ -167,6 +175,11 @@ pub struct HubState {
     /// これが無いと、十字キーを押したまま切断・画面を閉じる・電波が切れる、で
     /// **キーが押されっぱなしになりPCが操作不能になる**。切断時にここを見て全部離す。
     held_keys: HashMap<ClientId, BTreeSet<String>>,
+    /// いま押しっぱなしになっているマウスボタン（クライアント別）。トラックボールの
+    /// `mouse.button.hold`（タップ→押しっぱなし・つかむ）が押したもの。
+    /// held_keys と同じ理由で持つ。**これが無かったため、押したまま画面を閉じる・
+    /// 電波が切れると左ボタンが押されっぱなしで残った**（2026-09-22 に判明）。
+    held_mouse: HashMap<ClientId, Vec<MouseButtonKind>>,
     clients: HashMap<ClientId, ClientEntry>,
     pub next_client_id: ClientId,
     pub token: AccessToken,
@@ -220,6 +233,7 @@ impl HubState {
             surfaces,
             apps,
             held_keys: HashMap::new(),
+            held_mouse: HashMap::new(),
             clients: HashMap::new(),
             next_client_id: 0,
             token,
@@ -363,6 +377,28 @@ impl HubState {
             .remove(&client_id)
             .map(|set| set.into_iter().collect())
             .unwrap_or_default()
+    }
+
+    /// マウスボタンの押下/解放を台帳に反映する。Windows へ送れたあとに呼ぶ
+    /// （送れなかった押下を「押している」と記録しない）。
+    pub fn note_mouse_hold(&mut self, client_id: ClientId, button: MouseButtonKind, down: bool) {
+        let entry = self.held_mouse.entry(client_id).or_default();
+        if down {
+            if !entry.contains(&button) {
+                entry.push(button);
+            }
+        } else {
+            entry.retain(|b| *b != button);
+        }
+        if entry.is_empty() {
+            self.held_mouse.remove(&client_id);
+        }
+    }
+
+    /// そのクライアントが押しっぱなしにしているマウスボタンを取り出して台帳から消す。
+    /// 切断時に呼び、返ってきたボタンを全部離す。
+    pub fn take_held_mouse(&mut self, client_id: ClientId) -> Vec<MouseButtonKind> {
+        self.held_mouse.remove(&client_id).unwrap_or_default()
     }
 
     pub fn unregister_client(&mut self, client_id: ClientId) {

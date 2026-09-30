@@ -1,0 +1,19 @@
+{
+  "layoutId": "shortborad",
+  "description": "",
+  "grid": {
+    "cols": 12,
+    "rows": 9
+  },
+  "sections": [
+    {
+      "id": "SEC-1",
+      "row": 1,
+      "col": 1,
+      "component": {
+        "kind": "keyboard",
+        "ref": "appswitch"
+      }
+    }
+  ]
+}

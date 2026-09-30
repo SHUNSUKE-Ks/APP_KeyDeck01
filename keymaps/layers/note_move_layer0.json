@@ -1,0 +1,36 @@
+{
+  "layer": 0,
+  "description": "行の移動。キーは Note Story V2.1 の会話ログの操作（kanban_note_commands_v0.1.json の talk.prev / talk.continue / talk.next）。",
+  "keys": {
+    "M1": {
+      "label": "↑\n前のセリフ",
+      "action": {
+        "t": "chord",
+        "keys": [
+          "ALT",
+          "UP"
+        ]
+      }
+    },
+    "M2": {
+      "label": "続ける",
+      "action": {
+        "t": "chord",
+        "keys": [
+          "CTRL",
+          "ENTER"
+        ]
+      }
+    },
+    "M3": {
+      "label": "↓\n次のセリフ",
+      "action": {
+        "t": "chord",
+        "keys": [
+          "ALT",
+          "DOWN"
+        ]
+      }
+    }
+  }
+}

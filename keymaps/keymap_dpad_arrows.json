@@ -1,7 +1,7 @@
 {
   "keymapId": "dpad_arrows",
   "kind": "single",
-  "description": "十字キー・矢印キー版。dpad01（WASD）との違いは vk だけで、盤面の形はまったく同じ。\n\n■ どちらを使うか\n- dpad01（WASD）… ゲームの移動用。ただし vk W/A/S/D は英字キーそのものなので、テキスト欄にフォーカスがあると wasd と打ち込まれる\n- dpad_arrows（矢印）… UP/DOWN/LEFT/RIGHT は文字を生まないので、どこにフォーカスがあっても文字が混入しない。矢印で動くゲーム・スライド送り・カーソル移動向き\n\n■ 入れ替え方\nlayouts/layout_ipad_main.json の SEC-RIGHT の ref を \"dpad_arrows\" にして /api/reload するだけ。手順は docs/HUB_MANUAL.md。",
+  "description": "十字キー・矢印キー版。盤面の形は dpad01 とまったく同じ。※ 2026-09-23 に dpad01 も矢印キーへ変えたため、現在は割当も同じ。\n\n■ どちらを使うか\n- dpad01（矢印キー。2026-09-23 までは WASD）… ゲームの移動用。ただし vk W/A/S/D は英字キーそのものなので、テキスト欄にフォーカスがあると wasd と打ち込まれる\n- dpad_arrows（矢印）… UP/DOWN/LEFT/RIGHT は文字を生まないので、どこにフォーカスがあっても文字が混入しない。矢印で動くゲーム・スライド送り・カーソル移動向き\n\n■ 入れ替え方\nlayouts/layout_ipad_main.json の SEC-RIGHT の ref を \"dpad_arrows\" にして /api/reload するだけ。手順は docs/HUB_MANUAL.md。",
   "board": {
     "cols": 3,
     "keys": [

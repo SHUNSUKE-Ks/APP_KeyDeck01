@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "bookmaker-diagram/v1.1",
+  "title": "Fnを押すとLayer 1が有効になる（実画面）",
+  "source": {
+    "path": "crates/proto-keymap/src/lib.rs",
+    "function": "resolve",
+    "lineHint": "Action::Moの枝（2026-09-15時点で936行目付近）"
+  },
+  "scenario": {
+    "trigger": "同じ/ipad画面を開いたまま、別のWebSocket接続からK101のdownを送る",
+    "message": "key.press: K101 / down",
+    "effectKind": "state-only"
+  },
+  "screens": {
+    "before": {
+      "kind": "screenshot",
+      "asset": "images/fn_01_before.png",
+      "caption": "押す前。1段目は1〜0、バッジは英数。",
+      "focus": "Fn（K101）を赤枠、1段目を青枠で囲む"
+    },
+    "after": {
+      "kind": "screenshot",
+      "asset": "images/fn_02_after_down.png",
+      "caption": "押している間。1段目がF1〜F10、BkspがF11、EnterがF12、バッジはLayer 1。Windows入力は出ない。",
+      "focus": "1段目・Bksp・Enterを青枠、バッジを赤枠で囲む"
+    }
+  },
+  "code": {
+    "language": "rust",
+    "snippet": "Action::Mo { layer } => {\n    let layer = *layer;\n    match edge {\n        Edge::Down => {\n            state.momentary.insert(layer);\n            Resolved::LayerChanged\n        }\n        // …Up の枝は省略…\n    }\n}",
+    "simplified": true,
+    "highlight": "state.momentary.insert(layer);",
+    "annotation": "Hubの状態が変わるのはこの1行だけ。Fireではないので、Windowsへ送るものは無い"
+  },
+  "flow": [
+    {"label": "端末: key.press K101 down", "kind": "message", "detailAnchor": "#before"},
+    {"label": "handle_client_text → handle_key_press", "kind": "function", "detailAnchor": "#handle"},
+    {"label": "resolve: LayerChanged", "kind": "state", "detailAnchor": "#resolve"},
+    {"label": "broadcast_layer_state", "kind": "screen", "detailAnchor": "#broadcast"}
+  ],
+  "branches": {
+    "left": [
+      {"label": "momentaryに1を追加", "kind": "state", "detailAnchor": "#state"},
+      {"label": "同じ種類の画面すべてへ配信", "kind": "screen", "detailAnchor": "#broadcast"}
+    ],
+    "right": [
+      {"label": "Fireなし: fire_actionもSendInputも呼ばない", "kind": "input", "detailAnchor": "#no-input"},
+      {"label": "比較: keyならFire", "kind": "input", "detailAnchor": "#key"}
+    ]
+  },
+  "detailPage": "figures/fig-06-01_fn_mo.html"
+}

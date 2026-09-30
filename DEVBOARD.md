@@ -2001,3 +2001,267 @@ idはドット無しに統一する方針を規則書へ明記した。
 - 部品を入れ替えると区画idが `SEC-NEW1` になる。元の `SEC-RIGHT` という名前が失われる。
   棚卸しA-4（区画idの改名）が効くところ
 - ギャラリー側にも「直前に編集したレイアウト」の印は無いまま
+
+---
+
+## B-001 Fn（mo）を押したまま切断すると、レイヤーが残り続ける（2026-09-17）
+
+技術書の執筆中、第6章の画面を撮るために「押した接続を先に閉じる」手順を踏んだところ見つかった。
+**読本屋（技術書）側の問題ではなく、KeyDeck 本体＝操作系の不具合として切り分ける。**
+
+```
+対象アプリ    KeyDeck（C:\00_master\DevApps\APP_KeyDeck01）
+対象面        /ipad（ipad_layer_state）。/layout 面の keymap ごとの状態も同じ作りなので同様と推定（未確認）
+見つけた経緯  技術書 初版の第6章の撮影（2026-09-15）→ 2026-09-17 に切り分けのため再現
+```
+
+### 再現手順
+
+1. Hub を起動する（`cargo run -p proto-hub`、port 8770）
+2. WebSocket で `/ws?token=<token>&surface=ipad` に接続し、`{"type":"key.press","keyId":"K101","edge":"down"}` を送る（K101 = Fn = `{"t":"mo","layer":1}`）
+3. **`up` を送らずに接続を閉じる**（実機では、Fn を押したまま画面を閉じる・スリープする・Wi-Fi が切れる）
+4. 新しく `/ipad?token=<token>` を開く
+
+### 期待する挙動
+
+押していた端末が居なくなった時点で、その端末が押していた `momentary` は取り消され、
+新しく開いた端末はレイヤー0で始まる（＝押しっぱなしのキーを切断時に離す `release_held_keys` と同じ考え方）。
+
+### 実際の挙動（2026-09-17 実測）
+
+新しく開いた端末が **レイヤー1のまま** 始まる。
+
+```
+（切断後に新しく開いた画面）  キー = Fn | F1 | F2 | F3 | F4 ／ バッジ = Layer 1
+（Fn を1回押して離したあと）  キー = Fn | 1 | 2 | 3 | 4 ／ バッジ = 英数
+```
+
+Hub のログ:
+
+```
+key press ... key_id="K101" edge=Down layers=0   outcome=layer-change   momentary: [1]
+client disconnected client_id=0
+client connected    client_id=1                  ← 新しい端末。レイヤー1が配信される
+key press ... key_id="K101" edge=Up   layers=0,1 outcome=layer-change   momentary: []
+```
+
+### 影響の切り分け
+
+- **表示と発火は一致している。** 新しい端末にも `surface.config` でレイヤー状態が配られるため、
+  画面には F1〜F10 と出て、押せば F1〜F10 が出る。**「1 と表示されているのに F1 が出る」という黙った食い違いではない**
+- したがって「再接続後に、画面と違うキーが飛ぶ」形の誤入力は起きない
+- 残る害は、**利用者が気づかずに数字段を打つと F キーが飛ぶ**こと（見た目は F 表示なので気づけるが、
+  指の位置で打つ人は踏む）。復帰は Fn を1回押して離すだけ
+- 押しっぱなしのキー（`key.hold`）は `release_held_keys` が解放するので、この件の対象外
+
+### 判定
+
+**修正対象。** ただし緊急ではない（黙った誤入力にならず、Fn 1回で復帰するため）。
+KeyDeck を配布・公開する前には直す。
+
+### 修正案（未着手）
+
+押しっぱなしのキーと同じ形にする。**接続ごとに「その端末が有効にした `momentary` レイヤー」を台帳に持ち、
+切断時にその分だけ取り消す。** 面の状態を丸ごと 0 に戻すのは不可。
+同じ面を別の端末が開いていて、そちらが Fn を押している場合に巻き添えになる。
+
+### 検証記録
+
+```
+2026-09-17  再現・実測（キーは一切発火させず、画面の表示とログだけで確認）
+            scratchpad/repro_fn_disconnect.mjs（一時スクリプト。リポジトリには置いていない）
+            cargo test --workspace 139 passed / 0 failed（2026-09-15 実行、この件では未変更）
+```
+
+---
+
+## B-002 `layout.switch` / `app.launch` の入れ子 `fire` が許可リストに載らない（2026-09-17）
+
+技術書の監修（別AIによる指摘のみのレビュー）で見つかり、こちらで裏を取った。
+**T21 で一度直したはずの穴（`tg.fire` の内側が許可リストに載らない）が、後から足した2つのアクションで再発している。**
+
+```
+対象アプリ    KeyDeck
+対象          crates/proto-hub/src/state.rs の canonical_command_id
+              crates/proto-hub/src/startup.rs の all_actions / all_actions_with_source
+現物への影響  keymaps/layers/appswitch_layer0.json の A1（YouTubeへ）
+```
+
+### 何が起きているか
+
+`canonical_command_id` が内側の `fire` へ潜るのは `TgFire` だけ。
+
+```
+Action::TgFire { fire, .. } => canonical_command_id(fire),   ← 潜る
+Action::AppLaunch { id, .. } => Some(format!("app:{id}")),   ← 自分のidだけ。fireは見ない
+（LayoutSwitch は match の _ => None に落ちる）               ← 何も載らない
+```
+
+`all_actions` も最上位の `action` しか辿らないため、入れ子の `fire` は起動時の許可リストに一度も現れない。
+
+一方 `fire_action` は、`layout.switch` / `app.launch` を処理したあとに内側の `fire` を**実行しようとする**。
+内側は `key` / `chord` / `text` のいずれか（`check_nested_fire` がロード時に制限している）で、
+これらは発火の直前に許可リストと照合されるため、**そこで弾かれる**。
+
+### 現物での実害
+
+`appswitch` の A1 は `{"t":"layout.switch","id":"ipad_youtube","fire":{"t":"chord","keys":["WIN","1"]}}`。
+`WIN+1` を持つ定義は**リポジトリ全体でこの1か所だけ**なので、許可リストに `chord:WIN+1` は存在しない。
+
+```
+期待   ボードが ipad_youtube に切り替わり、同時に Win+1 が PC へ飛ぶ
+実際   ボードは切り替わるが、Win+1 は飛ばない
+       ログ: action resolved but is absent from the startup allow-list: chord:WIN+1
+```
+
+**症状は T21 のときと同じ「画面は変わるのに PC が変わらない」。** 防御が正しく働いた結果として機能が壊れている。
+
+### 裏の取り方（2026-09-17）
+
+コードと現物データからの確定。**実機で A1 を押す試験はしていない**
+（もし私の読みが誤っていて許可リストに載っていた場合、Win+1 が実際に飛んで利用者の画面が切り替わるため）。
+
+```
+grep -rn '"WIN", *"1"' keymaps decks   → appswitch_layer0.json の1件のみ
+state.rs の canonical_command_id       → TgFire だけが再帰。LayoutSwitch は _ => None
+startup.rs の all_actions              → 最上位の action のみを列挙
+```
+
+### 修正案（未着手）
+
+1. `canonical_command_id` を `LayoutSwitch { fire, .. }` / `AppLaunch { fire, .. }` でも内側へ潜らせる
+   （`AppLaunch` は `app:{id}` と内側の両方が要る。片方だけだと今度は起動側が弾かれる）
+2. 起動時の列挙（`all_actions` / `all_actions_with_source`）も入れ子まで辿る
+3. **テストで固定する。** 「入れ子 `fire` を持つ3種のアクションすべてについて、内側が許可リストに載る」を1本
+   （`tg.fire` だけを見るテストでは、次に入れ子アクションを足したときにまた同じ穴が開く）
+
+### 補足 — token の権限範囲（不具合ではなく、記録しておくべき事実）
+
+`POST /api/layer/save` は token だけで通り、受け取った `action` を書いたあとに
+`load_startup_data` で**許可リストを作り直す**（`s.command_registry = loaded.command_registry;`）。
+
+したがって token を持つ者は「レイヤーを保存する → 許可リストに載る → 押す」の2手で、
+**いまボードに置かれていないキー・ショートカット・任意の文字列も PC へ送れる**。
+これは編集機能として意図された動作だが、**token は「利用者の鍵」ではなく「編集権限つきの鍵」**である。
+技術書 初版の第2章がここを取り違えて書いていたため、改訂版で直す（`00_勉強フォルダー/20_書籍_初版/改訂メモ_v2候補.md`）。
+
+- 2026-09-18 ポータブル版の作り直し: `cargo test --workspace` 139 passed → `RUSTFLAGS="-C target-feature=+crt-static" cargo build --release -p proto-hub --target-dir target/portable-static`（VCRUNTIME140.dll依存なしを確認）→ `D:\00_WorkSpace\APP_KeyDeck01_portable\` へ exe＋static/keymaps/decks/surfaces/layouts/apps/schemas を配置（.bak除外）。旧9/5版は `D:\00_WorkSpace\_old\` へ移動。SSD直下に `D:\00_START_KeyDeck.bat` を追加。起動確認は未実施（ユーザーが出発前に実行）
+
+
+## 2026-09-22 トラックボール Vol2（シンプル版）— Vol1.1 を凍結して作り替え
+
+**ユーザー指示**: 「今のをVol1.1として保存して、シンプル設計のトラックボールを新調」。
+
+- 凍結: 作り替える直前の `static/trackball.html` を `static/trackball_v1_1.html` に複製（冒頭に凍結の注記のみ追加）。`/trackball_v1_1` で単独で開ける（`ws.rs` にルート1行）。boardには埋め込まれない
+- Vol2（`static/trackball.html`・boardの区画はすべてこちら）
+  - 見た目: 青い球＋十字ライン。模様の点は既定0。設定の保存キーを `trackball02` に分けた（Vol1.1 の値を引き継がない）
+  - 設定アイコンは球の画面の右上に重ねるだけ（帯・外枠なし）。領域の案内表示・下半分の帯・状態表示は出さない。※最初は右に56pxの帯を置いたが、その幅だけ球が中心から左へずれたため同日撤去（ユーザー指摘）
+  - 操作は1本指だけ: 動かす＝移動／タップ＝`tap1-left`／ダブルタップ＝`dtap1`／タップ→すぐ触れて0.2秒置く or 動かす＝`tapdrag1`（左ボタン押しっぱなし、離すと離す）。2本目の指は無視（タップにも数えない）
+  - 抜いたもの: 右クリック・Ctrl+C（2本長押し）・Ctrl+V（2本タップ）・スクロール（`tb01-scroll` を送らない）
+- Hub 側 `surfaces/trackball.json` は無変更（Vol1.1 がそのまま動くように。Vol2 は既存のジェスチャー名だけを使う）
+- 同日の前段: `tapdrag1` の追加、および Vol1.1 の不具合修正（右の帯のタップ直後に左へ触れると右クリックが左クリックに化けていた＝タップ確定時に sessionSide を読み直していた）
+- 検証: 実マウス操作でタップ／ダブルタップ／タップ→ドラッグ／ただのドラッグ／右の帯のタップ／歯車の開閉／パネル外タップで閉じる、を確認。置いたまま0.2秒・2本指タップ・1本長押しは合成イベントでタイミングのみ確認。`cargo test --workspace` 全通過。**iPhone 実機は未確認**
+
+- 2026-09-22 追記: **✋つかむ（トラックボール Vol2）**。タップ→押しっぱなしは実機で範囲スクショが一度も成功せず（間合い頼み）、外部の相談（reports/consult_20260922_trackball_drag.md）でも A案＝トグルを推された
+  - 右下の ✋ を押すと（当初は歯車の下。同日ユーザー指定で右下へ） `grab1` down（`surfaces/trackball.json` に `grab1`＝mouse.button.hold left を追加）、もう一度で up。つかみ中は球で動かすだけ（タップ・ダブルタップ・タップ→押しっぱなしを出さない）。指を離して持ち直しても押されたまま。ふちが赤く光り「つかみ中」表示
+  - 画面を閉じる/隠れる（pagehide・visibilitychange）→ up を送る。WS切断 → 画面の表示だけ解く
+  - **Hub 側の穴を修正**: 切断時に押しっぱなしを離す `release_held_keys` はキー（key.hold）しか見ておらず、トラックボールで押したマウスボタンは切断しても押されたままだった。`state.rs` に `held_mouse`（note_mouse_hold / take_held_mouse）を足し、`handle_surface_gesture` で Windows へ送れた押下/解放を記録、切断時に離すようにした。テスト2件（押したまま切断→離す／自分で離したものは二重に離さない）
+  - 検証: 実マウス操作で つかむ→ドラッグ2回（持ち直し）→タップ（クリックが出ない）→離す、離した後のタップ＝左クリック、を確認。WS切断は偽の接続で起こし、表示が解けることを確認。pagehide/visibilitychange での解放は未確認。`cargo test --workspace` 全通過（87＋42＋8＋7）。**iPhone 実機・範囲スクショでの成功は未確認**
+
+- 2026-09-22 追記: **スクロール用ホイール（wheel_scroll）**。トラックボールとは別の部品
+  - 新しい動作 `mouse.wheel {dir: up|down}`（proto-keymap の Action）。ホイール1段＝WHEEL_DELTA 120 を1回。量は固定で端末からは渡せない（`amount` 等の余計な欄は読み込みで拒否）。許可リストID `mouse.wheel:up/down`（state.rs `canonical_command_id`）、`fire_action` の送信経路、`/api/schema` の動作一覧、deck の検証、adapter の送出に追加
+  - ダイヤル設定 `jog` に `shape`（dial/wheel、既定 dial）と `detentPx`（6〜80、wheel 用、既定18）を追加。`detentDeg` は省略可（既定15）に。既存のダイヤル JSON は無変更で読め、書き出しても欄は増えない
+  - 見た目（components.js `renderWheel`）: 縦長の溝つきの筒。上下にこすると detentPx ごとに CW（指を下へ）/CCW（指を上へ）を1回押し、ダイヤルと同じ目盛り音を鳴らす。溝は指に密着（重みなし）
+  - エディタ: ホイールの下限を端末ごとに持たせた（iPad 60×130px、スマホ 44×100px → どの端末も 1列×2行）。パレット名「ホイール」
+  - 配置: `iphone7_portrait` の右端6〜7行目（SEC-WHEEL）
+  - 検証: 単体ページで実マウス操作。下へ約58px→CW×3、上へ約58px→CCW×3、触れただけ→0。エディタで iPhone 縦 board が「重なり・はみ出しなし」。テスト（`mouse.wheel` の読み込み・`jog.shape` の既定と書き出し・実データで `mouse.wheel:up/down` が許可リストに載る）追加、`cargo test --workspace` 全通過。**音が鳴るか・実機でスクロールするかは未確認**
+
+- 2026-09-22 追記: **アプリ切り替えの3ボタン（deck `apps`・アイコン付き）**。youtube01 の Win+5/6/8 の進化版
+  - `decks/deck_apps.json`（3列×1行）: Chrome=WIN+5、Codex=WIN+6、Claude=WIN+8。Win+数字はタスクバーの並び順で決まるので、並びを変えたら action を直す
+  - アイコン `static/icons/app_{chrome,codex,claude}.png`（256px）。この PC のアプリ本体から取り出した: Chrome=`VisualElements\Logo.png` を余白を詰めて、Codex=ストア版の白い絵柄をアプリ定義の色 #3143FF の角丸に載せて、Claude=ストア版 `Square150x150Logo.png`
+  - Hub に `/icons`（ServeDir static/icons）を追加。それまでアイコン画像を配る道が無かった
+  - **不具合修正**: deck のアイコン画像に大きさの指定が無く、元の寸法のまま出てボタンからはみ出し、真ん中だけ拡大されて見えていた（アイコン付きボタンを実際に置いたのはこれが初めて）。アイコンのあるボタンだけ `has-icon` を付け、画像をボタンに収めて下にラベルを残すようにした。アイコンの無い既存のボタンは見た目が変わらない
+  - 配置: `iphone7_portrait` の8行目・左3マス（SEC-APPS）
+  - 検証: 実際の描画処理で iPhone 縦の3マス（282×62px）と iPad の3マスに描き、アイコン・ラベルが収まることを目視。実マウスで3つを押して A1/A2/A3 が出ること。実データのテストで deck `apps` が読め、WIN+5/6/8 が許可リストに載ることを追加。**実機でアプリが前に出るかは未確認**
+  - 同日追記: deck `apps` を4ボタンに（先頭にフォルダー＝WIN+1。アイコンは explorer.exe から256pxで取り出した `static/icons/app_explorer.png`）。Codex のアイコンの背景を青→黒（暗いボタンに溶けないよう薄い縁取り）。区画 SEC-APPS を 8行目の4マスへ
+- 2026-09-22 追記: **トラックボール Vol2 に右クリック「R」**。右端の真ん中（歯車=右上 と つかむ=右下 の間）。押すと `tap1-right`（surfaces/trackball.json に既存。Hub の設定は変えていない）。設定パネルを開いたままでも押せる。検証: 実マウスで押して tap1-right が1回出ることを確認
+- 2026-09-22 追記: **1マスのラジアルボタン（keymap `radial_edit`）**
+  - keymap に `radial: { label }` を足すと、キーボード部品が1つのボタンとして描かれる（proto-keymap `RadialConfig`。盤面に N/E/S/W の4キーが必須、jog との併用は拒否）。押すと指の位置を中心に上下左右4項目が開き（body 直下に position:fixed で重ねる＝周りの区画の上に出る）、指を置いた点から22px以上倒した方向を白く光らせ、離すとそのキーを down→up。真ん中で離す・pointercancel は何も送らない。画面の端では項目が切れないよう表示の中心だけ内側へ寄せる（方向の判定は指の位置のまま）
+  - キー編集画面（editable）では普通の4キーの盤面のまま（中身を差し替えられるように）。keymap の保存は JSON の board だけ差し替えるので radial は消えない
+  - 中身（layer0）: 上=コピー、右=貼り付け、下=元に戻す、左=切り取り（仮。キー編集で差し替え可）
+  - エディタ: 下限は 44×44px（どの端末でも1×1）。配置は `iphone7_portrait` の6行目・1列目（SEC-RADIAL）
+  - **エディタの不具合修正**: Deck の下限に常にページ送りの帯（26px）を足していたため、1ページしかない Deck（apps の4ボタン、1行）が「最小サイズ 1×2 を下回る」と誤って赤くなっていた。帯は2ページ以上のときだけ足すようにした
+  - 検証: 実マウスで上/右/下/左へはらい N/E/S/W の down→up が1回ずつ、動かさずに離すと何も送らない、を確認。開いた状態は合成イベントで作って撮影（倒した方向が白く光る・周りの区画の上に出る）。離して決定＝E、外へ倒して真ん中へ戻して離す＝取消 も確認。全 board の判定（ipad_youtube の SEC-CLICK-L＝mouse_left の件のみ残る）。`cargo test --workspace` 全通過。**iPhone 実機は未確認**
+- 2026-09-22 追記: `iphone7_portrait` を 4×8 → **5×8** に（ユーザー指示）。1行目＝範囲スクショ(2)・右クリック(2)・ラジアル(右端)、2〜6行目＝トラックボール(横いっぱい)、7〜8行目＝アプリ4ボタン(左4列・縦2)・ホイール(右端・縦2)。40マスすべて使用。1マス約75×62px。エディタの判定は「重なり・はみ出しなし」
+- 2026-09-23 追記: **二層ラジアルメニュー（階層型パイメニュー・keymap `radial_edit2`）**。ユーザーが見せたゲームUI（外周＝大分類・内周＝細かい操作）の再現
+  - `RadialConfig` に `sectors`（4/6/8、既定4）と `rings`（1/2、既定1）を追加。方向idは Rust の `RADIAL_DIRS_4/6/8`（8方向は N NE E SE S SW W NW）、内周は方向のうしろに `2`（`N2` など）。`radial_key_ids(sectors, rings)` が盤面に要るidを出し、読み込みで揃っていなければ落とす。既定のままなら JSON に欄は増えず、既存の `radial_edit`（4方向・1層）は無変更で読める
+  - 見た目（components.js `renderRadial` を書き直し）: 扇形を SVG で描き、名前だけ HTML を上に重ねる（SVG の text は折り返せないため）。中心＝取消の丸、内周は外周より一段暗い。選ばれている扇は白抜き。**決まる名前はメニューの上（余白が無ければ下）に大きく出す**（指が扇を隠すため）。画面が狭ければ全体を縮める
+  - 決め方は2つの物差しだけ: 角度＝どの扇か／距離＝中心は取消・内周・外周。外へ出しすぎても最後の扇を保つ
+  - **暴発の修正**: 画面の端のマスだとメニューは内側へ寄って開くので、押した指は最初からどれかの扇の上に乗る。そのまま決まると「触っただけで発動」になるため、12px 動かすまでは何も選ばない（GRACE）。動かす向きは常に画面の内側なので、端のマスでも全部の扇に届く
+  - 中身が空の扇は暗く出して「空き」と表示し、離しても何も送らない
+  - 中身（radial_edit2 layer0・16項目）: 上 コピー/切り取り、右上 貼り付け/書式なし、右 元に戻す/やり直し、右下 保存/別名保存、下 検索/置換、左下 全選択/削除、左 閉じる/タブ復活、左上 新規/開く
+  - エディタ: パレット名を「ラジアル二層 8×2」「ラジアル 4方向」のように出す。下限は 44×44px のまま（選択肢は区画の外へ広がるので、必要な大きさは項目数と関係しない）
+  - 配置: `iphone7_portrait` の1行目・右端（SEC-RADIAL）を `radial_edit` → `radial_edit2` に差し替え。`radial_edit` はそのまま残す
+  - 検証: iPhone 7 縦と同じ 375×497px の格子に実際に置き、実マウスのドラッグで 外周上＝N、内周上＝N2、内周左下＝SW2、外周右上＝NE が down→up 1回ずつ。動かさず離す＝何も送らない、中心で離す＝何も送らない。離した瞬間の見た目を写して、白く光る扇・上下に出る名前・取消の丸を確認。メニューの後始末（body に残らない）も確認。テスト（`sectors`/`rings` の既定と読み込み、`radial_key_ids` の網羅と不正値、実データで radial_edit2 が16キーで読め CTRL+SHIFT+V / CTRL+Y / CTRL+SHIFT+S / CTRL+H / CTRL+SHIFT+T / CTRL+O / DEL が許可リストに載る）追加、`cargo test` 全通過。**iPhone 実機は未確認**
+
+## V2.1（2026-09-23〜）— Deck編集の追加とUIの作り替え
+
+- **View_Ver1.1 として凍結**: `static/editor_v1_1.html`（レイアウト編集）・`static/keys_v1_1.html`（キー編集）・`static/components_v1_1.js`。URL は `/editor_v1_1` `/keys_v1_1`。**描画も同じ日の写しを指す**ので、生の components.js を変えてもこの2画面は変わらない（trackball_v1_1 はライブの components.js を読んでいて、そこだけ凍結が甘かった。今回はそれを踏まえた）。ナビに「保存版（View_Ver1.1）」の項を足した
+- **Deck編集（`/deckedit`・`static/deckedit.html`）**: タイルのラベル・地色・アイコン・動作を画面から変える。左に盤面（実機と同じ `renderDeck` で描く）、右に「選んだタイル」だけを出す2列。Deckの新規作成・削除・ページ追加はしない（ファイルの増減を伴うため）
+  - 1ページのタイルは格子の枚数ちょうどに揃え、**空きも1枚（動作 none）として並びに残す**。残さないと、途中を空にしたとき後ろが前へ詰まって位置がずれる。保存時は末尾の空きだけ落とす
+  - 格子を小さくするとき、あふれるタイルの枚数を先に数えて止める（黙って消さない）
+- **`POST /api/deck/save`**（ws.rs `deck_save_handler`）: 書き先は `decks/deck_<id>.json` に固定。`deckId` はレイアウトidと同じ `[a-z0-9_]{1,64}` で、**パスを組み立てる前の唯一の関門**。`.bak` 退避 → 書く → **全体を読み直す** → 落ちたら巻き戻す、はレイアウト保存と同じ手順。説明文は本文に無ければ既存を引き継ぐ（画面はタイルしか触らないため）。エラーコード `DECK_SAVE_REJECTED` / `DECK_SAVE_FAILED`
+- **タイルの地色 `slot.color`**（deck.rs）: `#rrggbb` だけを通す。CSSへそのまま入る値なので、読み込みが唯一の関門（`is_hex_color`）。省略した既存のDeckは無変更で読め、書き出しても欄は増えない。見た目だけの項目で、何が起きるかには関わらない
+  - components.js の `renderDeck` が地色を塗り、`.tinted` で文字を白＋影にする（色の上では細い灰色の文字が読めないため）。**空きタイルには塗らない**（「置ける場所」と「置いてある物」を色で分ける）
+- **`GET /api/icons`**: `static/icons/` の画像名を名前順で返す**読み取り専用**API。Deck編集がアイコンを選ぶための一覧
+- **部品カタログを components.js へ集約**: `buildActionParts(config, keymapId)` / `actionTabs` / `layerName`。キー編集と Deck編集が同じ一覧を出すため、写しを置かない（AGENTS.md「分裂させない」）。keys.html からは101行を削ってこれを呼ぶだけにした
+- **不具合修正（既存）**: キー編集の部品一覧に `HOME` `END` `PGUP` `PGDN` `DELETE` が並んでいたが、5つとも `VK_DICTIONARY` に無く、**選んで保存すると LOAD_VK_UNKNOWN で弾かれていた**。HOME/END/PGUP/PGDN を辞書とアダプタ（0x24/0x23/0x21/0x22）に足し、`DELETE` は辞書にある `DEL` に直した。アダプタの網羅テストが辞書の追加を検査している
+- 検証: 本物のHub（8770・ユーザーが使用中）には触らず、`static/` と WS の surface.config を出すだけの偽Hubを別ポートに立てて実マウスで操作。Deck編集で apps を開く→タイルを選ぶ→地色を選ぶ→保存、まで通し、**送られたJSONを取り出して本物の Rust の読み込みへ通した**（説明文が残り、色が付いたタイルだけに増え、他は無変更）。`cargo test` 全通過（91＋46＋8＋7）。**実機は未確認。Hub の再起動が要る（Rustを変えたため）**
+- 2026-09-23 追記: **ゲーム部門**（ナビの2つ目の部門。PC部門と道具＝編集画面は共通で、ここからは**ゲーム用の中身**へ直接入る。Loupedeck の Profile と同じ考え方。画面を増やさないので直す場所も1か所のまま）
+  - `keymaps/keymap_game_action.json`（3列×2行）: 上段 決定・調べる E／ジャンプ SPACE／攻撃 左クリック、下段 ダッシュ SHIFT／しゃがむ CTRL／取消 ESC。ジャンプ・ダッシュ・しゃがむは `key.hold`（押している間だけ）
+  - `decks/deck_game.json`（4列×2行・**地色つき**）: スクショ／録画（WIN+ALT+R＝Xbox Game Bar）／全画面 F11／窓の切替 ALT+TAB／ミュート／音量±／メニュー ESC。役目ごとに色を分け、押し間違えると困る録画だけ赤を強くした
+  - 盤面3枚（移動は既存の `dpad01`＝WASD を流用、視点は `tb01`、武器切替は `wheel_scroll`）
+    - `game_ipad`（iPad Pro 12.9 横・12×9）: 左上 道具Deck／左下 移動／中央 トラックボール（縦いっぱい）／右上 ホイール／右下 アクション。108マス全部使用
+    - `game_iphone7_land`（iPhone 7 横・10×4）: 左 移動／中 トラックボール／右上 アクション／右下 道具Deck。40マス全部使用。**ホイールは入らない**（置くと1列も余らないため、iPad と縦画面にだけある）
+    - `game_iphone7_port`（iPhone 7 縦・5×8）: 上3行 トラックボール（横いっぱい）／中3行 移動＋アクション／下2行 道具Deck＋ホイール。40マス全部使用
+  - 検証: 3枚ともレイアウト編集で「✓ 重なり・はみ出しなし」。iPhone 7 縦の実寸（375×553）で実際に描き、地色つきタイル8枚・アクション6個・十字キー・ホイール・トラックボールが収まることを目視。実データのテストに `key.hold:SPACE/SHIFT/CTRL`・`mouse.click:left`・`chord:WIN+ALT+R`・`key:F11` などが許可リストに載ることを追加、`cargo test` 全通過。**実機は未確認**
+- 2026-09-23 追記: `dpad01`（十字キー）の既定割当をWASD（vk W/A/S/D）→**矢印キー**（vk UP/LEFT/RIGHT/DOWN、D102/D201/D203/D302）に変更。`keymaps/layers/dpad01_layer0.json`と`keymaps/keymap_dpad01.json`の`description`もWASD前提の注記から矢印キー前提の文へ更新（vkは`dpad_arrows_layer0.json`と`VK_DICTIONARY`で実在確認済み）。labelとaction.t(`key.hold`)は無変更、D202は空きのまま。`cargo test --workspace` = **152 passed, 0 failed**（hub-core 7 + proto-adapter-win 8 + proto-hub 91 + proto-keymap 46）。既存テストの削除・弱体化なし。dpad01は`startup::discover_and_load_picks_up_arbitrary_new_keymap_files_without_hardcoding`が実データを動的に読み込む経路でロード確認済み（Hubサーバー自体は起動していない）
+  - 同日追記: 他の説明文に残っていた「dpad01（WASD）」も矢印キーへ合わせた（`keymap_dpad_arrows.json`・`dpad_arrows_layer0.json`・`keymap_game_action.json`・`layout_game_ipad.json`・`layout_game_iphone7_land.json` の description のみ。vk・配置は無変更）
+- 2026-09-23 追記: **レイアウト編集の新View `/editor_v2`（`static/editor_v2.html`）** を追加。旧 `/`（editor.html）は無変更で残す。メニューの PC部門に「レイアウト編集 V2（新View）」を登録（`components.js` NAV_TREE）、ルートは `ws.rs` に1行（ServeFile。保存は既存 `/api/layout/save` を通るので書き込み口は増えていない）。変えたのは左の「置ける部品」だけ: 幅190→300px・画面に貼り付けて中だけスクロール／種類チップ（件数つき）＋「未配置のみ」／種類別の見出し・未配置が先／カードに中身の実物ミニプレビュー（2.5倍で描いて0.4倍に縮小）＋id＋最小サイズ＋中身の文字（キーのラベル・Deckのボタン名）／検索は中身の文字にも当たり、当たった所に印／乗ると詳細（要る縦横比で描いた実物・説明文全文）／**カードを格子へドラッグして落とした場所に置ける**（緑=置ける・赤=重なり、重なりは置かずに知らせる）。クリックで空きへ置く従来動作も残す
+  - 検証: `cargo test --workspace` = 152 passed。画面は稼働中Hubが旧ビルドのため、実データ（keymaps/decks/layouts）から組んだ模擬 surface.config を差し込んだ写しで確認: game_soranokiseki を開いて部品22件（キーボード14・リスト4・ダイヤル3・トラックボール1）表示／「esc」検索で youtube01 だけが残る／リスト絞りで4件／未配置のみで19件／game_action を重なる場所へドラッグ→拒否の知らせ、列を12にして空きへドラッグ→ (2,10) 3×3 に配置。**実Hubでの確認はHub再起動後に未実施**
+
+## 2026-09-25 Deckの取り込み＋アイコン保存（外のアプリ→KeyDeck）— Claude Code（Opus 5.5）
+
+- 発端（ユーザー要望）: kanban-note01（PWA）で作ったキャラクターの **ID・名前・四角アイコン** を、ボタン1つでHubのDeckに出したい。PWAから直接Hubへ送るのはCORS（Hubは別オリジンを許可していない）と混在コンテンツ（HTTPSのPWA→LANのHTTP）で不可のため、**ファイル受け渡し＋Deck編集の「取り込み」**にした
+- **不変条件6に `static/icons/<name>.<ext>` を追加（2026-09-25・ユーザー裁定）**。CLAUDE.md に条件を明記
+- **`POST /api/icon/save?token=&name=`**（新規 `crates/proto-hub/src/icon.rs`＋ws.rs `icon_save_handler`）: 本文は画像バイト列。name は `[a-z0-9_]{1,64}`、拡張子は先頭バイトで決める（PNG/JPEG/WebP）。**SVGは拒否**（同一オリジンで配られスクリプトを埋め込めるため）。1MiBまで。`.bak` 退避→書く→読み直して一致確認→不一致なら巻き戻し。エラーコード `ICON_SAVE_REJECTED`（422）/ `ICON_SAVE_FAILED`（500）。`/api/schema` の `ids.iconName` に規則を載せた
+- **Deck編集 `/deckedit` に「取り込み」ボタン**: 形式 `keydeck.deck_import.v1`（`{format, deck, icons}`。slot の `iconRef` が icons のキーを指す）。画像を `/api/icon/save`、Deckを既存の `/api/deck/save` へ。参照先の無い iconRef・形式違いは**画像を1枚も書く前に**止まる。既存deckIdは上書き確認。保存後に届く surface.config でそのDeckを開く（応答より先に届く競合に備え、保存前に印を付ける）
+- 外向け資料: `C:\00_CreatorCompass\KeyDeck\できること.md` を版2.2へ（§5 書き込み場所5か所・CORS不可の理由・取り込み形式、§7 実機未確認）
+- 検証: `cargo test --workspace` = **158 passed, 0 failed**（hub-core 7 + proto-adapter-win 8 + proto-hub 97 + proto-keymap 46。新規6件: icon.rs 5件＝形式判定・name関門・保存とURL・上書き時の.bak・SVG/不正名/空/1MiB超を**ディレクトリすら作らず**拒否、ws.rs 1件＝token無し/不一致は401）。`cargo build` 警告0。取り込みの画面側は、fetch と WebSocket を差し替えた jsdom 上で deckedit.html を実際に動かし確認: 画像2枚→`/api/icon/save?name=chara_mia|chara_hero`、保存されたDeckの icon が `/icons/*.png` に置き換わり `iconRef` が残らない、deckSel が新Deckへ移り盤面にラベルが出る／iconRef欠落→通信0回で停止／形式違い→停止
+- **未確認**: 本物のHubでの通し（AGENTS.md の規則とユーザー使用中の8770を止めないため、Hubは起動していない）。**Hubを再起動してから** `/deckedit` → 取り込み で確認すること
+
+## 2026-09-28 Note Story 用の盤面 `note_story`（REQ-20260928-001）— Claude Code（Opus 5.5・統括チャット）
+
+- 依頼: `C:\00_CreatorCompass\KeyDeck\依頼\REQ-20260928-001.json`（Note Story のメインチャットから）。本文の日本語はPCのキーボード、iPad は「話者・タグ/柱/記号・行の移動」だけを受け持つ盤面。**データの追加だけで、Rust の本体・書き込み口・通信は増やしていない**
+- 盤面 `layouts/layout_note_story.json`（iPad 横・12×9・108マス全部使用）: 上段 話者Deck `note_cast`（8×4）／行の移動 `note_move`（2×4）／ホイール `wheel_scroll`（既存・2×4）、下段 書く道具 `note_tools`（6×5）／定型文 `note_palette`（4×5・list）／ふち `note_edge`（2×5）
+- 新しい部品
+  - `keymap_note_move`（1×3）: ALT+UP／CTRL+ENTER／ALT+DOWN
+  - `keymap_note_tools`（3×2）: F13 [Char]／F14 [Scene]／F15 [演出]／text「柱：」／text「備考：」／F16 2カラム
+  - `keymap_note_edge`（2×3）: CTRL+SLASH／CTRL+Z／ESC／F17 キー確認／`app.launch note_story`／`layout.switch`（id 省略＝既定へ）。**B-002 のため fire は付けていない**（起動と盤面移動は別ボタン）
+  - `deck_note_cast`（5×2）: C1〜C9＝ALT+1〜9、C0＝ALT+0。**Note Story の書き出し（`keydeckExport.ts`）と同じ並び・同じ格子**にした置き場所の見本。Note Story で Deck名 `note_cast` として書き出し→Deck編集「取り込み」で人物名・アイコン付きに上書きされる（盤面を書き換えなくてよい）
+  - `deck_note_palette`（list・10件）: 柱：／備考：／ナレーション：「」／[bg_town_night]／[bg_room]／# ／// ／{}／[]／()。すべて text
+- `apps/apps.json` に `note_story`（`C:\Program Files\Google\Chrome\Application\chrome.exe` ＋ `--app=https://kanban-note01.vercel.app`）。exe の実在は確認済み。シェルは経由しない（不変条件7のまま）
+- ナビ（components.js `NAV_TREE`）に「執筆部門（Note Story）」を追加: 盤面／話者Deck編集／定型文Deck編集／書く道具キー編集。`components_v1_1.js`（凍結）は触っていない
+- 話者ラジアル（依頼の任意項目）は**入れなかった**。人物Deckはアイコンと名前が見えるが、ラジアルは開くまで誰が何番か見えず、取り込みで人物が入れ替わっても追従しない。両方置くと同じ ALT+n が2か所になるだけなので、まず Deck 1本で使ってもらう
+- 検証: `cargo test --workspace` = **158 passed, 0 failed**（`startup` の実データテストに、note_story と5部品の存在・ALT+0〜9・ALT+UP/DOWN・CTRL+ENTER・CTRL+SLASH・F13〜F17 の許可リスト掲載を追加）。本物の Hub を再起動し読み込み成功（keymaps=22 decks=6 layouts=10 apps=2・許可リスト188）。レイアウト編集で「✓ 重なり・はみ出しなし」、端末画面 `/layout?id=note_story` を iPad 横の実寸 1366×1024 で描いて目視（押してはいない＝本物のHubなのでPCへキーが飛ぶため）
+- **未確認**: iPad 実機・実際の Note Story（Chrome アプリ窓）での通し、取り込み（09-25 分）の実機通し。F13〜F17 は Note Story の次のデプロイまで Note Story 側で「押して登録」が要る
+- 点検: データ追加のみ（Rust は startup のテスト1か所、static は NAV_TREE の1項目）のため keydeck-guardian は回していない
+
+## 2026-09-29 実験: 1マス多重操作の判定ページ `/lab/multigesture`（REQ-20260929-001 段階1）— Claude Code（Opus 5.5・統括チャット）
+
+- 依頼: `C:\00_CreatorCompass\KeyDeck\依頼\REQ-20260929-001.json`（Sub_KanbanNote 経由）。SpaceMouse の操作（パン・ズーム・回転・傾け・サイドボタン）を1アイコンにどこまで積めるか。**利用者裁定（2026-09-29）: 段階1＝見分けられるかを測るページだけを作る。部品化（段階2）は結果を見て決める**
+- 依頼の形のまま（パンもズームも縦ドラッグ）では見分けられないため、指の本数と時間で分けた: 1本ですぐ動かす＝パン4方向／2本でつまむ＝ズーム／2本でひねる＝回転／0.5秒長押し→動かす＝傾け4方向／端の帯（22%）を動かさず短くタップ＝左右ボタン。2本指はつまみ量とひねり量を各しきい値で割った比の大きい方で決める
+- `static/lab_multigesture.html`（新規・素のHTML+JS）: お題モード（取り違え表・混ざった組の多い順・正答率・判定までの時間の中央値）／自由モード／操作の種類ごとのオンオフ／マスの大きさ4種／しきい値7つ／JSON 書き出し。**WebSocket も fetch も使わない**。記録は端末の localStorage のみ
+- `ws.rs` にルート1行 `/lab/multigesture`（ServeFile）。何も送らないページなので、書き込み口・通信は増えていない。ナビに「実験」部門を追加
+- 検証: `cargo test --workspace` = 158 passed。本物の Hub から配信を確認。**PC の実マウス**でパン→・パン↑・左ボタン・右ボタン・なしの5回すべて正しく判定。2本指と長押しはマウスで作れないため**合成 PointerEvent** で判定ロジックだけ確認（ズームイン/アウト・回転↻↺・ひねり＋わずかな広がり＝回転・0.6秒押し→傾け←）。途中で、ブラウザが知らない pointerId に `setPointerCapture` が例外を投げて2本目が落ちる不具合を見つけ、try/catch で直した
+- **未確認**: iPad での実測（受け入れ基準の本体）。返事は `依頼\REQ-20260929-001.reply.md`

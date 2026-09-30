@@ -1,0 +1,2079 @@
+<!doctype html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KeyDeck 割り当て編集</title>
+<style>
+/* =====================================================================
+   決めごと（デザイントークン）。数値はすべてここで決め、下では変数だけ使う。
+   一覧と意味は 32_キーボード編集View_デザインメモ.md にもある。
+   ===================================================================== */
+:root {
+  /* 書体（端末にあるものだけ） */
+  --font: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* 角丸 */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* 動きの長さ */
+  --t-press: 70ms;    /* 沈む */
+  --t-fast: 140ms;    /* 色・枠の切り替え */
+  --t-med: 220ms;     /* 表示の入れ替え・ポップオーバー */
+  --t-slow: 360ms;    /* 引き出しの開閉 */
+  --t-glow: 420ms;    /* 押した光が消えるまで */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  /* 触れる大きさ */
+  --hit: 44px;
+
+  /* セットごとに変わる色相（JSがデータの hue を入れる） */
+  --hue: 212;
+}
+
+/* ---- 暗い配色（既定） ---- */
+:root, :root[data-theme="dark"] {
+  --bg: #0b0e13;
+  --surface-1: #11151c;
+  --surface-2: #171c24;
+  --surface-3: #1e242e;
+  --surface-4: #29303b;
+  --line: rgba(255, 255, 255, .07);
+  --line-2: rgba(255, 255, 255, .15);
+  --text-1: #e8ecf2;
+  --text-2: #a3adbb;
+  --text-3: #6c7686;
+
+  --acc: hsl(var(--hue) 92% 67%);
+  --acc-soft: hsl(var(--hue) 92% 67% / .14);
+  --acc-line: hsl(var(--hue) 92% 67% / .55);
+  --acc-ink: hsl(var(--hue) 60% 10%);
+  --mod: #ffb54a;
+  --mod-soft: rgba(255, 181, 74, .15);
+  --mod-line: rgba(255, 181, 74, .6);
+  --mod-ink: #2a1a02;
+
+  --dev-1: #1b2029;
+  --dev-2: #12161d;
+  --key-top: linear-gradient(180deg, #2c333f, #222831);
+  --key-top-pressed: linear-gradient(180deg, #232932, #1d222a);
+  --key-edge: #07090c;
+  --knob: radial-gradient(circle at 36% 30%, #3d4553, #1b2028 72%);
+
+  --sh-key: 0 3px 0 var(--key-edge), 0 8px 16px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .06);
+  --sh-key-pressed: 0 0 0 var(--key-edge), 0 2px 5px rgba(0, 0, 0, .4), inset 0 2px 6px rgba(0, 0, 0, .5);
+  --sh-float: 0 24px 60px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .35);
+  --sh-card: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 8px 22px rgba(0, 0, 0, .22);
+  color-scheme: dark;
+}
+
+/* ---- 明るい配色（切り替え時だけ。真っ白は使わない） ---- */
+:root[data-theme="light"] {
+  --bg: #e6eaf0;
+  --surface-1: #eef1f5;
+  --surface-2: #f6f7f9;
+  --surface-3: #e8ecf1;
+  --surface-4: #dde2e9;
+  --line: rgba(15, 23, 42, .08);
+  --line-2: rgba(15, 23, 42, .17);
+  --text-1: #151b24;
+  --text-2: #4a5462;
+  --text-3: #8791a0;
+
+  --acc: hsl(var(--hue) 72% 44%);
+  --acc-soft: hsl(var(--hue) 72% 44% / .12);
+  --acc-line: hsl(var(--hue) 72% 44% / .5);
+  --acc-ink: #fff;
+  --mod: #c97800;
+  --mod-soft: rgba(201, 120, 0, .12);
+  --mod-line: rgba(201, 120, 0, .55);
+  --mod-ink: #fff;
+
+  --dev-1: #d6dce4;
+  --dev-2: #c8cfd9;
+  --key-top: linear-gradient(180deg, #fbfcfd, #e9edf2);
+  --key-top-pressed: linear-gradient(180deg, #e4e8ee, #dfe4ea);
+  --key-edge: #a9b3c0;
+  --knob: radial-gradient(circle at 36% 30%, #ffffff, #cfd6df 75%);
+
+  --sh-key: 0 3px 0 var(--key-edge), 0 6px 14px rgba(40, 50, 70, .16), inset 0 1px 0 rgba(255, 255, 255, .9);
+  --sh-key-pressed: 0 0 0 var(--key-edge), 0 1px 3px rgba(40, 50, 70, .2), inset 0 2px 5px rgba(40, 50, 70, .18);
+  --sh-float: 0 24px 60px rgba(40, 50, 70, .25), 0 2px 8px rgba(40, 50, 70, .12);
+  --sh-card: 0 6px 18px rgba(40, 50, 70, .08);
+  color-scheme: light;
+}
+
+/* =====================================================================
+   土台
+   ===================================================================== */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overflow: hidden;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+kbd { font-family: var(--mono); }
+
+.app {
+  display: grid;
+  grid-template-rows: 60px 1fr 40px;
+  height: 100dvh;
+  min-height: 600px;
+}
+
+/* ---- 上の帯 ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
+  position: relative;
+  z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: 9px;
+  background: conic-gradient(from 200deg, var(--acc), hsl(calc(var(--hue) + 60) 90% 65%), var(--acc));
+  box-shadow: 0 0 18px var(--acc-line);
+  transition: background var(--t-med);
+}
+.brand b { display: block; font-size: 14px; letter-spacing: .02em; }
+.brand small { display: block; font-size: 11px; color: var(--text-3); line-height: 1.2; }
+
+.seg {
+  position: relative;
+  display: flex;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+.seg button {
+  position: relative; z-index: 1;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0; background: none;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-weight: 600; font-size: 13px;
+  display: flex; align-items: center; gap: 7px;
+  white-space: nowrap;
+  transition: color var(--t-fast);
+}
+.seg button.active { color: var(--text-1); }
+.seg-ind {
+  position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-4);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 2px 8px rgba(0, 0, 0, .25);
+  transition: transform var(--t-med) var(--ease-out), width var(--t-med) var(--ease-out), background var(--t-med);
+}
+.sets .seg-ind { background: hsl(var(--hue) 70% 55% / .22); box-shadow: inset 0 0 0 1px var(--acc-line); }
+.set-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sets kbd { font-size: 10px; color: var(--text-3); }
+
+.tools { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.tbtn {
+  min-height: 40px; padding: 0 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  font-weight: 600; font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-press);
+}
+.tbtn:active { transform: scale(.97); }
+.tbtn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); transition: background var(--t-fast), box-shadow var(--t-fast); }
+.tbtn[aria-pressed="true"].mod-toggle { background: var(--mod-soft); border-color: var(--mod-line); color: var(--mod); }
+.tbtn[aria-pressed="true"].mod-toggle .dot { background: var(--mod); box-shadow: 0 0 8px var(--mod); }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--line-2); background: var(--surface-2);
+  display: grid; place-items: center; font-size: 16px;
+  transition: background var(--t-fast), color var(--t-fast), transform var(--t-press);
+}
+.icon-btn:active { transform: scale(.94); }
+.icon-btn[aria-pressed="true"] { background: var(--acc-soft); color: var(--acc); border-color: var(--acc-line); }
+
+/* ---- 下の帯（状態の見本） ---- */
+.legend {
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-1);
+  font-size: 12px; color: var(--text-2);
+  overflow: hidden; white-space: nowrap;
+}
+.lg { display: flex; align-items: center; gap: 6px; }
+.lg-sw {
+  width: 22px; height: 16px; border-radius: 5px;
+  background: var(--key-top); box-shadow: 0 2px 0 var(--key-edge);
+}
+.lg-sw.pressed { box-shadow: inset 0 2px 4px rgba(0, 0, 0, .5); transform: translateY(2px); background: var(--key-top-pressed); position: relative; }
+.lg-sw.pressed::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(circle, var(--acc-line), transparent 70%); }
+.lg-sw.selected { outline: 2px solid var(--acc); outline-offset: 2px; }
+.lg-sw.mod { box-shadow: 0 2px 0 var(--key-edge), inset 0 0 0 1.5px var(--mod), 0 0 10px var(--mod-line); }
+.lg-sw.empty { background: transparent; box-shadow: none; border: 1.5px dashed var(--line-2); }
+.lg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mod); box-shadow: 0 0 6px var(--mod); }
+.legend .hint { margin-left: auto; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
+.legend .proto { color: var(--text-3); border: 1px solid var(--line-2); border-radius: var(--r-pill); padding: 1px 8px; }
+
+.stage { position: relative; min-height: 0; overflow: hidden; }
+
+/* =====================================================================
+   共通の部品: 押せるもの・状態
+   ===================================================================== */
+.pressable { position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+.ripple {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: var(--acc); opacity: .32;
+  transform: scale(0);
+  animation: ripple var(--t-glow) var(--ease-out) forwards;
+}
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+.flash { animation: flash var(--t-glow) var(--ease-out); }
+@keyframes flash {
+  0% { box-shadow: 0 0 0 0 var(--acc-line); background-color: var(--acc-soft); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+
+/* 修飾で変わる部品の印（修飾していないとき） */
+.st.has-mod:not(.is-mod)::before {
+  content: ""; position: absolute; z-index: 3;
+  top: 7px; right: 7px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--mod); box-shadow: 0 0 6px var(--mod);
+  pointer-events: none;
+}
+/* 修飾中は、変わらない部品を沈める */
+.st { transition: opacity var(--t-med), border-color var(--t-fast), background-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-press) ease-out, outline-offset var(--t-fast); }
+.mod-on .st:not(.is-mod):not(.is-held) { opacity: .42; }
+
+/* セット切替の入れ替わり */
+.swap .lbl-anim { animation: swapIn var(--t-med) var(--ease-out); }
+@keyframes swapIn { from { opacity: 0; transform: translateY(5px); } }
+
+.lbl-anim { display: inline-block; }
+.lbl-anim.is-empty { color: var(--text-3); font-weight: 500; }
+
+/* 動作の見せ方（キー・文字・切替） */
+.act { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 3px; min-height: 20px; }
+.kc {
+  display: inline-block; min-width: 20px; padding: 1px 6px;
+  font-size: 11px; line-height: 16px; text-align: center; font-weight: 600;
+  border-radius: 5px;
+  background: var(--surface-4); color: var(--text-1);
+  box-shadow: 0 2px 0 var(--key-edge);
+}
+.kc-plus { color: var(--text-3); font-size: 10px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 8px; border-radius: var(--r-pill);
+  font-size: 11px; line-height: 18px; font-weight: 600;
+  background: var(--surface-4); color: var(--text-2);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chip-text { background: hsl(150 50% 50% / .14); color: hsl(150 55% 62%); }
+.chip-mo { background: var(--mod-soft); color: var(--mod); }
+.chip-set .set-dot { width: 7px; height: 7px; }
+:root[data-theme="light"] .chip-text { color: hsl(150 60% 30%); }
+.act-none { font-size: 11px; color: var(--text-3); }
+
+.modline { font-size: 11px; color: var(--mod); display: flex; gap: 4px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modline[hidden] { display: none; }
+
+/* =====================================================================
+   機器の絵（A・C 共通）
+   ===================================================================== */
+.device {
+  position: relative;
+  aspect-ratio: 100 / 72;
+  width: 100%;
+  container-type: inline-size;
+}
+.device-body {
+  position: absolute; inset: 0;
+  border-radius: 5.5cqw;
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(255, 255, 255, .05), transparent 60%),
+    linear-gradient(160deg, var(--dev-1), var(--dev-2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), inset 0 0 0 1px var(--line), var(--sh-float);
+}
+.device-body::after {
+  content: "KeyDeck"; position: absolute; right: 4cqw; bottom: 2.4cqw;
+  font-size: max(9px, 1.1cqw); letter-spacing: .35em; font-weight: 700;
+  color: var(--text-3); opacity: .6;
+}
+.set-strip {
+  position: absolute; left: 4cqw; bottom: 2.6cqw;
+  display: flex; gap: .8cqw; align-items: center;
+  font-size: max(9px, 1.1cqw); color: var(--text-3); font-weight: 600;
+}
+.set-strip i { width: 1.6cqw; height: .5cqw; min-width: 10px; min-height: 3px; border-radius: 9px; background: var(--line-2); transition: background var(--t-med), box-shadow var(--t-med); }
+.set-strip i.on { background: var(--acc); box-shadow: 0 0 8px var(--acc-line); }
+
+.part {
+  position: absolute;
+  border-radius: 1.8cqw;
+  background: var(--key-top);
+  box-shadow: var(--sh-key);
+  color: var(--text-1);
+  cursor: pointer;
+  display: grid; place-items: center;
+  outline: 0 solid transparent; outline-offset: 7px;
+}
+.part::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(circle at 50% 55%, var(--acc-line), transparent 72%);
+  opacity: 0; transition: opacity var(--t-glow) ease-out;
+}
+.part.is-pressed { transform: translateY(.35cqw) scale(.97); box-shadow: var(--sh-key-pressed); background: var(--key-top-pressed); }
+.part.is-pressed::after { opacity: 1; transition-duration: 40ms; }
+.part.is-selected { outline: 2.5px solid var(--acc); outline-offset: 4px; }
+.part.is-empty { background: transparent; box-shadow: none; border: 1.5px dashed var(--line-2); }
+.part.is-mod { box-shadow: var(--sh-key), inset 0 0 0 2px var(--mod), 0 0 22px var(--mod-line); }
+.part.is-mod .p-lbl { color: var(--mod); }
+.part.k-mod.is-held { background: linear-gradient(180deg, #ffc978, #f0a02e); color: var(--mod-ink); box-shadow: var(--sh-key-pressed), 0 0 26px var(--mod-line); transform: translateY(.35cqw); }
+.part.k-mod.is-held .p-id { color: var(--mod-ink); }
+.part:focus-visible { outline: 2.5px solid var(--acc); outline-offset: 4px; }
+
+.p-id {
+  position: absolute; top: .7cqw; left: 1cqw;
+  font: 600 max(8px, .95cqw)/1 var(--mono);
+  color: var(--text-3);
+}
+.p-glyph { font-size: max(10px, 2cqw); color: var(--text-3); }
+.p-lbl {
+  font-size: max(10px, 1.55cqw); font-weight: 700; line-height: 1.2;
+  text-align: center; padding: 0 .9cqw;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+.k-btnS .p-lbl, .k-set .p-lbl { font-size: max(9px, 1.2cqw); }
+.p-live { display: grid; gap: .5cqw; justify-items: center; padding-top: 1cqw; width: 100%; }
+.p-act { transform: scale(clamp(.7, calc(100cqw / 1000px), 1.1)); }
+.p-sub { font-size: max(8px, 1cqw); color: var(--mod); max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 十字キー */
+.dpad { position: absolute; }
+.dpad-hub {
+  position: absolute; left: 31%; top: 31%; width: 38%; height: 38%;
+  border-radius: 22%;
+  background: var(--surface-1);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .45);
+}
+.part.k-dpad { border-radius: 1.4cqw; }
+.arm-up { border-bottom-left-radius: .6cqw !important; border-bottom-right-radius: .6cqw !important; }
+.arm-down { border-top-left-radius: .6cqw !important; border-top-right-radius: .6cqw !important; }
+.arm-left { border-top-right-radius: .6cqw !important; border-bottom-right-radius: .6cqw !important; }
+.arm-right { border-top-left-radius: .6cqw !important; border-bottom-left-radius: .6cqw !important; }
+.k-dpad .p-lbl { font-size: max(9px, 1.15cqw); padding: 0 .4cqw; }
+.k-dpad .p-glyph { font-size: max(9px, 1.3cqw); }
+.device-live .k-dpad .p-glyph { position: absolute; font-size: max(8px, .9cqw); opacity: .7; }
+.device-live .arm-up .p-glyph { top: .5cqw; }
+.device-live .arm-down .p-glyph { bottom: .5cqw; }
+.device-live .arm-left .p-glyph { left: .6cqw; }
+.device-live .arm-right .p-glyph { right: .6cqw; }
+
+/* ダイヤル */
+.dial {
+  position: absolute;
+  border-radius: 50%;
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: radial-gradient(circle, var(--surface-1) 63%, var(--surface-3) 64%, var(--surface-2) 100%);
+  box-shadow: inset 0 0 0 1px var(--line), 0 10px 26px rgba(0, 0, 0, .35);
+  outline: 0 solid transparent; outline-offset: 7px;
+}
+.dial.is-grabbed { cursor: grabbing; }
+.dial.is-selected { outline: 2.5px solid var(--acc); outline-offset: 4px; }
+.dial.is-empty { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-2); }
+.dial.is-mod { box-shadow: inset 0 0 0 2px var(--mod), 0 0 26px var(--mod-line); }
+.dial:focus-visible { outline: 2.5px solid var(--acc); outline-offset: 4px; }
+.dial-ticks {
+  position: absolute; inset: 3%; border-radius: 50%; pointer-events: none;
+  background: repeating-conic-gradient(from -1deg, var(--line-2) 0 2deg, transparent 2deg 15deg);
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 61%, #000 70%, transparent 71%);
+          mask: radial-gradient(circle, transparent 60%, #000 61%, #000 70%, transparent 71%);
+}
+.dial-S .dial-ticks { background: repeating-conic-gradient(from -1.5deg, var(--line-2) 0 3deg, transparent 3deg 20deg); }
+.knob {
+  position: absolute; inset: 19%; border-radius: 50%;
+  background: var(--knob);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -2px 6px rgba(0, 0, 0, .35);
+  transition: transform 90ms var(--ease-out), box-shadow var(--t-press);
+  pointer-events: none;
+}
+.knob::before { /* 刻み目 */
+  content: ""; position: absolute; left: 50%; top: 6%;
+  width: 5%; height: 15%; margin-left: -2.5%; border-radius: 9px;
+  background: var(--acc); box-shadow: 0 0 10px var(--acc-line);
+}
+.knob::after { /* ローレット */
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: repeating-conic-gradient(rgba(255, 255, 255, .035) 0 3deg, transparent 3deg 6deg);
+}
+.dial.is-grabbed .knob { transition-duration: 50ms; box-shadow: 0 4px 10px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .1); }
+.dial-face {
+  position: absolute; inset: 22%; border-radius: 50%; pointer-events: none;
+  display: grid; grid-template-columns: 1fr 1fr; align-items: center;
+  font-weight: 700; font-size: max(9px, 1.25cqw); line-height: 1.2;
+}
+.df { padding: 0 6%; display: grid; gap: .3cqw; border-radius: var(--r-sm); }
+.df b { font-size: max(8px, .9cqw); color: var(--text-3); font-weight: 600; }
+.df-ccw { text-align: left; justify-items: start; padding-left: 12%; }
+.df-cw { text-align: right; justify-items: end; padding-right: 12%; }
+.df.flash { animation: dfFlash 300ms var(--ease-out); }
+@keyframes dfFlash { 0% { color: var(--acc); transform: scale(1.08); } }
+.dial.is-mod .df .lbl-anim { color: var(--mod); }
+.dial-readout {
+  position: absolute; left: 50%; bottom: 23%; transform: translate(-50%, 6px);
+  padding: 2px 10px; border-radius: var(--r-pill);
+  background: var(--acc); color: var(--acc-ink);
+  font-size: max(10px, 1.1cqw); font-weight: 700; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--t-fast), transform var(--t-fast) var(--ease-out);
+}
+.dial-readout.show { opacity: 1; transform: translate(-50%, 0); }
+.device-guide .dial-readout { bottom: -14%; }
+.dial.mini .dial-readout { bottom: -30%; font-size: 11px; }
+.dial.mini { position: relative; width: 84px; height: 84px; flex: none; }
+.dial .p-id { top: 8%; left: 50%; transform: translateX(-50%); z-index: 2; }
+.dial.st.has-mod:not(.is-mod)::before { top: 14%; right: 14%; }
+.dial-S .dial-face { inset: 20%; font-size: max(8px, .95cqw); }
+.dial-S .df { padding: 0 2%; }
+.dial-S .df b { display: none; }
+.dial-S .df .lbl-anim { word-break: keep-all; overflow-wrap: anywhere; }
+
+/* =====================================================================
+   A案: 機器の絵＋引き出し線
+   ===================================================================== */
+.planA {
+  display: grid;
+  grid-template-columns: 1fr 0px;
+  height: 100%;
+  transition: grid-template-columns var(--t-slow) var(--ease-out);
+}
+.planA.open { grid-template-columns: 1fr 360px; }
+.a-stage {
+  position: relative; min-width: 0;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 200px;
+  gap: 20px;
+  padding: 14px 18px;
+}
+.a-col { display: flex; flex-direction: column; justify-content: center; gap: 8px; min-height: 0; z-index: 2; }
+.a-dev { position: relative; container-type: size; display: grid; place-items: center; min-width: 0; z-index: 1; }
+.a-dev .device { width: min(100cqw, 100cqh * 1.388); }
+.a-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; overflow: visible; }
+.ln { fill: none; stroke: var(--text-3); stroke-opacity: .5; stroke-width: 1.2; transition: stroke var(--t-fast); }
+.ln.mod { stroke: var(--mod); stroke-opacity: .8; }
+.ln.sel { stroke: var(--acc); stroke-opacity: 1; stroke-width: 2; filter: drop-shadow(0 0 4px var(--acc-line)); }
+.ln-dot { fill: var(--surface-1); stroke: var(--text-2); stroke-width: 1.5; }
+.ln-dot.mod { stroke: var(--mod); }
+.ln-dot.sel { fill: var(--acc); stroke: var(--surface-1); stroke-width: 2; }
+.ln-anc { fill: var(--text-3); }
+.ln-anc.sel { fill: var(--acc); }
+
+.callout {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 7px 10px 8px;
+  cursor: pointer;
+  box-shadow: var(--sh-card);
+}
+.callout.is-pressed { transform: scale(.975); }
+.callout.is-selected, .callout.has-sel {
+  border-color: var(--acc-line);
+  background: linear-gradient(180deg, var(--acc-soft), transparent 80%), var(--surface-2);
+  box-shadow: 0 0 0 3px var(--acc-soft), var(--sh-card);
+}
+.callout.is-mod { border-color: var(--mod-line); background: linear-gradient(180deg, var(--mod-soft), transparent 80%), var(--surface-2); }
+.callout.is-mod .co-lbl { color: var(--mod); }
+.callout.is-held { border-color: var(--mod); background: var(--mod-soft); }
+.co-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); min-height: 18px; }
+.co-head .pid { margin-left: auto; font: 600 10px/1 var(--mono); padding: 3px 5px; border-radius: 5px; background: var(--surface-4); color: var(--text-2); }
+.co-main { display: flex; align-items: center; gap: 8px; margin: 2px 0 1px; }
+.co-main .act { flex-wrap: nowrap; }
+.co-main > span { flex: none; max-width: 62%; overflow: hidden; }
+.co-lbl { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co-lbl .lbl-anim { display: inline; }
+.co-row {
+  position: relative;
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  padding: 3px 6px; margin: 0 -6px; border-radius: 8px;
+  font-size: 13px; font-weight: 650; min-height: 30px;
+}
+.co-row .ic { color: var(--text-3); font-size: 12px; text-align: center; }
+.co-row .lbl-anim { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.co-row.is-selected { background: var(--acc-soft); }
+.co-row.is-selected .ic { color: var(--acc); }
+.co-row.is-mod .lbl-anim { color: var(--mod); }
+.co-row.is-empty .act { display: none; }
+.co-row.has-mod:not(.is-mod)::before { top: 12px; right: auto; left: -2px; }
+
+.drawer {
+  min-width: 0; overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: var(--surface-1);
+}
+.drawer > .ed { width: 360px; }
+
+/* =====================================================================
+   B案: カードを並べる
+   ===================================================================== */
+.planB { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; }
+.b-main { overflow: auto; padding: 14px 18px 16px; }
+.b-sum {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 12px; font-size: 12px; color: var(--text-2);
+}
+.b-sum b { font-size: 18px; color: var(--text-1); font-weight: 750; margin-right: 2px; }
+.b-sum .meter { flex: 1; min-width: 120px; height: 6px; border-radius: 9px; background: var(--surface-3); overflow: hidden; }
+.b-sum .meter i { display: block; height: 100%; background: var(--acc); border-radius: inherit; transition: width var(--t-med) var(--ease-out); }
+.b-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  gap: 10px;
+}
+.card {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 10px 12px 12px;
+  min-height: 92px;
+  display: flex; flex-direction: column; gap: 3px;
+  box-shadow: var(--sh-card);
+  cursor: pointer;
+}
+.card.pressable.is-pressed { transform: translateY(1px) scale(.975); }
+.card.is-selected { border-color: var(--acc-line); box-shadow: 0 0 0 3px var(--acc-soft), var(--sh-card); background: linear-gradient(180deg, var(--acc-soft), transparent 70%), var(--surface-2); }
+.card.is-empty { background: transparent; border-style: dashed; border-color: var(--line-2); box-shadow: none; }
+.card.is-mod { border-color: var(--mod-line); background: linear-gradient(180deg, var(--mod-soft), transparent 70%), var(--surface-2); }
+.card.is-mod .c-lbl { color: var(--mod); }
+.card.is-held { border-color: var(--mod); background: var(--mod-soft); }
+.c-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); }
+.c-head .pid { margin-left: auto; font: 600 10px/1 var(--mono); padding: 3px 5px; border-radius: 5px; background: var(--surface-4); color: var(--text-2); }
+.c-lbl { font-size: 17px; font-weight: 750; line-height: 1.25; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .grow { flex: 1; }
+.card-dial { grid-column: span 2; cursor: default; }
+.card-dpad { grid-column: span 2; grid-row: span 2; cursor: default; }
+.dial-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr); gap: 10px; align-items: center; flex: 1; }
+.half {
+  border-radius: var(--r-md); padding: 8px 10px; min-height: 76px;
+  background: var(--surface-3); border: 1px solid transparent;
+  display: flex; flex-direction: column; gap: 3px; cursor: pointer;
+}
+.half.is-pressed { transform: scale(.97); }
+.half.sel { border-color: var(--acc-line); background: var(--acc-soft); }
+.half.is-mod .c-lbl { color: var(--mod); }
+.half .c-lbl { font-size: 15px; }
+.half small { font-size: 11px; color: var(--text-3); }
+.half.cw { text-align: right; align-items: flex-end; }
+.dpad-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 6px; margin-top: 4px; }
+.cell {
+  border-radius: var(--r-md); padding: 6px 8px;
+  background: var(--surface-3); border: 1px solid transparent;
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  cursor: pointer; min-width: 0;
+}
+.cell.is-pressed { transform: scale(.96); }
+.cell.is-selected { border-color: var(--acc-line); background: var(--acc-soft); }
+.cell.is-empty { background: transparent; border: 1px dashed var(--line-2); }
+.cell.is-mod { border-color: var(--mod-line); }
+.cell.is-mod .c-lbl { color: var(--mod); }
+.cell .c-lbl { font-size: 13px; }
+.cell small { font-size: 11px; color: var(--text-3); }
+.cell-hub { grid-area: 2 / 2; border-radius: 50%; background: var(--surface-1); box-shadow: inset 0 2px 6px rgba(0, 0, 0, .4); place-self: center; width: 70%; aspect-ratio: 1; }
+.cell.up { grid-area: 1 / 2; } .cell.down { grid-area: 3 / 2; } .cell.left { grid-area: 2 / 1; } .cell.right { grid-area: 2 / 3; }
+.b-editor { border-left: 1px solid var(--line); background: var(--surface-1); min-height: 0; }
+
+/* =====================================================================
+   C案: 実機に直接書く＋その場で開く編集
+   ===================================================================== */
+.planC { height: 100%; }
+.c-stage { position: relative; height: 100%; container-type: size; display: grid; place-items: center; }
+.c-dev { width: min(100cqw - 40px, (100cqh - 32px) * 1.388); }
+.popover {
+  position: absolute; z-index: 10; left: 0; top: 0;
+  width: 360px; max-height: calc(100% - 24px);
+  display: flex; flex-direction: column;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+          backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-float);
+  opacity: 0; transform: scale(.96); transform-origin: left center;
+  pointer-events: none;
+  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), left var(--t-med) var(--ease-out), top var(--t-med) var(--ease-out);
+}
+.popover[data-side="L"] { transform-origin: right center; }
+.popover.open { opacity: 1; transform: none; pointer-events: auto; }
+.popover > .ed { min-height: 0; flex: 1; }
+.pop-arrow {
+  position: absolute; width: 14px; height: 14px; top: 50%; margin-top: -7px;
+  background: var(--surface-2); border: 1px solid var(--line-2);
+  transform: rotate(45deg); transition: top var(--t-med) var(--ease-out);
+}
+.popover[data-side="R"] .pop-arrow { left: -8px; border-top: 0; border-right: 0; }
+.popover[data-side="L"] .pop-arrow { right: -8px; border-bottom: 0; border-left: 0; }
+
+/* =====================================================================
+   編集パネル（3案で共通）
+   ===================================================================== */
+.ed { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.ed-head {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.minimap { width: 76px; height: 56px; display: block; }
+.minimap .mm-body { fill: var(--surface-3); stroke: var(--line-2); stroke-width: .6; }
+.minimap .mm-p { fill: var(--surface-4); cursor: pointer; transition: fill var(--t-fast); }
+.minimap .mm-p.sel { fill: var(--acc); }
+.minimap .mm-p.mod { fill: var(--mod); }
+.ed-title small { display: block; font-size: 11px; color: var(--text-3); }
+.ed-title b { display: block; font-size: 17px; line-height: 1.3; }
+.ed-badges { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); background: var(--surface-4); color: var(--text-2); }
+.badge.mod { background: var(--mod-soft); color: var(--mod); }
+.badge.set { background: var(--acc-soft); color: var(--acc); }
+.x-btn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--surface-3); color: var(--text-2); font-size: 16px; align-self: start; }
+.x-btn:active { transform: scale(.94); }
+
+.slot-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 14px 0; }
+.slot-tab {
+  min-height: 52px; border-radius: var(--r-md);
+  border: 1px solid var(--line); background: var(--surface-2);
+  display: grid; justify-items: start; align-content: center; padding: 4px 12px; text-align: left;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.slot-tab small { font-size: 11px; color: var(--text-3); }
+.slot-tab span { font-weight: 700; font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot-tab.on { border-color: var(--acc-line); background: var(--acc-soft); }
+.slot-tab.on small { color: var(--acc); }
+.slot-tab.flash { animation: flash var(--t-glow) var(--ease-out); }
+
+.ed-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 16px; }
+.field > label, .field > .flabel { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 6px; font-weight: 600; }
+.field .count { color: var(--text-3); font-weight: 500; }
+.inp {
+  width: 100%; min-height: var(--hit); padding: 0 12px;
+  border-radius: var(--r-sm); border: 1px solid var(--line-2);
+  background: var(--surface-1); font-size: 16px;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+textarea.inp { padding: 10px 12px; min-height: 88px; resize: vertical; line-height: 1.5; }
+select.inp { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%), linear-gradient(135deg, var(--text-2) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.inp:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+
+.kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.kind {
+  min-height: 52px; border-radius: var(--r-md);
+  border: 1px solid var(--line); background: var(--surface-2);
+  display: flex; align-items: center; gap: 10px; padding: 0 12px; text-align: left;
+  font-size: 13px; font-weight: 650; line-height: 1.25;
+  transition: border-color var(--t-fast), background var(--t-fast), transform var(--t-press);
+}
+.kind:active { transform: scale(.97); }
+.kind .ki { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--surface-4); font-size: 14px; flex: none; }
+.kind.on { border-color: var(--acc-line); background: var(--acc-soft); }
+.kind.on .ki { background: var(--acc); color: var(--acc-ink); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tchip {
+  min-height: 40px; min-width: 44px; padding: 0 12px;
+  border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--surface-2);
+  font-weight: 650; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-press);
+}
+.tchip:active { transform: scale(.95); }
+.tchip[aria-pressed="true"] { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+.tchip.small { min-height: 34px; min-width: 38px; padding: 0 9px; font-family: var(--mono); font-size: 12px; }
+.row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.capture.wait { background: var(--acc-soft); border-color: var(--acc); color: var(--acc); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 4px var(--acc-soft); } }
+
+.preview {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.preview .pv-key {
+  min-width: 64px; height: 44px; padding: 0 10px; border-radius: 10px;
+  display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  background: var(--key-top); box-shadow: var(--sh-key);
+  max-width: 140px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.preview small { display: block; color: var(--text-3); font-size: 11px; }
+.note { font-size: 12px; color: var(--text-2); line-height: 1.6; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+.note b { color: var(--text-1); }
+.hold-diagram { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+.hold-diagram span:nth-child(odd) { font-size: 11px; color: var(--text-3); }
+
+.ed-foot { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+.ed-foot .nosave { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.gbtn { min-height: 40px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--surface-2); font-size: 13px; font-weight: 650; }
+.gbtn:active { transform: scale(.97); }
+.gbtn.warn { color: #ff8a8a; }
+:root[data-theme="light"] .gbtn.warn { color: #c0392b; }
+.pbtn { min-height: var(--hit); padding: 0 18px; border-radius: var(--r-sm); border: 0; background: var(--acc); color: var(--acc-ink); font-weight: 750; font-size: 14px; }
+.pbtn.mod { background: var(--mod); color: var(--mod-ink); }
+.pbtn:active { transform: scale(.97); }
+
+.ed-empty { display: grid; place-items: center; height: 100%; padding: 24px; text-align: center; color: var(--text-2); }
+.ed-empty .big { font-size: 34px; opacity: .5; }
+.ed-empty b { display: block; color: var(--text-1); font-size: 15px; margin: 6px 0 4px; }
+.ed-empty p { margin: 0; font-size: 13px; line-height: 1.7; }
+.empty-slot { display: grid; justify-items: center; gap: 8px; padding: 26px 16px; border: 1.5px dashed var(--line-2); border-radius: var(--r-lg); text-align: center; }
+.empty-slot .big { font-size: 26px; color: var(--text-3); }
+.empty-slot p { margin: 0 0 6px; font-size: 13px; color: var(--text-2); }
+.transparent { display: grid; gap: 10px; padding: 16px; border-radius: var(--r-lg); background: var(--mod-soft); border: 1px solid var(--mod-line); }
+.transparent p { margin: 0; font-size: 13px; line-height: 1.7; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <div><b>KeyDeck</b><small>割り当ての編集</small></div>
+    </div>
+    <nav class="seg sets" id="sets" aria-label="セット"></nav>
+    <div class="tools">
+      <button class="tbtn mod-toggle" id="modBtn" aria-pressed="false" title="修飾キーを押しているときの割り当てを表示"><span class="dot"></span>修飾中を見る</button>
+      <nav class="seg plans" id="plans" aria-label="デザイン案"></nav>
+      <button class="icon-btn" id="soundBtn" aria-pressed="false" title="目盛りの音">♪</button>
+      <button class="icon-btn" id="themeBtn" title="明るさの切り替え">◐</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage"></main>
+
+  <footer class="legend">
+    <span class="lg"><i class="lg-sw"></i>通常</span>
+    <span class="lg"><i class="lg-sw pressed"></i>押下中</span>
+    <span class="lg"><i class="lg-sw selected"></i>選択中</span>
+    <span class="lg"><i class="lg-sw mod"></i>修飾中</span>
+    <span class="lg"><i class="lg-sw empty"></i>空き</span>
+    <span class="lg"><i class="lg-dot"></i>修飾で変わる</span>
+    <span class="hint" id="hint"></span>
+    <span class="proto">試作・保存しません</span>
+  </footer>
+</div>
+
+<script>
+/* =====================================================================
+   割り当てデータ（架空: 漫画制作アプリのショートカット）
+   見た目はすべてこの1つのオブジェクトから描く。差し替えればそのまま動く。
+
+   - device.parts   … 部品。座標は 100×72 の機器の上での位置（左上が 0,0）
+                       ダイヤルは cx,cy（中心）と d（直径）、他は x,y,w,h
+                       group を持つ部品（十字キー）は groups の枠の中に並ぶ
+   - sets[].base    … 通常の割り当て
+   - sets[].mod     … 修飾キーを押している間の割り当て。書いていない部品は
+                       通常と同じ（透過）。null を書くと「修飾中は空き」
+   - 割り当て        … { label: 表示名, action: 動作 }
+                       ダイヤルは { ccw: 左回し, cw: 右回し }
+   - 動作 action.t   … chord（キーの組み合わせ） / text（文字の入力）
+                       mo（押している間だけ別の割り当て） / set（セット切替）
+   ===================================================================== */
+const KEYDECK_DATA = {
+  device: {
+    name: "左手デバイス（iPad）",
+    width: 100,
+    height: 72,
+    kinds: {
+      dial: "ダイヤル", dpad: "十字キー", btnL: "大きいボタン",
+      btnS: "小さいボタン", mod: "修飾キー", set: "セット切替"
+    },
+    groups: {
+      DP: { name: "十字キー", cx: 40, cy: 29, size: 26 }
+    },
+    parts: [
+      { id: "S1",  kind: "btnS", name: "小ボタン1", x: 27, y: 4,  w: 11, h: 7 },
+      { id: "S2",  kind: "btnS", name: "小ボタン2", x: 41, y: 4,  w: 11, h: 7 },
+      { id: "B1",  kind: "btnL", name: "大ボタン1", x: 5,  y: 7,  w: 18, h: 18 },
+      { id: "B2",  kind: "btnL", name: "大ボタン2", x: 5,  y: 28, w: 18, h: 18 },
+      { id: "MOD", kind: "mod",  name: "修飾キー",  x: 5,  y: 49, w: 18, h: 17 },
+      { id: "B3",  kind: "btnL", name: "大ボタン3", x: 26, y: 49, w: 18, h: 17 },
+      { id: "S3",  kind: "btnS", name: "小ボタン3", x: 47, y: 49, w: 10, h: 8 },
+      { id: "S4",  kind: "btnS", name: "小ボタン4", x: 47, y: 59, w: 10, h: 8 },
+      { id: "DP_U", kind: "dpad", name: "十字キー ↑", group: "DP", dir: "up" },
+      { id: "DP_L", kind: "dpad", name: "十字キー ←", group: "DP", dir: "left" },
+      { id: "DP_R", kind: "dpad", name: "十字キー →", group: "DP", dir: "right" },
+      { id: "DP_D", kind: "dpad", name: "十字キー ↓", group: "DP", dir: "down" },
+      { id: "DS",  kind: "dial", name: "小ダイヤル", size: "S", cx: 72, cy: 13, d: 16, detent: 20 },
+      { id: "DL",  kind: "dial", name: "大ダイヤル", size: "L", cx: 76, cy: 47, d: 32, detent: 15 },
+      { id: "SET", kind: "set",  name: "セット切替", x: 86, y: 4, w: 11, h: 8 }
+    ]
+  },
+
+  layers: [
+    { id: "base", name: "通常" },
+    { id: "mod",  name: "修飾中" }
+  ],
+
+  actionKinds: {
+    chord: { name: "キーの組み合わせ", icon: "⌨" },
+    text:  { name: "文字の入力",       icon: "あ" },
+    mo:    { name: "押している間だけ切替", icon: "⇧" },
+    set:   { name: "セットを切り替える", icon: "▦" }
+  },
+
+  sets: [
+    {
+      id: "basic", name: "基本", hue: 212,
+      base: {
+        DL:  { ccw: { label: "縮小", action: { t: "chord", keys: ["Ctrl", "-"] } },
+               cw:  { label: "拡大", action: { t: "chord", keys: ["Ctrl", "+"] } } },
+        DS:  { ccw: { label: "左に回転", action: { t: "chord", keys: ["-"] } },
+               cw:  { label: "右に回転", action: { t: "chord", keys: ["^"] } } },
+        DP_U: { label: "ブラシ太く", action: { t: "chord", keys: ["]"] } },
+        DP_D: { label: "ブラシ細く", action: { t: "chord", keys: ["["] } },
+        DP_L: { label: "透明色へ",   action: { t: "chord", keys: ["C"] } },
+        DP_R: { label: "色を入替",   action: { t: "chord", keys: ["X"] } },
+        B1:  { label: "取り消し", action: { t: "chord", keys: ["Ctrl", "Z"] } },
+        B2:  { label: "やり直し", action: { t: "chord", keys: ["Ctrl", "Y"] } },
+        B3:  { label: "スポイト", action: { t: "chord", keys: ["I"] } },
+        MOD: { label: "修飾",     action: { t: "mo", layer: "mod" } },
+        S1:  { label: "ペン",     action: { t: "chord", keys: ["P"] } },
+        S2:  { label: "消しゴム", action: { t: "chord", keys: ["E"] } },
+        S3:  { label: "手のひら", action: { t: "chord", keys: ["H"] } },
+        SET: { label: "次のセット", action: { t: "set", to: "next" } }
+      },
+      mod: {
+        DL:  { ccw: { label: "ブラシ細く", action: { t: "chord", keys: ["["] } },
+               cw:  { label: "ブラシ太く", action: { t: "chord", keys: ["]"] } } },
+        B1:  { label: "すべて選択", action: { t: "chord", keys: ["Ctrl", "A"] } },
+        B2:  { label: "選択解除",   action: { t: "chord", keys: ["Ctrl", "D"] } },
+        S1:  { label: "鉛筆",       action: { t: "chord", keys: ["Shift", "P"] } },
+        S4:  { label: "叫びの定型", action: { t: "text", text: "「……っ！」" } },
+        SET: { label: "前のセット", action: { t: "set", to: "prev" } }
+      }
+    },
+    {
+      id: "page", name: "ページ", hue: 168,
+      base: {
+        DL:  { ccw: { label: "前のページ", action: { t: "chord", keys: ["PageUp"] } },
+               cw:  { label: "次のページ", action: { t: "chord", keys: ["PageDown"] } } },
+        DS:  { ccw: { label: "前のコマ", action: { t: "chord", keys: ["Shift", "Tab"] } },
+               cw:  { label: "次のコマ", action: { t: "chord", keys: ["Tab"] } } },
+        DP_U: { label: "先頭ページ", action: { t: "chord", keys: ["Home"] } },
+        DP_D: { label: "最終ページ", action: { t: "chord", keys: ["End"] } },
+        DP_L: { label: "見開き前",   action: { t: "chord", keys: ["Ctrl", "←"] } },
+        DP_R: { label: "見開き次",   action: { t: "chord", keys: ["Ctrl", "→"] } },
+        B1:  { label: "ページ追加", action: { t: "chord", keys: ["Ctrl", "Alt", "N"] } },
+        B2:  { label: "ページ複製", action: { t: "chord", keys: ["Ctrl", "Alt", "D"] } },
+        B3:  { label: "見開き表示", action: { t: "chord", keys: ["Ctrl", "Alt", "W"] } },
+        MOD: { label: "修飾",       action: { t: "mo", layer: "mod" } },
+        S1:  { label: "ページ管理", action: { t: "chord", keys: ["Ctrl", "Shift", "M"] } },
+        S3:  { label: "定規表示",   action: { t: "chord", keys: ["Ctrl", "R"] } },
+        S4:  { label: "グリッド",   action: { t: "chord", keys: ["Ctrl", "'"] } },
+        SET: { label: "次のセット", action: { t: "set", to: "next" } }
+      },
+      mod: {
+        DL:  { ccw: { label: "10ページ戻る", action: { t: "chord", keys: ["Ctrl", "PageUp"] } },
+               cw:  { label: "10ページ進む", action: { t: "chord", keys: ["Ctrl", "PageDown"] } } },
+        B1:  { label: "ページ削除", action: { t: "chord", keys: ["Ctrl", "Alt", "Delete"] } },
+        SET: { label: "前のセット", action: { t: "set", to: "prev" } }
+      }
+    },
+    {
+      id: "layer", name: "レイヤー", hue: 262,
+      base: {
+        DL:  { ccw: { label: "上のレイヤー", action: { t: "chord", keys: ["Alt", "]"] } },
+               cw:  { label: "下のレイヤー", action: { t: "chord", keys: ["Alt", "["] } } },
+        DS:  { ccw: { label: "不透明度 −", action: { t: "chord", keys: ["Ctrl", "Alt", "-"] } },
+               cw:  { label: "不透明度 ＋", action: { t: "chord", keys: ["Ctrl", "Alt", "+"] } } },
+        DP_U: { label: "上へ移動",   action: { t: "chord", keys: ["Ctrl", "]"] } },
+        DP_D: { label: "下へ移動",   action: { t: "chord", keys: ["Ctrl", "["] } },
+        DP_L: { label: "表示切替",   action: { t: "chord", keys: ["Ctrl", "Shift", "H"] } },
+        DP_R: { label: "ロック",     action: { t: "chord", keys: ["Ctrl", "L"] } },
+        B1:  { label: "新規レイヤー", action: { t: "chord", keys: ["Ctrl", "Shift", "N"] } },
+        B2:  { label: "複製",         action: { t: "chord", keys: ["Ctrl", "J"] } },
+        B3:  { label: "下と結合",     action: { t: "chord", keys: ["Ctrl", "E"] } },
+        MOD: { label: "修飾",         action: { t: "mo", layer: "mod" } },
+        S1:  { label: "クリッピング", action: { t: "chord", keys: ["Ctrl", "Alt", "G"] } },
+        S2:  { label: "選択範囲に",   action: { t: "chord", keys: ["Ctrl", "Shift", "L"] } },
+        S3:  { label: "フォルダに",   action: { t: "chord", keys: ["Ctrl", "G"] } },
+        SET: { label: "次のセット",   action: { t: "set", to: "next" } }
+      },
+      mod: {
+        DS:  { ccw: { label: "不透明度 −10%", action: { t: "chord", keys: ["Shift", "Alt", "-"] } },
+               cw:  { label: "不透明度 ＋10%", action: { t: "chord", keys: ["Shift", "Alt", "+"] } } },
+        B3:  { label: "表示を結合", action: { t: "chord", keys: ["Ctrl", "Shift", "E"] } },
+        S4:  { label: "名前: 線画", action: { t: "text", text: "線画_" } },
+        SET: { label: "前のセット", action: { t: "set", to: "prev" } }
+      }
+    },
+    {
+      id: "gen", name: "生成", hue: 318,
+      base: {
+        DL:  { ccw: { label: "前の候補", action: { t: "chord", keys: ["←"] } },
+               cw:  { label: "次の候補", action: { t: "chord", keys: ["→"] } } },
+        DS:  { ccw: { label: "強さ −", action: { t: "chord", keys: ["Alt", "-"] } },
+               cw:  { label: "強さ ＋", action: { t: "chord", keys: ["Alt", "+"] } } },
+        DP_U: { label: "比較表示",   action: { t: "chord", keys: ["Tab"] } },
+        DP_D: { label: "候補を捨てる", action: { t: "chord", keys: ["Delete"] } },
+        B1:  { label: "生成する", action: { t: "chord", keys: ["Ctrl", "Enter"] } },
+        B2:  { label: "もう一度", action: { t: "chord", keys: ["Ctrl", "Shift", "Enter"] } },
+        B3:  { label: "採用",     action: { t: "chord", keys: ["Enter"] } },
+        MOD: { label: "修飾",     action: { t: "mo", layer: "mod" } },
+        S1:  { label: "トーン指定", action: { t: "text", text: "モノクロ、スクリーントーン、" } },
+        S2:  { label: "背景指定",   action: { t: "text", text: "背景：夜の商店街、" } },
+        S3:  { label: "線画のみ",   action: { t: "text", text: "線画のみ、" } },
+        S4:  { label: "除外語",     action: { t: "text", text: "ぼかし、文字、" } },
+        SET: { label: "次のセット", action: { t: "set", to: "next" } }
+      },
+      mod: {
+        B1:  { label: "4案生成", action: { t: "chord", keys: ["Ctrl", "Alt", "Enter"] } },
+        S1:  { label: "トーン強め", action: { t: "text", text: "濃いスクリーントーン、" } },
+        DP_L: { label: "前の履歴", action: { t: "chord", keys: ["Alt", "←"] } },
+        DP_R: { label: "次の履歴", action: { t: "chord", keys: ["Alt", "→"] } },
+        SET: { label: "前のセット", action: { t: "set", to: "prev" } }
+      }
+    },
+    {
+      id: "save", name: "保存", hue: 128,
+      base: {
+        DL:  { ccw: { label: "取り消し", action: { t: "chord", keys: ["Ctrl", "Z"] } },
+               cw:  { label: "やり直し", action: { t: "chord", keys: ["Ctrl", "Y"] } } },
+        DP_U: { label: "PNG書き出し", action: { t: "chord", keys: ["Ctrl", "Alt", "P"] } },
+        DP_D: { label: "PSD書き出し", action: { t: "chord", keys: ["Ctrl", "Alt", "S"] } },
+        DP_L: { label: "話数",       action: { t: "text", text: "ep01_" } },
+        DP_R: { label: "下書き印",   action: { t: "text", text: "_draft" } },
+        B1:  { label: "保存",       action: { t: "chord", keys: ["Ctrl", "S"] } },
+        B2:  { label: "別名で保存", action: { t: "chord", keys: ["Ctrl", "Shift", "S"] } },
+        B3:  { label: "書き出し",   action: { t: "chord", keys: ["Ctrl", "Alt", "E"] } },
+        MOD: { label: "修飾",       action: { t: "mo", layer: "mod" } },
+        S1:  { label: "印刷",       action: { t: "chord", keys: ["Ctrl", "P"] } },
+        S2:  { label: "閉じる",     action: { t: "chord", keys: ["Ctrl", "W"] } },
+        SET: { label: "基本へ",     action: { t: "set", to: "basic" } }
+      },
+      mod: {
+        B1:  { label: "全ページ保存", action: { t: "chord", keys: ["Ctrl", "Alt", "Shift", "S"] } },
+        S2:  null,
+        SET: { label: "前のセット", action: { t: "set", to: "prev" } }
+      }
+    }
+  ]
+};
+
+/* =====================================================================
+   ここから下は画面の処理（データは書き換えない前提で読んでよい）
+   ===================================================================== */
+(() => {
+'use strict';
+
+const D = KEYDECK_DATA;
+const PARTS = Object.fromEntries(D.device.parts.map(p => [p.id, p]));
+const MODKEYS = ['Ctrl', 'Shift', 'Alt', 'Win'];
+const KIND_ICON = { dial: '◎', dpad: '✚', btnL: '■', btnS: '▪', mod: '⇧', set: '▦' };
+const DIR_GLYPH = { up: '▲', down: '▼', left: '◀', right: '▶' };
+// 十字キーの腕。グループ枠に対する割合
+const ARM = {
+  up:    { x: .31, y: 0,   w: .38, h: .36 },
+  down:  { x: .31, y: .64, w: .38, h: .36 },
+  left:  { x: 0,   y: .31, w: .36, h: .38 },
+  right: { x: .64, y: .31, w: .36, h: .38 }
+};
+const PLAN_INFO = {
+  A: { name: 'A ガイド', hint: '絵かパネルをタップで選択 ・ ダイヤルはドラッグかホイールで回す ・ MODを押している間は修飾中の割り当て' },
+  B: { name: 'B カード', hint: 'カードをタップで選択 ・ 上の数字で空きと修飾の数が分かる ・ ダイヤルのつまみも回せる' },
+  C: { name: 'C 実機',   hint: '部品をタップするとその横で編集 ・ 何もない所をタップで閉じる ・ MODを左手で押したまま右手で他を触れる' }
+};
+
+const S = {
+  plan: 'C',
+  setId: D.sets[0].id,
+  sel: null,
+  slot: 'cw',
+  modLatch: false,
+  modHeld: false,
+  sound: false,
+  dialAngle: {}
+};
+try {
+  const saved = JSON.parse(localStorage.getItem('keydeck-editor-view') || '{}');
+  if (PLAN_INFO[saved.plan]) S.plan = saved.plan;
+  if (saved.theme === 'light') document.documentElement.dataset.theme = 'light';
+} catch (e) { /* 保存できない環境でも動く */ }
+function remember() {
+  try { localStorage.setItem('keydeck-editor-view', JSON.stringify({ plan: S.plan, theme: document.documentElement.dataset.theme })); } catch (e) {}
+}
+
+/* ---------- 小道具 ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'style') el.style.cssText = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+const SVGNS = 'http://www.w3.org/2000/svg';
+function s(tag, attrs) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  return el;
+}
+const clone = v => v == null ? v : JSON.parse(JSON.stringify(v));
+const trunc = (t, n) => t.length > n ? t.slice(0, n - 1) + '…' : t;
+
+/* ---------- データの読み方 ---------- */
+const curSet = () => D.sets.find(x => x.id === S.setId);
+const modOn = () => S.modLatch || S.modHeld;
+const layerNow = () => modOn() ? 'mod' : 'base';
+function hasMod(id) {
+  const m = curSet().mod;
+  return !!m && Object.prototype.hasOwnProperty.call(m, id);
+}
+// 今見えている割り当て（修飾中なら修飾の上書き、なければ通常へ透過）
+function eff(id) {
+  const st = curSet();
+  if (modOn() && hasMod(id)) return st.mod[id];
+  return st.base[id] ?? null;
+}
+function slotOf(a, id, slot) {
+  if (!a) return null;
+  return PARTS[id].kind === 'dial' ? (a[slot] ?? null) : a;
+}
+function isEmpty(id) {
+  const a = eff(id);
+  if (PARTS[id].kind === 'dial') return !a || (!a.ccw && !a.cw);
+  return !a;
+}
+function setName(to) {
+  if (to === 'next') return '次のセット';
+  if (to === 'prev') return '前のセット';
+  return D.sets.find(x => x.id === to)?.name ?? to;
+}
+function setHue(to) {
+  if (to === 'next' || to === 'prev') return null;
+  return D.sets.find(x => x.id === to)?.hue ?? null;
+}
+function layerName(id) { return D.layers.find(l => l.id === id)?.name ?? id; }
+
+function actionView(action) {
+  const w = h('span', { class: 'act' });
+  if (!action) return w;
+  if (action.t === 'chord') {
+    const keys = action.keys || [];
+    if (!keys.length) w.append(h('span', { class: 'act-none' }, 'キー未設定'));
+    keys.forEach((k, i) => {
+      if (i) w.append(h('span', { class: 'kc-plus' }, '+'));
+      w.append(h('kbd', { class: 'kc' }, k));
+    });
+  } else if (action.t === 'text') {
+    w.append(h('span', { class: 'chip chip-text' }, 'あ', '「' + trunc(action.text || '', 12) + '」'));
+  } else if (action.t === 'mo') {
+    w.append(h('span', { class: 'chip chip-mo' }, '⇧ 押す間 ' + layerName(action.layer)));
+  } else if (action.t === 'set') {
+    const hue = setHue(action.to);
+    w.append(h('span', { class: 'chip chip-set' },
+      h('i', { class: 'set-dot', style: hue == null ? 'background:var(--text-3)' : `background:hsl(${hue} 80% 60%)` }),
+      '→ ' + setName(action.to)));
+  }
+  return w;
+}
+
+/* ---------- 描き直しの仕組み ----------
+   組み立ては案を切り替えたときだけ。以降は bind した関数が
+   文字・class を書き換える（要素を作り直さないので、押した感触のアニメが途切れない） */
+let binders = [];
+let lineDrawer = null;
+let cleanups = [];
+function bind(fn) { binders.push(fn); fn(); }
+
+function paint() {
+  const st = curSet();
+  document.documentElement.style.setProperty('--hue', st.hue);
+  document.body.classList.toggle('mod-on', modOn());
+  binders.forEach(f => f());
+  paintTop();
+  if (lineDrawer) lineDrawer();
+}
+
+function swapAnim() {
+  const stage = $('#stage');
+  stage.classList.remove('swap');
+  void stage.offsetWidth;
+  stage.classList.add('swap');
+}
+
+function flash(key) {
+  $$(`[data-flash~="${key}"]`).forEach(n => {
+    n.classList.remove('flash');
+    void n.offsetWidth;
+    n.classList.add('flash');
+  });
+}
+
+/* ---------- 音（任意・既定は切） ---------- */
+const audio = {
+  ctx: null,
+  ready() {
+    if (!S.sound) return null;
+    if (!this.ctx) {
+      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  },
+  blip(freq, len, vol) {
+    const c = this.ready();
+    if (!c) return;
+    const o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(g).connect(c.destination);
+    o.start(t); o.stop(t + len + 0.01);
+  },
+  tick(dir) { this.blip(dir === 'cw' ? 2300 : 1900, 0.025, 0.05); },
+  press() { this.blip(900, 0.03, 0.04); }
+};
+
+/* ---------- 選ぶ ---------- */
+function select(id, slot) {
+  S.sel = id;
+  if (slot) S.slot = slot;
+  paint();
+  renderEditor();
+}
+function deselect() {
+  if (!S.sel) return;
+  S.sel = null;
+  paint();
+  renderEditor();
+}
+
+/* ---------- 押す ---------- */
+function ripple(el, e) {
+  const r = el.getBoundingClientRect();
+  const size = Math.max(r.width, r.height) * 1.4;
+  const x = (e.clientX ?? r.left + r.width / 2) - r.left - size / 2;
+  const y = (e.clientY ?? r.top + r.height / 2) - r.top - size / 2;
+  const sp = h('span', { class: 'ripple', style: `width:${size}px;height:${size}px;left:${x}px;top:${y}px` });
+  sp.addEventListener('animationend', () => sp.remove());
+  el.append(sp);
+}
+
+// 押せる要素にする。修飾キーは「押している間だけ修飾中」を見せる（短く押したら選択）
+function attachPress(el, id, opt = {}) {
+  el.classList.add('pressable');
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    el.classList.add('is-pressed');
+    ripple(el, e);
+    audio.press();
+    flash(id);
+    const isMod = PARTS[id].kind === 'mod';
+    const t0 = performance.now();
+    if (isMod) { S.modHeld = true; paint(); renderEditor(); }
+    else select(id, opt.slot);
+    let done = false;
+    const end = () => {
+      if (done) return;
+      done = true;
+      el.classList.remove('is-pressed');
+      el.removeEventListener('pointerup', end);
+      el.removeEventListener('pointercancel', end);
+      el.removeEventListener('lostpointercapture', end);
+      if (isMod) {
+        S.modHeld = false;
+        if (performance.now() - t0 < 280) S.sel = id;   // 短く押した = 修飾キー自体を選んだ
+        paint(); renderEditor();
+      }
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    el.classList.add('is-pressed');
+    setTimeout(() => el.classList.remove('is-pressed'), 120);
+    select(id, opt.slot);
+  });
+  if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+  el.setAttribute('role', 'button');
+}
+
+// 状態の class をつける（通常／選択中／修飾中／空き／修飾で変わる）
+function partState(el, id) {
+  el.classList.add('st');
+  bind(() => {
+    el.classList.toggle('is-selected', S.sel === id);
+    el.classList.toggle('is-empty', isEmpty(id));
+    el.classList.toggle('has-mod', hasMod(id));
+    el.classList.toggle('is-mod', modOn() && hasMod(id));
+    if (PARTS[id].kind === 'mod') el.classList.toggle('is-held', modOn());
+  });
+}
+
+// 表示名（空きなら「空き」）
+function lbl(id, slot) {
+  const sp = h('span', { class: 'lbl-anim' });
+  bind(() => {
+    const a = slotOf(eff(id), id, slot);
+    sp.textContent = a ? (a.label || '名前なし') : '空き';
+    sp.classList.toggle('is-empty', !a);
+  });
+  return sp;
+}
+function actBox(id, slot) {
+  const box = h('span', { class: 'lbl-anim' });
+  let last;
+  bind(() => {
+    const action = slotOf(eff(id), id, slot)?.action;
+    const sig = JSON.stringify(action ?? null);
+    if (sig === last) return;   // 変わっていなければ作り直さない
+    last = sig;
+    box.replaceChildren(actionView(action));
+  });
+  return box;
+}
+// 修飾していないとき「修飾: ○○」を添える
+function modLine(id, slot) {
+  const el = h('div', { class: 'modline' });
+  bind(() => {
+    const show = !modOn() && hasMod(id);
+    el.hidden = !show;
+    if (!show) return;
+    const a = slotOf(curSet().mod[id], id, slot);
+    el.textContent = '修飾: ' + (a ? (a.label || '名前なし') : '空き');
+  });
+  return el;
+}
+
+/* ---------- ダイヤル ---------- */
+function setKnob(id, extra = 0) {
+  $$(`[data-knob="${id}"]`).forEach(k => { k.style.transform = `rotate(${(S.dialAngle[id] || 0) + extra}deg)`; });
+}
+const readoutState = {};
+function tick(id, dir) {
+  const part = PARTS[id];
+  const step = part.detent || 15;
+  S.dialAngle[id] = (S.dialAngle[id] || 0) + (dir === 'cw' ? step : -step);
+  setKnob(id);
+  flash(`${id}.${dir}`);
+  audio.tick(dir);
+  const rs = readoutState[id] || (readoutState[id] = { dir: null, n: 0, timer: 0 });
+  if (rs.dir !== dir) { rs.dir = dir; rs.n = 0; }
+  rs.n++;
+  const a = slotOf(eff(id), id, dir);
+  $$(`[data-readout="${id}"]`).forEach(r => {
+    r.textContent = `${dir === 'cw' ? '⟳' : '⟲'} ${a ? (a.label || '名前なし') : '空き'}${rs.n > 1 ? ' ×' + rs.n : ''}`;
+    r.classList.add('show');
+  });
+  clearTimeout(rs.timer);
+  rs.timer = setTimeout(() => {
+    $$(`[data-readout="${id}"]`).forEach(r => r.classList.remove('show'));
+    rs.n = 0; rs.dir = null;
+  }, 900);
+  // 回した向きの割り当てを編集パネルに出す
+  if (S.sel === id && S.slot !== dir) { S.slot = dir; paint(); renderEditor(); }
+}
+
+function attachDial(el, id) {
+  const step = PARTS[id].detent || 15;
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const ang = ev => Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+    let last = ang(e), acc = 0;
+    el.classList.add('is-grabbed');
+    if (S.sel !== id) select(id);
+    const move = ev => {
+      const a = ang(ev);
+      let d = a - last;
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      last = a;
+      acc += d;
+      while (acc >= step) { acc -= step; tick(id, 'cw'); }
+      while (acc <= -step) { acc += step; tick(id, 'ccw'); }
+      setKnob(id, acc * 0.4);   // 目盛りの間は少し遅れてついてくる（ひっかかりの手ごたえ）
+    };
+    const end = () => {
+      el.classList.remove('is-grabbed');
+      setKnob(id);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', end);
+      el.removeEventListener('pointercancel', end);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  });
+  let wacc = 0;
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (S.sel !== id) select(id);
+    wacc += e.deltaY;
+    while (wacc >= 40) { wacc -= 40; tick(id, 'cw'); }
+    while (wacc <= -40) { wacc += 40; tick(id, 'ccw'); }
+  }, { passive: false });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); if (S.sel !== id) select(id); tick(id, 'cw'); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); if (S.sel !== id) select(id); tick(id, 'ccw'); }
+    if (e.key === 'Enter') select(id);
+  });
+}
+
+function makeDial(part, mode) {
+  const el = h('div', {
+    class: `dial dial-${part.size || 'L'}${mode === 'mini' ? ' mini' : ''}`,
+    tabindex: 0, role: 'slider', 'aria-label': part.name + '（左右キーで回す）', 'data-part': part.id
+  });
+  el.append(h('div', { class: 'dial-ticks' }));
+  const knob = h('div', { class: 'knob', 'data-knob': part.id });
+  el.append(knob);
+  if (mode === 'guide') el.append(h('span', { class: 'p-id' }, part.id));
+  if (mode === 'live') {
+    el.append(h('div', { class: 'dial-face' },
+      h('span', { class: 'df df-ccw', 'data-flash': part.id + '.ccw' }, h('b', {}, '⟲ 左'), lbl(part.id, 'ccw')),
+      h('span', { class: 'df df-cw', 'data-flash': part.id + '.cw' }, h('b', {}, '右 ⟳'), lbl(part.id, 'cw'))));
+  }
+  el.append(h('div', { class: 'dial-readout', 'data-readout': part.id }));
+  attachDial(el, part.id);
+  if (mode !== 'mini') partState(el, part.id);
+  requestAnimationFrame(() => setKnob(part.id));
+  return el;
+}
+
+/* ---------- 機器の絵（A と C） ---------- */
+function place(el, x, y, w, hh) {
+  const W = D.device.width, H = D.device.height;
+  el.style.left = (x / W * 100) + '%';
+  el.style.top = (y / H * 100) + '%';
+  el.style.width = (w / W * 100) + '%';
+  el.style.height = (hh / H * 100) + '%';
+}
+
+function buildDevice(mode) {
+  const dev = h('div', { class: 'device device-' + mode });
+  dev.append(h('div', { class: 'device-body' }));
+  // 今のセットを示す小さな目盛り
+  const strip = h('div', { class: 'set-strip' });
+  const bars = D.sets.map(() => h('i'));
+  const nm = h('span', { class: 'lbl-anim' });
+  strip.append(...bars, nm);
+  bind(() => {
+    D.sets.forEach((x, i) => bars[i].classList.toggle('on', x.id === S.setId));
+    nm.textContent = curSet().name + (modOn() ? ' ・ 修飾中' : '');
+  });
+  dev.append(strip);
+
+  for (const p of D.device.parts) {
+    if (p.group) continue;
+    if (p.kind === 'dial') {
+      const d = makeDial(p, mode);
+      place(d, p.cx - p.d / 2, p.cy - p.d / 2, p.d, p.d);
+      dev.append(d);
+      continue;
+    }
+    const el = h('div', { class: `part k-${p.kind}`, 'data-part': p.id, 'aria-label': p.name });
+    place(el, p.x, p.y, p.w, p.h);
+    if (mode === 'guide') {
+      el.append(h('span', { class: 'p-id' }, p.id), h('span', { class: 'p-glyph' }, KIND_ICON[p.kind]));
+    } else {
+      el.append(h('span', { class: 'p-id' }, p.id));
+      const live = h('div', { class: 'p-live' }, h('span', { class: 'p-lbl' }, lbl(p.id)));
+      if (p.kind === 'btnL' || p.kind === 'mod') {
+        live.append(h('span', { class: 'p-act' }, actBox(p.id)));
+        const sub = h('span', { class: 'p-sub' });
+        bind(() => {
+          const show = !modOn() && hasMod(p.id);
+          sub.hidden = !show;
+          if (show) { const a = curSet().mod[p.id]; sub.textContent = '修飾: ' + (a ? a.label : '空き'); }
+        });
+        live.append(sub);
+      }
+      el.append(live);
+    }
+    attachPress(el, p.id);
+    partState(el, p.id);
+    dev.append(el);
+  }
+
+  for (const [gid, g] of Object.entries(D.device.groups)) {
+    const wrap = h('div', { class: 'dpad', 'data-group': gid });
+    place(wrap, g.cx - g.size / 2, g.cy - g.size / 2, g.size, g.size);
+    wrap.append(h('div', { class: 'dpad-hub' }));
+    for (const p of D.device.parts.filter(x => x.group === gid)) {
+      const a = ARM[p.dir];
+      const el = h('div', { class: `part k-dpad arm-${p.dir}`, 'data-part': p.id, 'aria-label': p.name,
+        style: `left:${a.x * 100}%;top:${a.y * 100}%;width:${a.w * 100}%;height:${a.h * 100}%` });
+      el.append(h('span', { class: 'p-glyph' }, DIR_GLYPH[p.dir]));
+      if (mode === 'live') el.append(h('span', { class: 'p-lbl' }, lbl(p.id)));
+      attachPress(el, p.id);
+      partState(el, p.id);
+      wrap.append(el);
+    }
+    dev.append(wrap);
+  }
+  return dev;
+}
+
+/* ---------- 編集パネル右上の小さな地図 ---------- */
+function minimap(selId) {
+  const W = D.device.width, H = D.device.height;
+  const svg = s('svg', { class: 'minimap', viewBox: `-2 -2 ${W + 4} ${H + 4}` });
+  svg.append(s('rect', { class: 'mm-body', x: 0, y: 0, width: W, height: H, rx: 6 }));
+  const cls = id => 'mm-p' + (id === selId ? ' sel' : (modOn() && hasMod(id) ? ' mod' : ''));
+  for (const p of D.device.parts) {
+    let el;
+    if (p.kind === 'dial') el = s('circle', { cx: p.cx, cy: p.cy, r: p.d / 2 });
+    else if (p.group) {
+      const g = D.device.groups[p.group], a = ARM[p.dir];
+      el = s('rect', { x: g.cx - g.size / 2 + a.x * g.size, y: g.cy - g.size / 2 + a.y * g.size, width: a.w * g.size, height: a.h * g.size, rx: 1.5 });
+    } else el = s('rect', { x: p.x, y: p.y, width: p.w, height: p.h, rx: 2 });
+    el.setAttribute('class', cls(p.id));
+    el.addEventListener('pointerdown', e => { e.preventDefault(); select(p.id); });
+    svg.append(el);
+  }
+  return svg;
+}
+
+/* =====================================================================
+   A案: 機器の絵＋引き出し線
+   ===================================================================== */
+function calloutItems() {
+  const items = [];
+  const groups = {};
+  for (const p of D.device.parts) {
+    if (p.group) {
+      if (!groups[p.group]) {
+        const g = D.device.groups[p.group];
+        groups[p.group] = { id: p.group, type: 'group', name: g.name, cx: g.cx, cy: g.cy, members: [] };
+        items.push(groups[p.group]);
+      }
+      groups[p.group].members.push(p);
+    } else if (p.kind === 'dial') {
+      items.push({ id: p.id, type: 'dial', part: p, cx: p.cx, cy: p.cy });
+    } else {
+      items.push({ id: p.id, type: 'single', part: p, cx: p.x + p.w / 2, cy: p.y + p.h / 2 });
+    }
+  }
+  const mid = D.device.width / 2;
+  items.forEach(it => { it.side = it.cx < mid ? 'L' : 'R'; });
+  // 片側に偏ったら、中央に近いものから反対側へ回す
+  for (;;) {
+    const L = items.filter(i => i.side === 'L'), R = items.filter(i => i.side === 'R');
+    if (Math.abs(L.length - R.length) <= 1) break;
+    const from = L.length > R.length ? L : R;
+    from.sort((a, b) => Math.abs(a.cx - mid) - Math.abs(b.cx - mid))[0].side = from === L ? 'R' : 'L';
+  }
+  items.sort((a, b) => a.cy - b.cy || a.cx - b.cx);
+  return items;
+}
+
+function buildCallout(it) {
+  if (it.type === 'single') {
+    const p = it.part;
+    const c = h('div', { class: 'callout', 'data-item': it.id, 'data-flash': p.id },
+      h('div', { class: 'co-head' }, KIND_ICON[p.kind], ' ', p.name, h('span', { class: 'pid' }, p.id)),
+      h('div', { class: 'co-main' }, h('div', { class: 'co-lbl' }, lbl(p.id)), actBox(p.id)),
+      modLine(p.id));
+    attachPress(c, p.id);
+    partState(c, p.id);
+    return c;
+  }
+  if (it.type === 'dial') {
+    const p = it.part;
+    const head = h('div', { class: 'co-head' }, KIND_ICON.dial, ' ', p.name, h('span', { class: 'pid' }, p.id));
+    const c = h('div', { class: 'callout', 'data-item': it.id }, head);
+    for (const slot of ['ccw', 'cw']) {
+      const row = h('div', { class: 'co-row', 'data-flash': `${p.id}.${slot}` },
+        h('span', { class: 'ic' }, slot === 'ccw' ? '⟲' : '⟳'), lbl(p.id, slot), actBox(p.id, slot));
+      attachPress(row, p.id, { slot });
+      bind(() => {
+        const a = slotOf(eff(p.id), p.id, slot);
+        row.classList.toggle('is-selected', S.sel === p.id && S.slot === slot);
+        row.classList.toggle('is-empty', !a);
+        row.classList.toggle('is-mod', modOn() && hasMod(p.id));
+      });
+      c.append(row);
+    }
+    bind(() => {
+      c.classList.toggle('has-sel', S.sel === p.id);
+      c.classList.toggle('is-mod', modOn() && hasMod(p.id));
+    });
+    c.append(modLine(p.id, 'cw'));
+    return c;
+  }
+  // 十字キー
+  const c = h('div', { class: 'callout', 'data-item': it.id },
+    h('div', { class: 'co-head' }, KIND_ICON.dpad, ' ', it.name, h('span', { class: 'pid' }, it.id)));
+  const order = ['up', 'left', 'right', 'down'];
+  it.members.slice().sort((a, b) => order.indexOf(a.dir) - order.indexOf(b.dir)).forEach(m => {
+    const row = h('div', { class: 'co-row', 'data-flash': m.id },
+      h('span', { class: 'ic' }, DIR_GLYPH[m.dir]), lbl(m.id), actBox(m.id));
+    attachPress(row, m.id);
+    partState(row, m.id);
+    c.append(row);
+  });
+  bind(() => { c.classList.toggle('has-sel', it.members.some(m => m.id === S.sel)); });
+  return c;
+}
+
+function drawLines(area, svg, items) {
+  const ar = area.getBoundingClientRect();
+  if (!ar.width) return;
+  svg.setAttribute('viewBox', `0 0 ${ar.width} ${ar.height}`);
+  const out = [];
+  for (const it of items) {
+    const c = area.querySelector(`.callout[data-item="${it.id}"]`);
+    let target;
+    if (it.type === 'group') {
+      const selMember = it.members.find(m => m.id === S.sel);
+      target = selMember ? area.querySelector(`.device [data-part="${selMember.id}"]`) : area.querySelector(`.device [data-group="${it.id}"]`);
+    } else target = area.querySelector(`.device [data-part="${it.id}"]`);
+    if (!c || !target) continue;
+    const cr = c.getBoundingClientRect(), tr = target.getBoundingClientRect();
+    const ax = (it.side === 'L' ? cr.right : cr.left) - ar.left;
+    const ay = cr.top - ar.top + Math.min(20, cr.height / 2);
+    const tx = tr.left + tr.width / 2 - ar.left;
+    const ty = tr.top + tr.height / 2 - ar.top;
+    const dx = (tx - ax) * 0.5;
+    const ids = it.type === 'group' ? it.members.map(m => m.id) : [it.id];
+    const sel = ids.includes(S.sel);
+    const mod = modOn() && ids.some(hasMod);
+    const cls = sel ? 'sel' : (mod ? 'mod' : '');
+    out.push({ sel, svg:
+      `<path class="ln ${cls}" d="M${ax},${ay} C${ax + dx},${ay} ${tx - dx * 0.7},${ty} ${tx},${ty}"/>` +
+      `<circle class="ln-anc ${cls}" cx="${ax}" cy="${ay}" r="2.5"/>` +
+      `<circle class="ln-dot ${cls}" cx="${tx}" cy="${ty}" r="${sel ? 5 : 4}"/>` });
+  }
+  out.sort((a, b) => a.sel - b.sel);
+  svg.innerHTML = out.map(o => o.svg).join('');
+}
+
+function buildA(stage) {
+  const root = h('div', { class: 'planA' });
+  const area = h('div', { class: 'a-stage' });
+  const colL = h('div', { class: 'a-col' }), colR = h('div', { class: 'a-col' });
+  const devWrap = h('div', { class: 'a-dev' }, buildDevice('guide'));
+  const svg = s('svg', { class: 'a-lines' });
+  area.append(colL, devWrap, colR, svg);
+  const drawer = h('aside', { class: 'drawer', id: 'editor-host' });
+  root.append(area, drawer);
+  stage.append(root);
+
+  const items = calloutItems();
+  for (const it of items) (it.side === 'L' ? colL : colR).append(buildCallout(it));
+  lineDrawer = () => drawLines(area, svg, items);
+  bind(() => root.classList.toggle('open', !!S.sel));
+  // 引き出しの開閉で幅が変わる間も線を追いかける
+  const ro = new ResizeObserver(() => lineDrawer && lineDrawer());
+  ro.observe(area);
+  $$('.callout', area).forEach(c => ro.observe(c));
+  cleanups.push(() => ro.disconnect());
+}
+
+/* =====================================================================
+   B案: カードを並べる
+   ===================================================================== */
+function cardHead(icon, name, id) {
+  return h('div', { class: 'c-head' }, icon, ' ', name, h('span', { class: 'pid' }, id));
+}
+
+function buildB(stage) {
+  const root = h('div', { class: 'planB' });
+  const main = h('div', { class: 'b-main' });
+  const grid = h('div', { class: 'b-grid' });
+
+  // 上の集計
+  const sum = h('div', { class: 'b-sum' });
+  bind(() => {
+    const st = curSet();
+    let total = 0, filled = 0;
+    for (const p of D.device.parts) {
+      const a = st.base[p.id];
+      if (p.kind === 'dial') { total += 2; filled += (a?.ccw ? 1 : 0) + (a?.cw ? 1 : 0); }
+      else { total += 1; filled += a ? 1 : 0; }
+    }
+    const mods = Object.keys(st.mod || {}).length;
+    sum.replaceChildren(
+      h('span', {}, h('b', { class: 'lbl-anim' }, st.name), ' セット'),
+      h('span', {}, '割り当て ', h('b', {}, filled), '/ ' + total),
+      h('span', {}, '空き ', h('b', {}, total - filled)),
+      h('span', { style: 'color:var(--mod)' }, '修飾で変わる ', h('b', { style: 'color:var(--mod)' }, mods)),
+      h('span', { class: 'meter' }, h('i', { style: `width:${filled / total * 100}%` })));
+  });
+  main.append(sum, grid);
+
+  const kindOrder = ['dial', 'dpad', 'btnL', 'mod', 'btnS', 'set'];
+  const parts = D.device.parts.slice().sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
+  const doneGroups = new Set();
+  for (const p of parts) {
+    if (p.group) {
+      if (doneGroups.has(p.group)) continue;
+      doneGroups.add(p.group);
+      const g = D.device.groups[p.group];
+      const card = h('div', { class: 'card card-dpad' }, cardHead(KIND_ICON.dpad, g.name, p.group));
+      const dg = h('div', { class: 'dpad-grid' }, h('div', { class: 'cell-hub' }));
+      for (const m of D.device.parts.filter(x => x.group === p.group)) {
+        const cell = h('div', { class: `cell ${m.dir}`, 'data-part': m.id },
+          h('small', {}, DIR_GLYPH[m.dir]), h('div', { class: 'c-lbl' }, lbl(m.id)), actBox(m.id));
+        attachPress(cell, m.id);
+        partState(cell, m.id);
+        dg.append(cell);
+      }
+      card.append(dg);
+      bind(() => card.classList.toggle('is-selected', D.device.parts.some(x => x.group === p.group && x.id === S.sel)));
+      grid.append(card);
+      continue;
+    }
+    if (p.kind === 'dial') {
+      const card = h('div', { class: 'card card-dial', 'data-part': p.id }, cardHead(KIND_ICON.dial, p.name, p.id));
+      const half = slot => {
+        const el = h('div', { class: 'half ' + slot, 'data-flash': `${p.id}.${slot}` },
+          h('small', {}, slot === 'ccw' ? '⟲ 左回し' : '右回し ⟳'),
+          h('div', { class: 'c-lbl' }, lbl(p.id, slot)), actBox(p.id, slot), modLine(p.id, slot));
+        attachPress(el, p.id, { slot });
+        bind(() => {
+          el.classList.toggle('sel', S.sel === p.id && S.slot === slot);
+          el.classList.toggle('is-mod', modOn() && hasMod(p.id));
+        });
+        return el;
+      };
+      card.append(h('div', { class: 'dial-row' }, half('ccw'), makeDial(p, 'mini'), half('cw')));
+      partState(card, p.id);
+      grid.append(card);
+      continue;
+    }
+    const card = h('div', { class: 'card', 'data-part': p.id },
+      cardHead(KIND_ICON[p.kind], p.name, p.id),
+      h('div', { class: 'c-lbl' }, lbl(p.id)),
+      h('div', { class: 'grow' }),
+      actBox(p.id),
+      modLine(p.id));
+    attachPress(card, p.id);
+    partState(card, p.id);
+    grid.append(card);
+  }
+
+  const ed = h('aside', { class: 'b-editor', id: 'editor-host' });
+  root.append(main, ed);
+  stage.append(root);
+}
+
+/* =====================================================================
+   C案: 実機に直接書く＋その場で開く編集
+   ===================================================================== */
+function buildC(stage) {
+  const root = h('div', { class: 'planC' });
+  const cs = h('div', { class: 'c-stage' });
+  const pop = h('div', { class: 'popover', id: 'editor-host', 'data-side': 'R' });
+  cs.append(h('div', { class: 'c-dev' }, buildDevice('live')), pop);
+  root.append(cs);
+  stage.append(root);
+  cs.addEventListener('pointerdown', e => {
+    // 押した部品の中身は押した瞬間に描き直されることがあるので、e.target ではなく経路で判定する
+    if (e.composedPath().some(n => n.classList && (n.classList.contains('part') || n.classList.contains('dial') || n.classList.contains('popover')))) return;
+    deselect();
+  });
+  bind(() => pop.classList.toggle('open', !!S.sel));
+  const ro = new ResizeObserver(() => positionPopover());
+  ro.observe(cs);
+  cleanups.push(() => ro.disconnect());
+}
+
+function positionPopover() {
+  if (S.plan !== 'C' || !S.sel) return;
+  const pop = $('#editor-host');
+  const cs = pop?.parentElement;
+  const target = cs && cs.querySelector(`.device [data-part="${S.sel}"]`);
+  if (!target) return;
+  const sr = cs.getBoundingClientRect(), tr = target.getBoundingClientRect();
+  const pw = pop.offsetWidth, ph = pop.offsetHeight, gap = 16, pad = 12;
+  const spaceR = sr.right - tr.right, spaceL = tr.left - sr.left;
+  const side = spaceR >= pw + gap + pad ? 'R' : spaceL >= pw + gap + pad ? 'L' : (spaceR >= spaceL ? 'R' : 'L');
+  let left = side === 'R' ? tr.right - sr.left + gap : tr.left - sr.left - gap - pw;
+  left = Math.max(pad, Math.min(sr.width - pw - pad, left));
+  const cy = tr.top - sr.top + tr.height / 2;
+  let top = cy - ph / 2;
+  top = Math.max(pad, Math.min(sr.height - ph - pad, top));
+  pop.dataset.side = side;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  const arrow = $('.pop-arrow', pop);
+  if (arrow) arrow.style.top = Math.max(22, Math.min(ph - 22, cy - top)) + 'px';
+}
+
+/* =====================================================================
+   編集パネル（3案共通）
+   ===================================================================== */
+function defaultAction(kind) {
+  if (kind === 'chord') return { t: 'chord', keys: [] };
+  if (kind === 'text') return { t: 'text', text: '' };
+  if (kind === 'mo') return { t: 'mo', layer: D.layers.find(l => l.id !== 'base').id };
+  return { t: 'set', to: 'next' };
+}
+
+function renderEditor() {
+  const host = document.getElementById('editor-host');
+  if (!host) return;
+  const ed = buildEditor();
+  if (S.plan === 'C') host.replaceChildren(h('div', { class: 'pop-arrow' }), ed);
+  else host.replaceChildren(ed);
+  if (S.plan === 'C') requestAnimationFrame(positionPopover);
+}
+
+function buildEditor() {
+  const id = S.sel;
+  if (!id) {
+    return h('div', { class: 'ed ed-empty' }, h('div', {},
+      h('div', { class: 'big' }, '◎'),
+      h('b', {}, '部品を選んでください'),
+      h('p', {}, '機器の絵かカードをタップすると、', h('br'), 'その部品の割り当てをここで編集できます。')));
+  }
+  const p = PARTS[id];
+  const st = curSet();
+  const layer = layerNow();
+  const isDial = p.kind === 'dial';
+  if (isDial && S.slot !== 'ccw' && S.slot !== 'cw') S.slot = 'cw';
+
+  const ed = h('div', { class: 'ed' });
+  ed.append(h('div', { class: 'ed-head' },
+    minimap(id),
+    h('div', { class: 'ed-title' },
+      h('small', {}, D.device.kinds[p.kind] + ' ・ ' + id),
+      h('b', {}, p.name),
+      h('div', { class: 'ed-badges' },
+        h('span', { class: 'badge set' }, st.name),
+        h('span', { class: 'badge ' + layer }, layer === 'mod' ? '⇧ 修飾中' : '通常'))),
+    S.plan === 'B' ? h('span') : h('button', { class: 'x-btn', 'aria-label': '閉じる', onclick: deselect }, '✕')));
+
+  if (isDial) {
+    const tabs = h('div', { class: 'slot-tabs' });
+    for (const slot of ['ccw', 'cw']) {
+      const a = slotOf(eff(id), id, slot);
+      tabs.append(h('button', {
+        class: 'slot-tab' + (S.slot === slot ? ' on' : ''), 'data-flash': `${id}.${slot}`,
+        onclick: () => { S.slot = slot; paint(); renderEditor(); }
+      }, h('small', {}, slot === 'ccw' ? '⟲ 左回し' : '⟳ 右回し'), h('span', {}, a ? (a.label || '名前なし') : '空き')));
+    }
+    ed.append(tabs);
+  }
+
+  const body = h('div', { class: 'ed-body' });
+  const foot = h('div', { class: 'ed-foot' });
+  ed.append(body, foot);
+
+  // 修飾中なのに上書きがない = 通常へ透過している
+  if (layer === 'mod' && !hasMod(id)) {
+    const base = st.base[id];
+    const baseSlot = slotOf(base, id, S.slot);
+    body.append(h('div', { class: 'transparent' },
+      h('p', {}, h('b', {}, '修飾中も通常と同じ'), 'です（透過）。', h('br'),
+        '修飾キーを押していても、この部品は「', baseSlot ? baseSlot.label : '空き', '」のまま動きます。'),
+      h('button', { class: 'pbtn mod', onclick: () => {
+        st.mod = st.mod || {};
+        st.mod[id] = clone(base) ?? (isDial ? { ccw: null, cw: null } : { label: '', action: defaultAction('chord') });
+        paint(); renderEditor();
+      } }, '修飾中だけ別の割り当てにする')));
+    foot.append(h('span', { class: 'nosave' }, '保存はされません'));
+    return ed;
+  }
+
+  const bag = layer === 'mod' ? st.mod : st.base;
+  const getT = () => isDial ? (bag[id]?.[S.slot] ?? null) : (bag[id] ?? null);
+  const setT = v => {
+    if (isDial) {
+      bag[id] = bag[id] || { ccw: null, cw: null };
+      bag[id][S.slot] = v;
+      if (layer === 'base' && !bag[id].ccw && !bag[id].cw) delete bag[id];
+    } else if (v == null && layer === 'base') delete bag[id];
+    else bag[id] = v;
+  };
+  const t = getT();
+
+  if (!t) {
+    body.append(h('div', { class: 'empty-slot' },
+      h('div', { class: 'big' }, '＋'),
+      h('b', {}, '空き'),
+      h('p', {}, isDial ? `${S.slot === 'ccw' ? '左回し' : '右回し'}には何も割り当てられていません。` : 'この部品には何も割り当てられていません。'),
+      h('button', { class: 'pbtn', onclick: () => {
+        setT({ label: '', action: defaultAction('chord') });
+        paint(); renderEditor();
+        requestAnimationFrame(() => $('#ed-label')?.focus());
+      } }, '割り当てを作る')));
+  } else {
+    // 見本
+    const pvKey = h('div', { class: 'pv-key' });
+    const pvAct = h('div');
+    const refresh = () => {
+      pvKey.textContent = t.label || '名前なし';
+      pvAct.replaceChildren(actionView(t.action));
+    };
+    refresh();
+    const update = () => { paint(); refresh(); };
+
+    // 表示名
+    const count = h('span', { class: 'count' });
+    const inp = h('input', { class: 'inp', id: 'ed-label', maxlength: 16, placeholder: '例: 取り消し', autocomplete: 'off' });
+    inp.value = t.label || '';
+    count.textContent = `${inp.value.length}/16`;
+    inp.addEventListener('input', () => { t.label = inp.value; count.textContent = `${inp.value.length}/16`; update(); });
+    body.append(h('div', { class: 'field' }, h('label', { for: 'ed-label' }, '表示名', count), inp));
+
+    // 動作の種類
+    const kinds = h('div', { class: 'kinds' });
+    for (const [k, info] of Object.entries(D.actionKinds)) {
+      kinds.append(h('button', {
+        class: 'kind' + (t.action?.t === k ? ' on' : ''), 'aria-pressed': t.action?.t === k ? 'true' : 'false',
+        onclick: () => { if (t.action?.t === k) return; t.action = defaultAction(k); paint(); renderEditor(); }
+      }, h('span', { class: 'ki' }, info.icon), info.name));
+    }
+    body.append(h('div', { class: 'field' }, h('div', { class: 'flabel' }, '動作'), kinds));
+
+    // 種類ごとの中身
+    const act = t.action || (t.action = defaultAction('chord'));
+    if (act.t === 'chord') body.append(chordFields(act, update));
+    else if (act.t === 'text') body.append(textFields(act, update));
+    else if (act.t === 'mo') body.append(moFields(act, update));
+    else if (act.t === 'set') body.append(setFields(act, update));
+
+    body.append(h('div', { class: 'field' }, h('div', { class: 'flabel' }, '見え方'),
+      h('div', { class: 'preview' }, pvKey, h('div', {}, h('small', {}, layer === 'mod' ? '修飾キーを押している間' : '押すと'), pvAct))));
+
+    foot.append(h('button', { class: 'gbtn warn', onclick: () => { setT(null); paint(); renderEditor(); } }, '空きにする'));
+  }
+  if (layer === 'mod' && hasMod(id)) {
+    foot.append(h('button', { class: 'gbtn', onclick: () => { delete st.mod[id]; paint(); renderEditor(); } }, '透過に戻す'));
+  }
+  foot.append(h('span', { class: 'nosave' }, '保存はされません'));
+  return ed;
+}
+
+function normKey(e) {
+  const map = { ' ': 'Space', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc', Backspace: 'BkSp' };
+  if (map[e.key]) return map[e.key];
+  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3);
+  if (/^Digit\d$/.test(e.code)) return e.code.slice(5);
+  if (e.key.length === 1) return e.key.toUpperCase();
+  return e.key;
+}
+
+function chordFields(act, update) {
+  const keys = act.keys || (act.keys = []);
+  const mods = new Set(keys.filter(k => MODKEYS.includes(k)));
+  let main = keys.filter(k => !MODKEYS.includes(k)).join('+');
+  const commit = () => { act.keys = [...MODKEYS.filter(m => mods.has(m)), ...(main ? [main] : [])]; update(); };
+
+  const wrap = h('div', { class: 'field' }, h('div', { class: 'flabel' }, 'キー'));
+  const modRow = h('div', { class: 'chips', style: 'margin-bottom:8px' });
+  for (const m of MODKEYS) {
+    const b = h('button', { class: 'tchip', 'aria-pressed': mods.has(m) ? 'true' : 'false' }, m);
+    b.addEventListener('click', () => {
+      mods.has(m) ? mods.delete(m) : mods.add(m);
+      b.setAttribute('aria-pressed', mods.has(m) ? 'true' : 'false');
+      commit();
+    });
+    modRow.append(b);
+  }
+  const mainInp = h('input', { class: 'inp', maxlength: 10, placeholder: '主キー（例: Z）', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  mainInp.value = main;
+  mainInp.addEventListener('input', () => {
+    let v = mainInp.value.trim();
+    if (v.length === 1) v = v.toUpperCase();
+    mainInp.value = v; main = v; commit();
+  });
+  const cap = h('button', { class: 'tchip capture', title: 'PCのキーボードで押したキーを読み取る（送信はしない）' }, '⌨ 押して登録');
+  cap.addEventListener('click', () => {
+    cap.classList.add('wait'); cap.textContent = '押してください…';
+    const onKey = e => {
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      window.removeEventListener('keydown', onKey, true);
+      if (e.key === 'Escape') { renderEditor(); return; }
+      mods.clear();
+      if (e.ctrlKey) mods.add('Ctrl');
+      if (e.shiftKey) mods.add('Shift');
+      if (e.altKey) mods.add('Alt');
+      if (e.metaKey) mods.add('Win');
+      main = normKey(e);
+      commit(); renderEditor();
+    };
+    window.addEventListener('keydown', onKey, true);
+  });
+  const quick = h('div', { class: 'chips', style: 'margin-top:8px' });
+  for (const q of ['Z', 'Y', 'S', 'A', 'Space', 'Enter', 'Tab', 'Delete', '←', '→', '[', ']', '+', '-']) {
+    quick.append(h('button', { class: 'tchip small', onclick: () => { main = q; mainInp.value = q; commit(); } }, q));
+  }
+  wrap.append(modRow, h('div', { class: 'row2' }, mainInp, cap), quick);
+  return wrap;
+}
+
+function textFields(act, update) {
+  const count = h('span', { class: 'count' });
+  const ta = h('textarea', { class: 'inp', id: 'ed-text', placeholder: '例: 「……っ！」', maxlength: 200 });
+  ta.value = act.text || '';
+  count.textContent = `${ta.value.length}文字`;
+  ta.addEventListener('input', () => { act.text = ta.value; count.textContent = `${ta.value.length}文字`; update(); });
+  return h('div', { class: 'field' }, h('label', { for: 'ed-text' }, '入力する文字', count), ta,
+    h('div', { class: 'note', style: 'margin-top:8px' }, '押すと、この文字がそのまま入力されます。改行も入ります。'));
+}
+
+function moFields(act, update) {
+  const sel = h('select', { class: 'inp', id: 'ed-layer' });
+  for (const l of D.layers.filter(x => x.id !== 'base')) {
+    const o = h('option', { value: l.id }, l.name);
+    if (l.id === act.layer) o.selected = true;
+    sel.append(o);
+  }
+  sel.addEventListener('change', () => { act.layer = sel.value; update(); });
+  return h('div', { class: 'field' }, h('label', { for: 'ed-layer' }, '切り替え先'), sel,
+    h('div', { class: 'note', style: 'margin-top:8px' },
+      h('div', { class: 'hold-diagram' },
+        h('span', {}, '押す'), h('b', {}, '→ 「' + layerName(act.layer) + '」の割り当てになる'),
+        h('span', {}, '離す'), h('b', {}, '→ 通常に戻る')),
+      h('div', { style: 'margin-top:6px' }, '修飾中に書いていない部品は、通常と同じ動作をします（透過）。')));
+}
+
+function setFields(act, update) {
+  const wrap = h('div', { class: 'chips' });
+  const opts = [{ to: 'next', name: '次のセット' }, { to: 'prev', name: '前のセット' }, ...D.sets.map(x => ({ to: x.id, name: x.name, hue: x.hue }))];
+  for (const o of opts) {
+    const b = h('button', { class: 'tchip', 'aria-pressed': act.to === o.to ? 'true' : 'false' },
+      o.hue != null ? h('i', { class: 'set-dot', style: `background:hsl(${o.hue} 80% 60%)` }) : null, o.name);
+    b.addEventListener('click', () => {
+      act.to = o.to;
+      $$('.tchip', wrap).forEach(x => x.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', 'true');
+      update();
+    });
+    wrap.append(b);
+  }
+  return h('div', { class: 'field' }, h('div', { class: 'flabel' }, '切り替え先'), wrap);
+}
+
+/* =====================================================================
+   上の帯
+   ===================================================================== */
+function buildTop() {
+  const sets = $('#sets');
+  sets.append(h('span', { class: 'seg-ind' }));
+  D.sets.forEach((x, i) => {
+    sets.append(h('button', { 'data-set': x.id, onclick: () => setSet(x.id), title: `${x.name}（${i + 1}キー）` },
+      h('i', { class: 'set-dot', style: `background:hsl(${x.hue} 80% 60%)` }), x.name));
+  });
+  const plans = $('#plans');
+  plans.append(h('span', { class: 'seg-ind' }));
+  for (const [k, info] of Object.entries(PLAN_INFO)) {
+    plans.append(h('button', { 'data-plan': k, onclick: () => setPlan(k) }, info.name));
+  }
+  $('#modBtn').addEventListener('click', () => { S.modLatch = !S.modLatch; paint(); renderEditor(); });
+  $('#soundBtn').addEventListener('click', () => { S.sound = !S.sound; if (S.sound) audio.tick('cw'); paintTop(); });
+  $('#themeBtn').addEventListener('click', () => {
+    const r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === 'light' ? 'dark' : 'light';
+    remember();
+  });
+  window.addEventListener('resize', paintTop);
+}
+
+function moveInd(nav, active) {
+  const ind = $('.seg-ind', nav);
+  if (!ind || !active) return;
+  ind.style.width = active.offsetWidth + 'px';
+  ind.style.transform = `translateX(${active.offsetLeft - 3}px)`;
+  ind.style.left = '3px';
+}
+
+function paintTop() {
+  $$('#sets button').forEach(b => b.classList.toggle('active', b.dataset.set === S.setId));
+  $$('#plans button').forEach(b => b.classList.toggle('active', b.dataset.plan === S.plan));
+  moveInd($('#sets'), $('#sets button.active'));
+  moveInd($('#plans'), $('#plans button.active'));
+  $('#modBtn').setAttribute('aria-pressed', S.modLatch ? 'true' : 'false');
+  $('#soundBtn').setAttribute('aria-pressed', S.sound ? 'true' : 'false');
+  $('#hint').textContent = PLAN_INFO[S.plan].hint;
+}
+
+function setSet(id) {
+  if (id === S.setId) return;
+  S.setId = id;
+  swapAnim();
+  paint();
+  renderEditor();
+}
+
+function setPlan(k) {
+  if (k === S.plan) return;
+  S.plan = k;
+  if (k === 'B' && !S.sel) S.sel = D.device.parts[0].id;
+  remember();
+  build();
+}
+
+function build() {
+  cleanups.forEach(f => f());
+  cleanups = [];
+  binders = [];
+  lineDrawer = null;
+  const stage = $('#stage');
+  stage.replaceChildren();
+  ({ A: buildA, B: buildB, C: buildC })[S.plan](stage);
+  paint();
+  renderEditor();
+}
+
+window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input, textarea, select')) return;
+  if (e.key === 'Escape') deselect();
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= D.sets.length && !e.ctrlKey && !e.metaKey && !e.altKey) setSet(D.sets[n - 1].id);
+});
+
+buildTop();
+if (S.plan === 'B') S.sel = D.device.parts[0].id;
+build();
+})();
+</script>
+</body>
+</html>
