@@ -2307,3 +2307,10 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - 未確認・未決: iPad 実機。「既定へ戻る」の行き先（iPad の既定が note_story なので戻っても note_story のまま。返事で A/B を質問）
 - 2026-10-01 00:29 keydeck-guardian: b3ba42f（REQ-20261001-001 B-002・Hooks）点検 **PASS**。`cargo test --workspace` = 178 passed（7+8+114+49、+4・削除なし）。凍結領域差分なし。3段入れ子はキーボード/Deck両方でロード拒否、起動失敗時 fire 不発はコード目視。起動中Hub(8770)で静的5ページ200・token無しWS/API/QR 401（ボタン押下なし） → `reports/guardian_20261001_0029.md`
 - 2026-10-01 追記: 利用者裁定 A — iPad の既定の盤面を `shortborad`（入口）に（devices.json）。本物の Hub で note_story の「既定へ戻る」を実マウスで押して shortborad に戻ることを確認
+
+## 2026-10-01 成功事例の記録と CC への報告 — Claude Code（Opus 5.5）
+
+- 利用者が iPad・Android 実機で Note Story（PWA）との連携と入力を確認（「入力かなり成功」「PWA との連携として成功事例」）。キーの最適化はこれから利用者が行う
+- 技術トピックカード `C:\00_CreatorHub\knowledge\TechTopicCards\cards\KEYDECK_LOGIC_002.json`「起動したら押した端末だけ盤面を移す」（status: working）。`node tools/build_cards.mjs` で files の実在検査 OK
+- `C:\00_CreatorCompass\KeyDeck\できること.md` 版2.7: 端末スロットと Note Story の Hooks を「実機で確認済み」に
+- CC への報告 `C:\00_CreatorCompass\CCへ_KeyDeck_NoteStory連携の成功と技術スタック_CH統合に向けて_20261001.md`: 成功事例、KeyDeck の技術スタックの棚卸し（Rust 1.95・依存の版・画面・データ・通信の口・守り）、CH で Note Story と結合するときに決めること（Hub とのつなぎ方＝HTTPS/LAN HTTP の問題が最大の論点）、CH の技術スタックへの書き足し案
