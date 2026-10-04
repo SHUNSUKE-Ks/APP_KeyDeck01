@@ -2314,3 +2314,9 @@ startup.rs の all_actions              → 最上位の action のみを列挙
 - 技術トピックカード `C:\00_CreatorHub\knowledge\TechTopicCards\cards\KEYDECK_LOGIC_002.json`「起動したら押した端末だけ盤面を移す」（status: working）。`node tools/build_cards.mjs` で files の実在検査 OK
 - `C:\00_CreatorCompass\KeyDeck\できること.md` 版2.7: 端末スロットと Note Story の Hooks を「実機で確認済み」に
 - CC への報告 `C:\00_CreatorCompass\CCへ_KeyDeck_NoteStory連携の成功と技術スタック_CH統合に向けて_20261001.md`: 成功事例、KeyDeck の技術スタックの棚卸し（Rust 1.95・依存の版・画面・データ・通信の口・守り）、CH で Note Story と結合するときに決めること（Hub とのつなぎ方＝HTTPS/LAN HTTP の問題が最大の論点）、CH の技術スタックへの書き足し案
+
+## 2026-10-04 統合編集画面のトラックボールの札（八方の説明）を隠す — Claude Code（Opus 5.5）
+
+- 利用者判断: 札（転がす／左の帯／右の帯／2回／押して動かす／✋つかむ）が今の Vol2 の動き（右クリックは右端の R、左の帯は無い 等）と合っていない。将来使うかもしれないので**仕組みは残して非表示**
+- `static/studio.html`: `var SHOW_TB_CALLOUTS = false;` を足し、`renderBoard` の札の描画を `bigCallouts && SHOW_TB_CALLOUTS` で囲んだだけ。戻すときは true にする。Hub・盤面・`trackball.html` は無変更
+- 検証: スクリプトの文法検査（node --check）OK。画面での確認は Hub を開いている利用者のブラウザの再読み込みで行う（未確認）

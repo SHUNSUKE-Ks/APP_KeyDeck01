@@ -349,6 +349,7 @@ var undoStack = [], redoStack = [];
 // 端末と盤面
 // =====================================================================
 var REAL = { tablet: { w: 1366, h: 980 }, phone: { w: 412, h: 840 } };   // 端末の画面（実寸・CSS px）
+var SHOW_TB_CALLOUTS = false;   // トラックボールの周りの割り当ての札（八方の説明）。今は隠す（2026-10-04）
 function activeDev() { return DEVICES.filter(function (d) { return d.id === state.active; })[0] || DEVICES[0]; }
 function layoutOf(dev) { return CONFIG && CONFIG.layouts ? CONFIG.layouts[dev.board] : null; }
 function keymapIdsOf(layout) {
@@ -441,7 +442,9 @@ function renderBoard(inner, dev, layerN, bigCallouts) {
     } else if (c.kind === "trackball") {
       var tw = document.createElement("div"); tw.className = "tbwrap"; sec.appendChild(tw);
       tw.innerHTML = '<div class="bezel"><div class="ball"></div></div>';
-      if (bigCallouts) {
+      // 2026-10-04 利用者判断: 札の説明が今の動き（trackball.html Vol2）と合っていないので一度隠す。
+      // 仕組みは残す。戻すときは SHOW_TB_CALLOUTS を true にする。
+      if (bigCallouts && SHOW_TB_CALLOUTS) {
         // 割り当ての札（surfaces/trackball.json の gestures。ジェスチャーの中身はまだこの画面では変えられない）
         var tags = [[50, 3, "転がす", "カーソル移動"], [10, 24, "左の帯", "左クリック"], [90, 24, "右の帯", "右クリック"], [10, 80, "2回", "ダブル"], [90, 80, "押して動かす", "ドラッグ"], [50, 97, "✋つかむ", "押しっぱなし"]];
         var co = document.createElement("div"); co.className = "callouts";
